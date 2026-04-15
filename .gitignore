@@ -1,1 +1,19 @@
-target
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# Claude Code local state (per-machine)
+.claude/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.pdb
+*.exe
