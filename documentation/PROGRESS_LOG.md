@@ -8,10 +8,16 @@ This file is the canonical running log of implementation work on the Beast Evolu
 
 ## Current Status Snapshot
 
-- **Active Sprint**: S1 — Fixed-Point & PRNG (beast-core) [Week 1] — **✅ COMPLETE**
+- **Active Sprint**: S1 — Fixed-Point & PRNG (beast-core) [Week 1] — **✅ COMPLETE & merged**
 - **Next Sprint**: S2 — Manifests & Registries (beast-channels, beast-primitives) [Week 2]
 - **Phase**: 1 — Foundations & Core Sim
 - **Workspace scaffolded**: yes (beast-core only; other 16 crates deferred to their sprints)
+- **CI**: `.github/workflows/ci.yml` runs on every PR — fmt, clippy, test, doctests, release build, and cross-platform tests on windows/macOS. First run on PR #2 passed all 4 jobs.
+- **Push protection**: client-side (`.githooks/pre-push`) blocks direct pushes to master once activated via `git config core.hooksPath .githooks`. Server-side branch protection **not** configured — GitHub REST API rejected the call on this private/free repo (requires Pro or public visibility). Workflow job names are documented in `CONTRIBUTING.md` for the day we turn that on.
+- **Merged PRs on master**:
+  - **#1** `sprint-s1-beast-core` — all six S1 stories (scaffold + Q3232 + PRNG + EntityId/TickCounter/Error + Gaussian + proptests + benches) plus the post-review fixes (`EntityIdAllocator::alloc → Option<EntityId>`, `gen_range_i64` i128-widened final add).
+  - **#2** `ci-workflow` — GitHub Actions CI + `rust-toolchain.toml` + rustfmt normalisation pass.
+  - **#3** `push-protection` — pre-push hook + `CONTRIBUTING.md`.
 - **Last updated**: 2026-04-15
 
 ### Sprint S1 Story Progress (40 pts planned, 40 delivered)
@@ -38,7 +44,7 @@ This file is the canonical running log of implementation work on the Beast Evolu
 - [x] No panics on overflow/underflow — verified via proptest (19 props × 1000 cases covering full `i64` bit-pattern space)
 - [~] Fixed-point multiply < 2 CPU cycles — measured ~2.7 ns (~8 cycles on 3 GHz). Target was aspirational; real number is fine for tick budget, documented in README.
 
-**Test count**: 78 tests (44 unit + 32 proptest + 2 doctests). All green.
+**Test count**: 82 tests (47 unit + 33 proptest + 2 doctests). All green. (Grew by 4 during PR #1 review: 3 unit + 1 proptest added to cover `EntityIdAllocator` exhaustion and `gen_range_i64` wide-span regressions.)
 
 ---
 
@@ -55,6 +61,17 @@ This file is the canonical running log of implementation work on the Beast Evolu
 ---
 
 ## Session Log (reverse chronological)
+
+### 2026-04-15 — Infra & README (Claude)
+
+After PR #1 merged, added:
+- **PR #2 (merged)** — `.github/workflows/ci.yml` with four jobs (lint-and-test ubuntu, test windows, test macos, release-build ubuntu). `rust-toolchain.toml` pinning stable + rustfmt + clippy. `cargo fmt --all` normalisation pass over the existing code (import grouping + comment indentation; zero behaviour change).
+- **PR #3 (merged)** — `.githooks/pre-push` (opt-in client-side push gate for master), `CONTRIBUTING.md`. Verified the hook works by attempting a direct push — exit 1 with the PR-workflow message.
+- **PR #4 (this one, open)** — top-level `README.md` so future sessions (human or Claude) have a single entry point. PROGRESS_LOG remains the session-to-session diary; README is the project-level orientation.
+
+**Server-side branch protection blocker**: `gh api repos/.../branches/master/protection -X PUT` responds 403 `Upgrade to GitHub Pro or make this repository public to enable this feature`. Options: (a) make the repo public, (b) GitHub Pro $4/mo. Workflow job names in `CONTRIBUTING.md` are the required-check names to plug in when either path is taken.
+
+**Next action for S2**: scaffold `beast-channels` and `beast-primitives`. Entry ordering unchanged from previous note (manifests → composition hooks → registries → schema rejection tests). Validate channel and primitive manifests against the authoritative schemas in `documentation/schemas/`.
 
 ### 2026-04-15 — Sprint S1 COMPLETE (Claude)
 
@@ -103,8 +120,13 @@ Key decisions locked in:
   sanctioned float use); result is saturating-converted back to `Q3232`.
 - `TickCounter` saturates; at 60 Hz, `u64::MAX` ≈ 9.7 Gyr, so saturation is a
   bug-indicator, not a real runtime event.
-- `EntityId::NONE = u32::MAX`. `EntityIdAllocator` saturates at `u32::MAX - 1`
-  to preserve the sentinel invariant.
+- `EntityId::NONE = u32::MAX`. `EntityIdAllocator::alloc` returns
+  `Option<EntityId>` — `Some` for the first `u32::MAX - 1` calls, `None`
+  thereafter. (Original saturating impl was a uniqueness bug; caught in PR #1
+  review and fixed in commit `4765d39`.)
+- `Prng::gen_range_i64` narrows via `i128` on the final add to handle spans
+  wider than `i64::MAX` (e.g. `i64::MIN..i64::MAX`). Narrow proptest ranges
+  had hidden this; fixed in the same PR #1 review commit.
 
 Read-errors / pitfalls encountered:
 - Compiled-in lints `unsafe_code = "forbid"` and `clippy::float_arithmetic = "warn"`
@@ -161,3 +183,9 @@ _(updated as files are created)_
 - `crates/beast-core/src/time.rs` — `TickCounter` (Story 1.3).
 - `crates/beast-core/src/error.rs` — `Error`, `Result` (Story 1.3).
 - `crates/beast-core/src/math.rs` — `gaussian_q3232`, `lerp/inv_lerp/clamp/min/max` (Story 1.4).
+- `crates/beast-core/tests/proptest_{fixed_point,prng,math}.rs` — property + 100k-sample tests (Story 1.5).
+- `README.md` — top-level repo orientation (PR #4).
+- `CONTRIBUTING.md` — workflow, hook activation, push policy (PR #3).
+- `rust-toolchain.toml` — pins stable + rustfmt + clippy (PR #2).
+- `.github/workflows/ci.yml` — GitHub Actions CI (PR #2).
+- `.githooks/pre-push` — opt-in master-push gate (PR #3).
