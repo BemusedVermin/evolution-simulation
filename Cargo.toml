@@ -34,7 +34,7 @@ beast-primitives = { path = "crates/beast-primitives" }
 
 # Dev-only
 proptest = "1.5"
-criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 
 [profile.release]
 lto = "thin"
