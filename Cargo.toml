@@ -25,7 +25,7 @@ thiserror = "2"
 
 # Sprint 2: manifest + registry deps. `jsonschema` is pinned to a minor that
 # works on stable Rust 1.75. `regex` backs the provenance string validator.
-jsonschema = { version = "0.17", default-features = false }
+jsonschema = { version = "0.46", default-features = false }
 regex = "1"
 
 beast-core = { path = "crates/beast-core" }
