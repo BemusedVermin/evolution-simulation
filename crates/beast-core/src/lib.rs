@@ -32,6 +32,8 @@ pub mod time;
 pub use entity::{EntityId, EntityIdAllocator};
 pub use error::{Error, Result};
 pub use fixed_point::Q3232;
-pub use math::{clamp01, gaussian_q3232, lerp_q3232};
+pub use math::{
+    clamp01, clamp_q3232, gaussian_q3232, inv_lerp_q3232, lerp_q3232, max_q3232, min_q3232,
+};
 pub use prng::{Prng, Stream};
 pub use time::TickCounter;
