@@ -1,0 +1,32 @@
+[package]
+name = "beast-primitives"
+description = "Primitive effect registry, manifest loading, and deterministic cost evaluation for the Beast Evolution Game."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = true
+
+[dependencies]
+beast-core = { workspace = true }
+beast-channels = { workspace = true }
+fixed = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+jsonschema = { workspace = true }
+regex = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+float_arithmetic = "warn"

@@ -2,6 +2,8 @@
 resolver = "2"
 members = [
     "crates/beast-core",
+    "crates/beast-channels",
+    "crates/beast-primitives",
 ]
 
 [workspace.package]
@@ -18,7 +20,17 @@ fixed = { version = "1.28", features = ["serde"] }
 rand_core = "0.6"
 rand_xoshiro = { version = "0.6", features = ["serde1"] }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror = "1"
+
+# Sprint 2: manifest + registry deps. `jsonschema` is pinned to a minor that
+# works on stable Rust 1.75. `regex` backs the provenance string validator.
+jsonschema = { version = "0.17", default-features = false }
+regex = "1"
+
+beast-core = { path = "crates/beast-core" }
+beast-channels = { path = "crates/beast-channels" }
+beast-primitives = { path = "crates/beast-primitives" }
 
 # Dev-only
 proptest = "1.5"

@@ -8,10 +8,11 @@ This file is the canonical running log of implementation work on the Beast Evolu
 
 ## Current Status Snapshot
 
-- **Active Sprint**: S1 — Fixed-Point & PRNG (beast-core) [Week 1] — **✅ COMPLETE & merged**
-- **Next Sprint**: S2 — Manifests & Registries (beast-channels, beast-primitives) [Week 2]
+- **Active Sprint**: S2 — Manifests & Registries (beast-channels, beast-primitives) [Week 2] — **implementation complete, PR pending**
+- **Completed Sprints**: S1 — Fixed-Point & PRNG (beast-core) [Week 1]
+- **Next Sprint**: S3 — Genome & Mutation (beast-genome) [Week 3]
 - **Phase**: 1 — Foundations & Core Sim
-- **Workspace scaffolded**: yes (beast-core only; other 16 crates deferred to their sprints)
+- **Workspace scaffolded**: yes (beast-core, beast-channels, beast-primitives; other 14 crates deferred to their sprints)
 - **CI**: `.github/workflows/ci.yml` runs on every PR — fmt, clippy, test, doctests, release build, and cross-platform tests on windows/macOS. First run on PR #2 passed all 4 jobs.
 - **Push protection**: client-side (`.githooks/pre-push`) blocks direct pushes to master once activated via `git config core.hooksPath .githooks`. Server-side branch protection **not** configured — GitHub REST API rejected the call on this private/free repo (requires Pro or public visibility). Workflow job names are documented in `CONTRIBUTING.md` for the day we turn that on.
 - **Merged PRs on master**:
@@ -61,6 +62,88 @@ This file is the canonical running log of implementation work on the Beast Evolu
 ---
 
 ## Session Log (reverse chronological)
+
+### 2026-04-15 — Sprint S2 implementation (Claude)
+
+Two new crates, both Layer 1, both depend only on `beast-core`
+(`beast-primitives` also depends on `beast-channels` to share the
+`ChannelFamily` enum and validate `channel_id` references).
+
+**`beast-channels`** — 5 source files (~900 LOC) + 3 test files + README:
+- `manifest.rs` — `ChannelManifest`, `ChannelFamily`, `MutationKernel`,
+  `Range`, `ScaleBand`, `Provenance`, `CorrelationEntry`, `BoundsPolicy`.
+  Two-stage loader: `RawChannelManifest` (serde f64/String mirror of the
+  JSON schema) → semantic `into_manifest()` that converts every sim-math
+  field to `Q3232`, checks range ordering, de-duplicates composition
+  hook targets, and enforces the "threshold required for
+  `kind ∈ {threshold, gating}`" rule.
+- `composition.rs` — `CompositionHook`, `CompositionKind`, `HookOutcome`,
+  `evaluate_hook()`. Formulas mirror the schema table (additive,
+  multiplicative, threshold, gating, antagonistic). All Q3232.
+- `expression.rs` — `ExpressionCondition` discriminated union,
+  `ExpressionContext`, `evaluate_expression_conditions()` — empty slice
+  always passes, missing context fields evaluate to `false`.
+- `registry.rs` — `ChannelRegistry` over `BTreeMap<String, ChannelManifest>`
+  + `BTreeMap<ChannelFamily, BTreeSet<String>>` for the family index.
+  `validate_cross_references()` catches unknown hook targets and
+  correlation targets after all manifests are loaded (literal `"self"` is
+  always accepted).
+- `schema.rs` — embeds the authoritative schema via `include_str!`
+  (`../../../documentation/schemas/channel_manifest.schema.json`), caches
+  the compiled `jsonschema::JSONSchema` in a `OnceLock`, flattens schema
+  errors to `(pointer, message)` pairs.
+
+**`beast-primitives`** — 7 source files (~1000 LOC) + 3 test files + README:
+- `manifest.rs` / `schema.rs` / `registry.rs` mirror the channel crate's
+  patterns. `validate_channel_references(&ChannelRegistry)` cross-checks
+  `composition_compatibility.channel_id` entries against a live channel
+  registry.
+- `category.rs` — `PrimitiveCategory` (8 variants) + `Modality` (8
+  variants). Both derive `Ord` so they can key BTreeMap indices.
+- `math.rs` — Q3232 `q_ln` (artanh series via the
+  `x = 2^k·m, m ∈ [1,2)` decomposition + `int_log2`), `q_exp` (Taylor on
+  the `(-1, 1)` fractional part + integer scaling by `e^k`), and
+  `q_pow(base, exp) = q_exp(exp · q_ln(base))`. Handles non-positive
+  bases defensively. All 16 starter primitive manifests evaluate without
+  `CostEvalError`.
+- `cost.rs` — `evaluate_cost(&PrimitiveManifest, &BTreeMap)`. Resolves
+  parameter values from the caller map, then the manifest's declared
+  default (numeric only), then errors. Uses `q_pow` for the power term.
+- `effect.rs` — `PrimitiveEffect` shape for the interpreter to emit in S4.
+  Defined now so downstream crates compile against it.
+
+**Determinism invariants maintained**:
+- All numeric manifest values converted to `Q3232` at load time.
+- Registries backed by `BTreeMap`/`BTreeSet` — sorted iteration verified
+  in unit tests (`iteration_is_sorted`, `iteration_sorted_by_id`).
+- `clippy::float_arithmetic = "warn"` at both new crate levels.
+- Cost evaluator uses fixed-point exp/ln; Taylor loops have fixed
+  iteration counts (no rounding-dependent early termination).
+
+**Schema handling pragma**: the schema files declare
+`$schema: ".../draft/2020-12/..."` but `jsonschema` 0.17 (the latest that
+compiles on stable Rust 1.75) defaults to Draft 2019-09. The subset of
+features we use (types, enums, patterns, required, if/then/else, oneOf)
+is identical between the two drafts, so we let the validator use its
+default. Upgrading `jsonschema` is tracked as a follow-up for when MSRV
+moves past 1.77.
+
+**Test count**: 74 beast-channels (31 unit + 3 example integration + 7
+malformed + 3 doctest); 38 beast-primitives (25 unit + 3 example
+integration + 8 malformed + 2 doctest). `cargo fmt --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo test --workspace --all-targets --locked --doc`, and
+`cargo build --workspace --release --locked` all pass locally on
+Windows.
+
+**Follow-ups for S3+**:
+- The Q3232 `q_pow` / `q_exp` / `q_ln` helpers should be promoted to
+  `beast-core::math` once the interpreter (S4) or physiology systems
+  also want them; for now they stay `pub(crate)` to keep S2's API
+  surface minimal.
+- `validate_cross_references` on `ChannelRegistry` and
+  `validate_channel_references` on `PrimitiveRegistry` will be wired
+  into world init in S5/S6 when we actually load a full manifest bundle.
 
 ### 2026-04-15 — Infra & README (Claude)
 
@@ -189,3 +272,5 @@ _(updated as files are created)_
 - `rust-toolchain.toml` — pins stable + rustfmt + clippy (PR #2).
 - `.github/workflows/ci.yml` — GitHub Actions CI (PR #2).
 - `.githooks/pre-push` — opt-in master-push gate (PR #3).
+- `crates/beast-channels/` — Sprint S2 channel registry crate: `Cargo.toml`, `README.md`, `src/{lib,manifest,composition,expression,registry,schema}.rs`, `tests/{example_manifests,malformed_manifests}.rs`.
+- `crates/beast-primitives/` — Sprint S2 primitive registry crate: `Cargo.toml`, `README.md`, `src/{lib,manifest,category,cost,effect,math,registry,schema}.rs`, `tests/{example_manifests,malformed_manifests}.rs`.
