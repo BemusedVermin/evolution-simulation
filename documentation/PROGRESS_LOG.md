@@ -99,8 +99,18 @@ session).
   `--fail-under-lines 80` is a one-line follow-up once we have a
   baseline.
 
+- **Issue + PR templates** (`2c42b04`, issue templates commit,
+  PR templates commit) — five issue YAML forms (feature_request,
+  feature_task, bug_report, security, determinism_regression) with
+  `config.yml` disabling blank issues and linking to CONTRIBUTING.md
+  and the private-advisory form. Default `pull_request_template.md`
+  for generic PRs plus four specialised templates (feature.md,
+  bug_fix.md, security.md, determinism.md) activated via
+  `?template=<name>.md`. `SECURITY.md` at the repo root establishes
+  private-disclosure process with explicit SLAs.
+
 Deferred to its own session: GitHub Project v2 board with per-sprint
-issues and issue templates (Story / Bug / Determinism-regression).
+issues.
 
 ### 2026-04-15 — Sprint S2 implementation (Claude)
 
