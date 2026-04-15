@@ -125,7 +125,10 @@ pub(crate) fn q_exp(x: Q3232) -> Q3232 {
     // above bounds `|x| <= 23`, which fits in i8 let alone i32 — no silent
     // truncation from the Q3232 → i32 conversion.
     let k: i32 = x.to_num::<i32>();
-    debug_assert!((-23..=22).contains(&k), "q_exp cut-off guard violated: k={k}");
+    debug_assert!(
+        (-23..=22).contains(&k),
+        "q_exp cut-off guard violated: k={k}"
+    );
     let f = x - Q3232::from(k);
 
     // e^f via Taylor: 1 + f + f²/2! + f³/3! + ... (converges fast, |f| < 1).

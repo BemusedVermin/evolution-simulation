@@ -135,14 +135,12 @@ fn resolve_value(
     // though, so tests and future code can hand-construct manifests that
     // bypass the loader — surface that as `MissingParameter` rather than
     // panicking out of a cost evaluation call.
-    let spec: &ParameterSpec =
-        manifest
-            .parameter_schema
-            .get(parameter)
-            .ok_or_else(|| CostEvalError::MissingParameter {
-                primitive_id: manifest.id.clone(),
-                parameter: parameter.to_owned(),
-            })?;
+    let spec: &ParameterSpec = manifest.parameter_schema.get(parameter).ok_or_else(|| {
+        CostEvalError::MissingParameter {
+            primitive_id: manifest.id.clone(),
+            parameter: parameter.to_owned(),
+        }
+    })?;
     match &spec.default {
         Some(ParameterDefault::Number(v)) => Ok(*v),
         Some(ParameterDefault::Integer(i)) => Ok(Q3232::from_num(*i)),
