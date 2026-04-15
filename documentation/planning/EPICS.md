@@ -1,6 +1,12 @@
 # Beast Evolution Game: Epic Definitions & Tracking
 
-This document provides a detailed breakdown of all 14 epics with acceptance criteria, dependencies, and tracking metrics.
+This document defines the 14 epics with acceptance criteria, dependencies, and tracking metrics.
+
+> **Live epic status is on GitHub — not in this file.**
+>
+> The `**Status**:` lines below reflect initial planning and are kept as historical scope. They are **not** updated as work progresses.
+>
+> For current status see the **[Project board](https://github.com/users/BemusedVermin/projects/1)** and the **[Sprint epic issues](https://github.com/BemusedVermin/evolution-simulation/issues?q=is%3Aissue+label%3Aepic)**. Sprint-level rollup on the board maps 1:1 to the epics defined here.
 
 ---
 

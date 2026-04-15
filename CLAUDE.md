@@ -4,9 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Status
 
-This repo is **design-phase only** — no source code, Cargo workspace, or build tooling exists yet. It contains planning and specification documents that define an unimplemented project. Before writing code, read the design docs; do not invent architecture that contradicts them.
+Sprints S1 (fixed-point + PRNG) and S2 (manifests + registries) are shipped. The Cargo workspace is live at the repo root; `crates/beast-core`, `crates/beast-channels`, and `crates/beast-primitives` are implemented. The other planned crates are scaffolded per-sprint — don't pre-stub them.
 
-The only top-level directory is `documentation/`. All substantive content lives there.
+Design docs under `documentation/` remain authoritative for architecture and invariants; before writing code, read the relevant design doc and do not invent architecture that contradicts it.
+
+## Live work tracking
+
+Sprint and story status live on GitHub, not in the markdown planning docs.
+
+- **Project board**: https://github.com/users/BemusedVermin/projects/1 (Sprint / Phase / Points / Status per item).
+- **Sprint epics**: `label:epic` — one tracker issue per sprint (S1–S18) with the story checklist, demo criteria, DoD.
+- **Story issues**: opened per-sprint using the Feature task template; labelled `story` + `sprint:sN` + `crate:*`; reference the sprint epic.
+
+When the user asks "what's the current sprint?" or "what's next?", check the board or the open epic issues — **not** `SPRINTS.md`. The Status columns in `SPRINTS.md` and `EPICS.md` are historical scope and are not kept in sync. `documentation/PROGRESS_LOG.md` is a narrative diary (decisions, pitfalls, commits), not a status tracker.
 
 ## Project Summary
 
@@ -19,7 +29,7 @@ Beast Evolution Game is a deterministic evolution-simulation game planned in **R
 - **Serialization**: `serde` + `bincode` (deterministic config)
 - **Planned workspace**: 17 crates under `crates/` (see `documentation/architecture/CRATE_LAYOUT.md`), strictly layered L0 → L6.
 
-There is no `Cargo.toml` yet. When scaffolding, follow the crate dependency DAG in `CRATE_LAYOUT.md` — don't introduce cycles or skip layers.
+The workspace `Cargo.toml` is at the repo root. When adding new crates, follow the dependency DAG in `CRATE_LAYOUT.md` — don't introduce cycles or skip layers.
 
 ## Documentation Map (read order)
 
@@ -66,7 +76,18 @@ Per-tick budget: ~16ms (60 FPS). When adding a system, place it in the correct s
 
 ## Commands
 
-No build/test/lint commands exist yet — there is no code. Once the Cargo workspace is scaffolded, the planned determinism gate is:
+The checks CI runs on every PR (runnable locally):
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --all-targets --locked
+cargo test --workspace --doc --locked
+cargo build --workspace --release --locked
+cargo deny check
+```
+
+The planned determinism gate (enforced once `beast-sim` lands in S6):
 
 ```bash
 cargo test --test determinism_test -- --nocapture

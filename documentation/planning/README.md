@@ -1,6 +1,14 @@
 # Beast Evolution Game: Planning Documentation
 
-This directory contains comprehensive planning and tracking documents for the Beast Evolution Game implementation.
+This directory contains the **design-intent** planning documents for the Beast Evolution Game: scope, risks, dependency graph, branch options, milestone definitions. It is the reference you read when deciding *what* to build and *why*.
+
+> **Live tracking is on GitHub, not in these markdown files.**
+>
+> - **[Project board](https://github.com/users/BemusedVermin/projects/1)** — the authoritative view of sprint/story/epic status (Sprint, Phase, Points, Status fields).
+> - **[Sprint epics](https://github.com/BemusedVermin/evolution-simulation/issues?q=is%3Aissue+label%3Aepic)** — one per sprint (S1–S18), each with a story checklist derived from `SPRINTS.md`.
+> - **Story issues** — opened per sprint via the Feature task template, labelled `story` + `sprint:sN` + `crate:*`, referencing the sprint epic.
+>
+> Status tables and Story tables in `EPICS.md` / `SPRINTS.md` reflect planned scope, not progress. **Do not edit them to reflect current progress** — update the board and issues instead. Scope *changes* (deferred stories, re-sized points, new risks) still land in these docs via PR.
 
 ---
 
@@ -108,11 +116,13 @@ This directory contains comprehensive planning and tracking documents for the Be
 5. Reference RISK_REGISTER.md for sprint-specific risks
 
 ### For Monitoring Progress
-1. Update story status in SPRINTS.md (weekly)
-2. Track velocity: count completed story points
+1. Move issues across columns on the [Project board](https://github.com/users/BemusedVermin/projects/1) as work progresses; tick story checkboxes in the sprint epic when a story lands
+2. Track velocity: sum the `Points` field for items in the `Done` column at sprint end
 3. Compare actual velocity to baseline 40 pts/sprint
 4. If velocity drops, adjust timeline (see IMPLEMENTATION_PLAN.md "Velocity & Adjustment")
 5. Escalate any risk with score > 15 (see RISK_REGISTER.md "Risk Monitoring")
+
+Do **not** edit `SPRINTS.md` or `EPICS.md` status columns to track progress — those tables are historical scope, not live state.
 
 ### For Deep System Branching (Post-MVP)
 1. At end of S14, choose one of four options (A/B/C/D)
@@ -236,18 +246,17 @@ Choose one deep system (Evolution/Disease/Economy/Culture) and develop for 4 spr
 
 ## Notes for Dev
 
-### Before Starting S1
-1. Ensure beast-core crate is set up with Cargo workspace
-2. Add dependencies: `fixed` (Q3232), `rand_xoshiro` (PRNG), `serde`, `serde_json`
-3. Set up CI/CD: GitHub Actions, cargo test on every commit
-4. Create GitHub issues for each story (S1–S14, copy from SPRINTS.md)
-5. Establish determinism test harness (will use starting S6)
+### Before Starting a Sprint
+1. Open the sprint's epic issue (e.g. `Sprint S3: Genome & Mutation`) on GitHub
+2. Confirm dependencies listed in the epic are closed / merged
+3. Open a story issue per story in the epic's checklist using the **Feature task** template, labelled `story` + `sprint:sN` + `crate:*`, referencing the epic (`Part of #NN`)
+4. Move the epic to `In Progress` on the [Project board](https://github.com/users/BemusedVermin/projects/1) and assign yourself
 
 ### During Each Sprint
-1. At sprint start: copy stories from SPRINTS.md into GitHub Issues
-2. At daily standup: review story status, identify blockers
-3. At sprint mid-point: check velocity; adjust sprint scope if needed
-4. At sprint end: mark stories complete, update EPICS.md and SPRINTS.md status
+1. Pick the next story issue; move it to `In Progress`
+2. Work in a topic branch; open a PR using the appropriate PR template when ready
+3. On merge: close the story issue, tick the matching checkbox in the sprint epic
+4. At sprint end: move the epic to `Done` once the DoD checklist is complete; record velocity via the `Points` field
 
 ### Risk Management
 1. At sprint start: review RISK_REGISTER.md "Sprint Risk Focus" (if provided)

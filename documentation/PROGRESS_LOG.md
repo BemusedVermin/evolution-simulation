@@ -4,13 +4,15 @@ This file is the canonical running log of implementation work on the Beast Evolu
 
 **Convention**: newest entries on top under each section. Keep entries terse but concrete — file paths, decisions, and pitfalls encountered. Do NOT let this file grow past ~800 lines; when it does, rotate older content into `PROGRESS_LOG_ARCHIVE_YYYY_MM.md`.
 
+**Scope**: this log is a narrative diary — decisions, pitfalls, commit references. **Live sprint/story status is on the [GitHub Project board](https://github.com/users/BemusedVermin/projects/1) and in the [sprint epic issues](https://github.com/BemusedVermin/evolution-simulation/issues?q=is%3Aissue+label%3Aepic), not here.** The snapshot below is refreshed opportunistically but is not the source of truth; filter the board by `Sprint = Sn` or `Status = In Progress` for current state.
+
 ---
 
 ## Current Status Snapshot
 
-- **Active Sprint**: S2 — Manifests & Registries (beast-channels, beast-primitives) [Week 2] — **implementation complete, PR pending**
-- **Completed Sprints**: S1 — Fixed-Point & PRNG (beast-core) [Week 1]
-- **Next Sprint**: S3 — Genome & Mutation (beast-genome) [Week 3]
+- **Active Sprint**: S3 — Genome & Mutation (beast-genome) [Week 3] — not yet started
+- **Completed Sprints**: S1 — Fixed-Point & PRNG (beast-core) [Week 1]; S2 — Manifests & Registries (beast-channels, beast-primitives) [Week 2]
+- **Next Sprint**: S4 — Phenotype Interpreter (beast-interpreter) [Week 4]
 - **Phase**: 1 — Foundations & Core Sim
 - **Workspace scaffolded**: yes (beast-core, beast-channels, beast-primitives; other 14 crates deferred to their sprints)
 - **CI**: `.github/workflows/ci.yml` runs on every PR — fmt, clippy, test, doctests, release build, and cross-platform tests on windows/macOS. First run on PR #2 passed all 4 jobs.
@@ -62,6 +64,38 @@ This file is the canonical running log of implementation work on the Beast Evolu
 ---
 
 ## Session Log (reverse chronological)
+
+### 2026-04-15 — GitHub Project board + per-sprint issues (Claude)
+
+Migrated sprint/story tracking from the markdown planning docs to GitHub
+so live status has one source of truth and parallel sprints are easier
+to see at a glance.
+
+- **49 labels** created: `sprint:s1..s18`, `phase:1..4`, `epic`, `story`,
+  `determinism`, `invariant`, `security`, plus `crate:*` for all 13
+  workspace crates.
+- **18 sprint epic issues** (#13–#30) with sprint goal, story checklist,
+  demo criteria, DoD, invariant notes, and design-doc pointers sourced
+  from `SPRINTS.md`. S1/S2 closed as done with PR links; S3–S18 are Todo.
+- **Project v2 board** "Beast Evolution Game — Roadmap" at
+  https://github.com/users/BemusedVermin/projects/1 with custom fields:
+  **Sprint** (S1–S18 single-select), **Phase** (1–4 single-select),
+  **Points** (number). All 18 items added and populated.
+- **Documentation updates** (this commit): top-level `README.md` and
+  `CONTRIBUTING.md` now point at the board + issues as the source of
+  truth for live status; `documentation/planning/README.md` drops the
+  "update SPRINTS.md status columns weekly" workflow in favour of moving
+  issues on the board; tracking banners prepended to `SPRINTS.md` and
+  `EPICS.md` clarifying that their Status columns are historical scope.
+  This log gets a pointer at the top too — PROGRESS_LOG stays a narrative
+  diary, not a status tracker.
+
+Rationale: the markdown Status columns had already drifted out of date
+during the S2 session, and the one-to-many relationship (one sprint →
+many stories, each potentially a PR) is more naturally expressed as
+labelled issues than as rows in a table. The planning docs remain the
+reference for design intent — scope, risks, branch options — which does
+not change every sprint.
 
 ### 2026-04-15 — Post-S2 infra: cargo-deny, Dependabot, schema drift, coverage (Claude)
 
@@ -323,3 +357,7 @@ _(updated as files are created)_
 - `.githooks/pre-push` — opt-in master-push gate (PR #3).
 - `crates/beast-channels/` — Sprint S2 channel registry crate: `Cargo.toml`, `README.md`, `src/{lib,manifest,composition,expression,registry,schema}.rs`, `tests/{example_manifests,malformed_manifests}.rs`.
 - `crates/beast-primitives/` — Sprint S2 primitive registry crate: `Cargo.toml`, `README.md`, `src/{lib,manifest,category,cost,effect,math,registry,schema}.rs`, `tests/{example_manifests,malformed_manifests}.rs`.
+
+### GitHub-side tracking (live, not in-repo)
+- **[Project board](https://github.com/users/BemusedVermin/projects/1)** — Sprint/Phase/Points/Status per item for all 18 sprints.
+- **[Sprint epic issues](https://github.com/BemusedVermin/evolution-simulation/issues?q=is%3Aissue+label%3Aepic)** (#13–#30) — one per sprint, with story checklists.
