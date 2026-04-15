@@ -1,0 +1,56 @@
+# Dependabot config for the Beast Evolution Game workspace.
+#
+# Two ecosystems: Rust crates (via Cargo.lock) and GitHub Actions pins in
+# `.github/workflows/`. Both run weekly on Monday mornings so PRs arrive
+# together and can be reviewed in one sitting.
+#
+# Strategy:
+# * Group patch + minor bumps into a single PR per ecosystem so we don't
+#   drown in individual Dependabot PRs for trivial bumps.
+# * Keep major bumps as individual PRs — they're rarely drop-in and merit
+#   per-dep review (jsonschema, fixed, rand_xoshiro all have tight
+#   invariants around determinism).
+# * Ignore any advisory-specific bumps; `cargo-deny` already catches those
+#   in CI, and a Dependabot PR for a yanked version is noise.
+
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: UTC
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - rust
+    commit-message:
+      prefix: deps
+      include: scope
+    groups:
+      cargo-patch-minor:
+        update-types:
+          - patch
+          - minor
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: UTC
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      actions-patch-minor:
+        update-types:
+          - patch
+          - minor

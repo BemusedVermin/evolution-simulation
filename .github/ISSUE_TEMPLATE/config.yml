@@ -1,0 +1,16 @@
+# Hide the "blank issue" option so every new issue lands in a template
+# with the fields triage actually needs. If none of the templates fit,
+# users can start a Discussion (once enabled) or link to CONTRIBUTING.md
+# for the workflow.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Contributing guide
+    url: https://github.com/BemusedVermin/evolution-simulation/blob/master/CONTRIBUTING.md
+    about: Read before filing — sprint workflow, PR expectations, determinism contract.
+  - name: Security vulnerability (sensitive)
+    url: https://github.com/BemusedVermin/evolution-simulation/security/advisories/new
+    about: Report exploitable vulnerabilities privately. Do NOT use public issues.
+  - name: Project planning docs
+    url: https://github.com/BemusedVermin/evolution-simulation/tree/master/documentation/planning
+    about: Sprints, epics, risk register — check these before proposing a feature.

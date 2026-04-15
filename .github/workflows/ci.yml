@@ -76,6 +76,65 @@ jobs:
       - name: cargo test
         run: cargo test --workspace --all-targets --locked
 
+  # Dependency audit: advisories, licenses, unknown registries / git sources.
+  # Configuration lives in `deny.toml` at the repo root. Failing here means a
+  # new dep has a known CVE, uses an unvetted license, or was pulled from a
+  # source we haven't approved.
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: cargo deny check
+        run: cargo deny check --hide-inclusion-graph
+
+  # Coverage reporting. Report-only today — testing.md targets 80% line
+  # coverage; once we have baseline numbers from a few CI runs we can flip
+  # the `--fail-under-lines` flag on to enforce the threshold. Runs with
+  # `--no-fail-fast` so a single flaky test doesn't mask the coverage report.
+  coverage:
+    name: coverage (ubuntu)
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-coverage
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: cargo llvm-cov (summary)
+        run: cargo llvm-cov --workspace --all-targets --locked --summary-only --no-fail-fast
+
+      - name: cargo llvm-cov (LCOV for upload)
+        run: cargo llvm-cov --workspace --all-targets --locked --lcov --output-path lcov.info --no-fail-fast
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: lcov.info
+          retention-days: 14
+
   # Release build ensures nothing regressed under opt-level=3 + LTO.
   release-build:
     name: release-build (ubuntu)

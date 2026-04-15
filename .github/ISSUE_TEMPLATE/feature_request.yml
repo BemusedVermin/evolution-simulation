@@ -1,0 +1,79 @@
+name: Feature Request
+description: Propose a new capability, system, or enhancement.
+title: "[feat] "
+labels: ["type:feature", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: skim `documentation/planning/SPRINTS.md` and
+        `EPICS.md`. If this feature fits an existing epic, say so below —
+        we may just need to slot it into a sprint rather than scope a new
+        one.
+
+        For **larger features** that will need multiple implementation
+        tasks (an "epic-sized" feature), use the **Feature Task** template
+        for the individual pieces and link them back to this request.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What pain point does this solve? Who benefits?
+      placeholder: "Today, when X happens, Y is painful because…"
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What do you want to see? Sketch the API, UI, or behaviour.
+      placeholder: "Add a `…` that does `…`."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else did you rule out, and why?
+      placeholder: "Option A was rejected because…"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: invariant-impact
+    attributes:
+      label: Invariant impact
+      description: |
+        Does this proposal touch any of the load-bearing invariants in
+        `documentation/INVARIANTS.md` (determinism, mechanics-label
+        separation, channel registry monolithicism, emergence closure,
+        scale-band unification, UI-vs-sim state)?
+      options:
+        - "No — purely additive, no invariant interaction"
+        - "Yes — affects determinism (needs fixed-point, sorted iteration, etc.)"
+        - "Yes — affects mechanics-label separation (adds named-ability logic)"
+        - "Yes — affects another invariant (explain below)"
+        - "Unsure — please advise"
+    validations:
+      required: true
+
+  - type: input
+    id: sprint
+    attributes:
+      label: Target sprint (optional)
+      description: If this maps to a planned sprint, say which (e.g. `S5`, `S11`).
+      placeholder: "e.g. S7"
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What observable behaviour tells us this is done?
+      placeholder: |
+        - [ ] …
+        - [ ] …
+    validations:
+      required: false

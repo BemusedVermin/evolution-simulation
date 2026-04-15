@@ -1,0 +1,82 @@
+name: Feature Task
+description: Implementation task under a larger feature or sprint story.
+title: "[task] "
+labels: ["type:task", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for the *individual pieces* of a larger
+        feature — one task per story point group, typically mapping 1:1
+        to a commit or small PR. File the parent as a **Feature Request**
+        first and link it below.
+
+  - type: input
+    id: parent
+    attributes:
+      label: Parent issue / epic
+      description: Link to the parent Feature Request, epic doc, or sprint story.
+      placeholder: "#12 / EPICS.md#E4 / SPRINTS.md#S5"
+    validations:
+      required: true
+
+  - type: input
+    id: sprint
+    attributes:
+      label: Sprint
+      description: Sprint this task belongs to.
+      placeholder: "S5"
+    validations:
+      required: true
+
+  - type: input
+    id: points
+    attributes:
+      label: Story points
+      description: Fibonacci-ish estimate (1, 2, 3, 5, 8). Keep tasks to ≤ 8.
+      placeholder: "3"
+    validations:
+      required: false
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What this task does, concretely. Files, modules, or systems touched.
+      placeholder: "Add `ChannelRegistry::by_family(…)` and wire it into the interpreter."
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Explicitly out of scope
+      description: What this task is *not* doing. Prevents scope creep at review time.
+      placeholder: "- Cost function evaluation — that's task #14"
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Concrete, testable.
+      value: |
+        - [ ] Tests cover the new behaviour (unit + integration where relevant)
+        - [ ] `cargo clippy --workspace --all-targets -- -D warnings` clean
+        - [ ] `cargo fmt --check` clean
+        - [ ] Relevant README / PROGRESS_LOG entry updated
+    validations:
+      required: true
+
+  - type: dropdown
+    id: invariant-impact
+    attributes:
+      label: Invariant impact
+      description: See `documentation/INVARIANTS.md`.
+      options:
+        - "No"
+        - "Yes — determinism"
+        - "Yes — other (explain in scope)"
+    validations:
+      required: true
