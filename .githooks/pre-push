@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# pre-push hook: reject direct pushes to the `master` branch.
+#
+# Activate by running (once per clone):
+#   git config core.hooksPath .githooks
+#
+# Bypass in a genuine emergency with --no-verify; every bypass should be
+# explained in the next commit message.
+
+set -eu
+
+protected_branch='master'
+remote_name="$1"
+
+while read -r local_ref local_oid remote_ref remote_oid; do
+    # Normalise the remote ref name (refs/heads/master → master).
+    remote_branch="${remote_ref#refs/heads/}"
+    if [ "$remote_branch" = "$protected_branch" ]; then
+        # Deletion of master is also blocked.
+        if [ "$local_oid" = "0000000000000000000000000000000000000000" ]; then
+            echo "pre-push: refusing to delete '$protected_branch' on '$remote_name'." >&2
+            exit 1
+        fi
+        cat >&2 <<EOF
+pre-push: direct push to '$protected_branch' on '$remote_name' is blocked.
+
+Open a pull request instead:
+  git checkout -b <topic-branch>
+  git push -u origin <topic-branch>
+  gh pr create --base $protected_branch
+
+If you genuinely need to bypass this hook, rerun with --no-verify and note
+the reason in the next commit message. Server-side enforcement requires
+GitHub Pro (or making the repo public) — this hook is best-effort only.
+EOF
+        exit 1
+    fi
+done
+
+exit 0
