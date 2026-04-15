@@ -198,7 +198,7 @@ mod tests {
         let n = 10_000;
         let mut sum = Q3232::ZERO;
         for _ in 0..n {
-            sum = sum + gaussian_q3232(&mut rng, mean, sd);
+            sum += gaussian_q3232(&mut rng, mean, sd);
         }
         let empirical_mean = sum / Q3232::from_num(n);
         assert!(
@@ -219,16 +219,16 @@ mod tests {
         let mut sum = Q3232::ZERO;
         for _ in 0..n {
             let s = gaussian_q3232(&mut rng, mean, sd);
-            sum = sum + s;
+            sum += s;
             samples.push(s);
         }
         let m = sum / Q3232::from_num(n);
         let mut var = Q3232::ZERO;
         for s in &samples {
             let d = *s - m;
-            var = var + d * d;
+            var += d * d;
         }
-        var = var / Q3232::from_num(n - 1);
+        var /= Q3232::from_num(n - 1);
         // sqrt via f64 (acceptable in a test).
         let var_f: f64 = var.to_num();
         let std_emp = var_f.sqrt();

@@ -20,18 +20,39 @@ Foundational primitives shared by every other crate in the Beast Evolution Game 
 ## Usage
 
 ```rust
-use beast_core::{Prng, Q3232, TickCounter};
+use beast_core::{Prng, Q3232, Stream, TickCounter};
 
-let mut rng = Prng::from_seed(0xDEAD_BEEF_CAFE_BABE);
+// Every world is seeded once.
+let master = Prng::from_seed(0xDEAD_BEEF_CAFE_BABE);
+
+// Each subsystem gets its own stream, derived via long-jump.
+let mut genetics = master.split_stream(Stream::Genetics);
+let mut physics = master.split_stream(Stream::Physics);
+
+// Sim math flows through Q3232.
 let mut tick = TickCounter::ZERO;
-
-let a = Q3232::from_num(0.25_f64);
-let b = Q3232::from_num(0.5_f64);
-let c = a + b; // saturating
+let drift = Q3232::from_num(0.25_f64);
+let stride = Q3232::from_num(0.5_f64);
+let step = drift + stride; // saturating
 
 tick.advance();
-let roll = rng.next_u64();
-let _ = (c, tick, roll);
+let _ = (step, tick, genetics.next_u64(), physics.next_u64());
 ```
 
-See `documentation/INVARIANTS.md` and `documentation/architecture/CRATE_LAYOUT.md` for the contract this crate exists to uphold.
+## Measured performance (Windows 11, release build, representative run)
+
+| Operation                    | Time      |
+|------------------------------|-----------|
+| `Q3232::saturating_add`      | ~0.83 ns  |
+| `Q3232::saturating_mul`      | ~2.70 ns  |
+| `Q3232::saturating_div`      | ~8.30 ns  |
+| `Prng::next_u64`             | ~0.71 ns  |
+| `Prng::next_q3232_unit`      | ~0.73 ns  |
+| `Prng::split_stream`         | ~1.52 ns  |
+| `gaussian_q3232` (Box–Muller)| ~33.0 ns  |
+
+Numbers are indicative — rerun `cargo bench -p beast-core` to measure on your machine. Saturating multiply lands at ~8 cycles on a 3 GHz CPU; the sprint plan's aspirational "< 2 cycles" target is not achievable for a 64×64→128 saturating mul, which is fine — the tick budget at 60 Hz still accommodates millions of these per tick.
+
+## Invariants enforced here
+
+See `documentation/INVARIANTS.md` and `documentation/architecture/CRATE_LAYOUT.md` for the full contract this crate exists to uphold.

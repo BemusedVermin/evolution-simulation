@@ -96,16 +96,20 @@ impl Prng {
     /// Derive an independent child stream for a named subsystem.
     ///
     /// Implementation: clone the master state, then apply
-    /// `stream.jumps()` long-jumps. The result is a PRNG whose sequence does
-    /// not overlap with any other stream or with the master for `2^192`
-    /// steps per distinct `Stream` variant.
+    /// `stream.jumps() + 1` long-jumps. The `+ 1` guarantees the child is
+    /// non-aliased with the master even when the stream discriminant is `0`
+    /// (otherwise `Stream::Genetics`, disc = 0, would share the master's
+    /// sequence). The result is a PRNG whose sequence does not overlap with
+    /// any other stream or with the master for `2^192` steps per distinct
+    /// `Stream` variant.
     ///
     /// The master is unaffected — it remains positioned at its pre-split
-    /// state so subsequent master draws are still deterministic.
+    /// state so subsequent calls to `split_stream` are reproducible.
     #[inline]
     pub fn split_stream(&self, stream: Stream) -> Self {
         let mut child = self.inner.clone();
-        for _ in 0..stream.jumps() {
+        // +1 so discriminant 0 still jumps once (master-disjoint).
+        for _ in 0..=stream.jumps() {
             child.long_jump();
         }
         Self { inner: child }
@@ -130,6 +134,7 @@ impl Prng {
     /// This helper exists so render code has a convenient entry point
     /// without hand-rolling the bit tricks.
     #[inline]
+    #[allow(clippy::float_arithmetic)]
     pub fn next_f64_unit(&mut self) -> f64 {
         // 53-bit mantissa trick: take top 53 bits of next_u64, divide by 2^53.
         let bits = self.next_u64() >> 11;
@@ -233,6 +238,18 @@ mod tests {
         let mut physics = master.split_stream(Stream::Physics);
         // Different streams should produce different first draws.
         assert_ne!(genetics.next_u64(), physics.next_u64());
+    }
+
+    #[test]
+    fn split_stream_does_not_alias_master() {
+        // Regression: Stream::Genetics has discriminant 0; the split logic
+        // must still produce a PRNG disjoint from the master (otherwise any
+        // sim code that accidentally drew from the master would collide
+        // with the Genetics stream).
+        let master = Prng::from_seed(99);
+        let mut m = master.clone();
+        let mut g = master.split_stream(Stream::Genetics);
+        assert_ne!(m.next_u64(), g.next_u64());
     }
 
     #[test]
