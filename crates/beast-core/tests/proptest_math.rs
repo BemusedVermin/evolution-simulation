@@ -1,6 +1,8 @@
 //! Property tests for math utilities.
 
-use beast_core::{clamp01, gaussian_q3232, inv_lerp_q3232, lerp_q3232, max_q3232, min_q3232, Prng, Q3232};
+use beast_core::{
+    clamp01, gaussian_q3232, inv_lerp_q3232, lerp_q3232, max_q3232, min_q3232, Prng, Q3232,
+};
 use proptest::prelude::*;
 
 fn any_q3232() -> impl Strategy<Value = Q3232> {

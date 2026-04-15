@@ -1,0 +1,8 @@
+# Pin the workspace to stable. `rustup` reads this file automatically on
+# `cargo` invocations and installs the matching toolchain if missing.
+# CI uses `dtolnay/rust-toolchain@stable`, which resolves the same channel,
+# so local and CI stay in lockstep.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# Newer pushes to a PR cancel older in-flight runs on the same ref.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: -D warnings
+  RUST_BACKTRACE: short
+
+jobs:
+  # Fast feedback lane: fmt + clippy + unit/integration tests + doctests on
+  # the primary development OS. This job gates merges.
+  lint-and-test:
+    name: lint-and-test (ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-ubuntu
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy (all targets, -D warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test (unit + integration)
+        run: cargo test --workspace --all-targets --locked
+
+      - name: cargo test --doc
+        run: cargo test --workspace --doc --locked
+
+  # Cross-platform determinism sanity: the Box-Muller Gaussian and the PRNG
+  # both claim bit-identical output across x86_64 targets. Running tests on
+  # Windows and macOS catches regressions in that claim before they reach
+  # main — cheaper to detect here than when a replay hash diverges in S6.
+  cross-platform-test:
+    name: test (${{ matrix.os }})
+    needs: lint-and-test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-${{ matrix.os }}
+
+      - name: cargo test
+        run: cargo test --workspace --all-targets --locked
+
+  # Release build ensures nothing regressed under opt-level=3 + LTO.
+  release-build:
+    name: release-build (ubuntu)
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-release
+
+      - name: cargo build --release
+        run: cargo build --workspace --release --locked

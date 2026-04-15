@@ -5,7 +5,7 @@
 //! PRNG `next_u64`, and Gaussian sampling. Higher-level throughput
 //! benchmarks live in `beast-cli` once the tick loop exists.
 
-use beast_core::{gaussian_q3232, Prng, Q3232, Stream};
+use beast_core::{gaussian_q3232, Prng, Stream, Q3232};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 
 fn bench_q3232_mul(c: &mut Criterion) {

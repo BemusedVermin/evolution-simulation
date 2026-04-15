@@ -1,7 +1,7 @@
 //! Property tests for `Prng`: determinism, stream independence, and
 //! basic statistical sanity.
 
-use beast_core::{Prng, Q3232, Stream};
+use beast_core::{Prng, Stream, Q3232};
 use proptest::prelude::*;
 
 proptest! {

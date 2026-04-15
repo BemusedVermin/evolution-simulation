@@ -151,7 +151,10 @@ mod tests {
         let b = Q3232::from_num(10_i32);
         assert_eq!(lerp_q3232(a, b, Q3232::ZERO), a);
         assert_eq!(lerp_q3232(a, b, Q3232::ONE), b);
-        assert_eq!(lerp_q3232(a, b, Q3232::from_num(0.5_f64)), Q3232::from_num(5_i32));
+        assert_eq!(
+            lerp_q3232(a, b, Q3232::from_num(0.5_f64)),
+            Q3232::from_num(5_i32)
+        );
     }
 
     #[test]
@@ -185,7 +188,10 @@ mod tests {
         let mean = Q3232::ZERO;
         let sd = Q3232::ONE;
         for _ in 0..256 {
-            assert_eq!(gaussian_q3232(&mut a, mean, sd), gaussian_q3232(&mut b, mean, sd));
+            assert_eq!(
+                gaussian_q3232(&mut a, mean, sd),
+                gaussian_q3232(&mut b, mean, sd)
+            );
         }
     }
 
@@ -249,7 +255,11 @@ mod tests {
             let s = gaussian_q3232(&mut rng, mean, sd);
             let delta = (s - mean).saturating_abs();
             // 8σ bound.
-            assert!(delta <= Q3232::from_num(0.08_f64), "sample {:?} outside 8σ", s);
+            assert!(
+                delta <= Q3232::from_num(0.08_f64),
+                "sample {:?} outside 8σ",
+                s
+            );
         }
     }
 }
