@@ -68,8 +68,12 @@ impl fmt::Display for EntityId {
 /// archetype-specific pools) on top of this. For now, this allocator gives
 /// tests and bootstrap code a reproducible way to mint IDs.
 ///
-/// Saturates at `u32::MAX - 1` (one below the `NONE` sentinel) rather than
-/// wrapping, to preserve the uniqueness invariant.
+/// [`EntityIdAllocator::alloc`] returns `Option<EntityId>` so that exhaustion
+/// cannot be silently ignored: once all `u32::MAX - 1` non-sentinel IDs have
+/// been handed out, further calls return `None`. The ECS layer will almost
+/// certainly replace this with a generational-index allocator before
+/// exhaustion is a real concern, but the uniqueness invariant must be
+/// respected even in bootstrap code.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EntityIdAllocator {
     next: u32,
@@ -82,17 +86,29 @@ impl EntityIdAllocator {
         Self { next: 0 }
     }
 
-    /// Allocate the next id. Saturates at `u32::MAX - 1`; callers that need
-    /// to detect exhaustion should compare the returned id against
-    /// `EntityId::new(u32::MAX - 1)` and treat that as "no more ids".
+    /// Allocate the next id.
+    ///
+    /// Returns `Some(EntityId)` for each of the first `u32::MAX - 1` calls
+    /// (ids `0..=u32::MAX - 2`), and `None` thereafter. The id `u32::MAX` is
+    /// reserved for [`EntityId::NONE`] and is never returned.
     #[inline]
-    pub fn alloc(&mut self) -> EntityId {
-        let id = EntityId(self.next);
-        // u32::MAX is reserved for NONE; saturate one below.
-        if self.next < u32::MAX - 1 {
-            self.next += 1;
+    #[must_use]
+    pub fn alloc(&mut self) -> Option<EntityId> {
+        // The last valid id is u32::MAX - 2 so that the NONE sentinel
+        // (u32::MAX) is never allocated; after handing out MAX - 2, `next`
+        // becomes MAX - 1 and the allocator is exhausted.
+        if self.next >= u32::MAX - 1 {
+            return None;
         }
-        id
+        let id = EntityId(self.next);
+        self.next += 1;
+        Some(id)
+    }
+
+    /// `true` once [`EntityIdAllocator::alloc`] will return `None`.
+    #[inline]
+    pub const fn is_exhausted(&self) -> bool {
+        self.next >= u32::MAX - 1
     }
 
     /// Number of ids allocated so far.
@@ -127,24 +143,34 @@ mod tests {
     #[test]
     fn allocator_is_monotonic_and_deterministic() {
         let mut alloc = EntityIdAllocator::new();
-        let a = alloc.alloc();
-        let b = alloc.alloc();
-        let c = alloc.alloc();
+        let a = alloc.alloc().unwrap();
+        let b = alloc.alloc().unwrap();
+        let c = alloc.alloc().unwrap();
         assert_eq!(a, EntityId::new(0));
         assert_eq!(b, EntityId::new(1));
         assert_eq!(c, EntityId::new(2));
         assert_eq!(alloc.count(), 3);
+        assert!(!alloc.is_exhausted());
     }
 
     #[test]
-    fn allocator_saturates_before_none_sentinel() {
-        let mut alloc = EntityIdAllocator { next: u32::MAX - 1 };
-        let id = alloc.alloc();
-        assert_eq!(id.raw(), u32::MAX - 1);
-        // Next call returns the same id (saturated) rather than NONE.
-        let id2 = alloc.alloc();
-        assert_eq!(id2.raw(), u32::MAX - 1);
-        assert!(!id2.is_none());
+    fn allocator_reports_exhaustion_via_none() {
+        // Fast-forward to the last valid id (u32::MAX - 2).
+        let mut alloc = EntityIdAllocator { next: u32::MAX - 2 };
+        let last = alloc.alloc().expect("one id remaining");
+        assert_eq!(last.raw(), u32::MAX - 2);
+        assert!(alloc.is_exhausted());
+        // All subsequent calls are None — never a duplicate, never the NONE
+        // sentinel leaking out.
+        assert_eq!(alloc.alloc(), None);
+        assert_eq!(alloc.alloc(), None);
+    }
+
+    #[test]
+    fn allocator_never_returns_none_sentinel() {
+        let mut alloc = EntityIdAllocator { next: u32::MAX - 2 };
+        let id = alloc.alloc().unwrap();
+        assert!(!id.is_none());
     }
 
     #[test]

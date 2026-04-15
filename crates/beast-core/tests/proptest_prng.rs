@@ -57,6 +57,20 @@ proptest! {
             prop_assert!(v < hi);
         }
     }
+
+    /// Regression for PR review: arbitrary i64 endpoints must work, including
+    /// spans wider than `i64::MAX` (e.g. `i64::MIN..i64::MAX`).
+    #[test]
+    fn gen_range_i64_full_domain(seed: u64, a: i64, b: i64) {
+        prop_assume!(a != b);
+        let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+        let mut rng = Prng::from_seed(seed);
+        for _ in 0..32 {
+            let v = rng.gen_range_i64(lo, hi);
+            prop_assert!(v >= lo);
+            prop_assert!(v < hi);
+        }
+    }
 }
 
 /// Deterministic 100k-sample fuzz confirming `next_u64` output doesn't

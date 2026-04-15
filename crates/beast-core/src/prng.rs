@@ -166,13 +166,20 @@ impl Prng {
     }
 
     /// Draw an `i64` in `[low, high)`.
+    ///
+    /// Handles ranges wider than `i64::MAX` correctly (e.g.
+    /// `low = i64::MIN, high = i64::MAX`). The final addition is done in
+    /// `i128` and then narrowed — the narrow is always in-range because the
+    /// widening-multiply result is guaranteed to lie in `[0, span)`.
     #[inline]
     pub fn gen_range_i64(&mut self, low: i64, high: i64) -> i64 {
         debug_assert!(low < high, "gen_range_i64: empty range");
-        // Shift into u64 space, draw, shift back.
         let span = (high as i128 - low as i128) as u64;
         let product = (self.next_u64() as u128) * (span as u128);
-        low + (product >> 64) as i64
+        let offset = (product >> 64) as u64; // in [0, span)
+        // Add in i128 to avoid overflow when span > i64::MAX; the sum is
+        // always in [low, high) which fits in i64 by construction.
+        ((low as i128) + (offset as i128)) as i64
     }
 
     /// Flip an unbiased coin.
@@ -315,6 +322,32 @@ mod tests {
         for _ in 0..1_000 {
             let v = rng.gen_range_i64(-5, 5);
             assert!((-5..5).contains(&v));
+        }
+    }
+
+    #[test]
+    fn gen_range_i64_handles_span_larger_than_i64_max() {
+        // Regression for PR review: span = u64::MAX was wrapping negative
+        // through `(product >> 64) as i64`, causing `low + negative` to
+        // overflow on extreme endpoints.
+        let mut rng = Prng::from_seed(0xF1F1_F1F1);
+        for _ in 0..10_000 {
+            let v = rng.gen_range_i64(i64::MIN, i64::MAX);
+            assert!(v < i64::MAX);
+        }
+    }
+
+    #[test]
+    fn gen_range_i64_asymmetric_wide_spans() {
+        // Two wide spans that previously overflowed: (MIN, 0) and (0, MAX).
+        let mut rng = Prng::from_seed(0x5A5A_5A5A);
+        for _ in 0..2_000 {
+            let v = rng.gen_range_i64(i64::MIN, 0);
+            assert!(v < 0);
+        }
+        for _ in 0..2_000 {
+            let v = rng.gen_range_i64(0, i64::MAX);
+            assert!((0..i64::MAX).contains(&v));
         }
     }
 
