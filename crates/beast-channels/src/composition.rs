@@ -127,7 +127,11 @@ pub fn evaluate_hook(hook: &CompositionHook, other: Q3232) -> HookOutcome {
             gate_open: true,
         },
         CompositionKind::Threshold => {
-            let t = hook.threshold.unwrap_or(Q3232::ZERO);
+            let t = hook.threshold.unwrap_or_else(|| {
+                unreachable!(
+                    "CompositionHook {{ kind: Threshold, threshold: None }} violates the invariant — threshold is required for Threshold/Gating kinds and is enforced at load time"
+                )
+            });
             if other >= t {
                 HookOutcome {
                     delta: hook.coefficient * other,
@@ -143,7 +147,11 @@ pub fn evaluate_hook(hook: &CompositionHook, other: Q3232) -> HookOutcome {
             }
         }
         CompositionKind::Gating => {
-            let t = hook.threshold.unwrap_or(Q3232::ZERO);
+            let t = hook.threshold.unwrap_or_else(|| {
+                unreachable!(
+                    "CompositionHook {{ kind: Gating, threshold: None }} violates the invariant — threshold is required for Threshold/Gating kinds and is enforced at load time"
+                )
+            });
             let open = other >= t;
             HookOutcome {
                 delta: Q3232::ZERO,
@@ -229,5 +237,25 @@ mod tests {
         for _ in 0..100 {
             assert_eq!(evaluate_hook(&h, q(0.5)).factor, q(1.0625));
         }
+    }
+
+    // The loader enforces that hooks of Threshold/Gating kind carry a
+    // threshold value. If a hand-constructed hook violates the invariant,
+    // we panic loudly rather than silently defaulting to Q3232::ZERO (which
+    // would make every Threshold gate always fire and every Gating gate
+    // always open, a subtle semantic bug). The two tests below lock in that
+    // behaviour so future refactors can't silently regress it.
+    #[test]
+    #[should_panic(expected = "threshold is required for Threshold/Gating kinds")]
+    fn threshold_without_threshold_value_panics() {
+        let invalid = hook(CompositionKind::Threshold, 1.0, None);
+        let _ = evaluate_hook(&invalid, q(0.5));
+    }
+
+    #[test]
+    #[should_panic(expected = "threshold is required for Threshold/Gating kinds")]
+    fn gating_without_threshold_value_panics() {
+        let invalid = hook(CompositionKind::Gating, 1.0, None);
+        let _ = evaluate_hook(&invalid, q(0.5));
     }
 }
