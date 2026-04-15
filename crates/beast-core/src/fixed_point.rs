@@ -405,7 +405,10 @@ mod tests {
         let hi = Q3232::ONE;
         assert_eq!(Q3232::from_num(-1_i32).clamp(lo, hi), lo);
         assert_eq!(Q3232::from_num(2_i32).clamp(lo, hi), hi);
-        assert_eq!(Q3232::from_num(0.5_f64).clamp(lo, hi), Q3232::from_num(0.5_f64));
+        assert_eq!(
+            Q3232::from_num(0.5_f64).clamp(lo, hi),
+            Q3232::from_num(0.5_f64)
+        );
     }
 
     #[test]

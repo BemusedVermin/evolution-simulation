@@ -177,8 +177,8 @@ impl Prng {
         let span = (high as i128 - low as i128) as u64;
         let product = (self.next_u64() as u128) * (span as u128);
         let offset = (product >> 64) as u64; // in [0, span)
-        // Add in i128 to avoid overflow when span > i64::MAX; the sum is
-        // always in [low, high) which fits in i64 by construction.
+                                             // Add in i128 to avoid overflow when span > i64::MAX; the sum is
+                                             // always in [low, high) which fits in i64 by construction.
         ((low as i128) + (offset as i128)) as i64
     }
 
