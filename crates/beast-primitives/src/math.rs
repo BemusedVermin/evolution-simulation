@@ -21,6 +21,31 @@
 //! results clamp instead of panicking. This is consistent with the crate's
 //! determinism invariant: given the same inputs, the output is identical
 //! across platforms.
+//!
+//! ## Cut-offs in [`q_exp`]
+//!
+//! Q32.32 ranges over roughly `[-2.15e9, 2.15e9)` with ULP `2^-32 ≈ 2.33e-10`.
+//! That sets two fast-path cut-offs:
+//!
+//! * `x > 22` — `e^21 ≈ 1.32e9` still fits; `e^22 ≈ 3.58e9` already
+//!   overflows. The cut-off short-circuits to `Q3232::MAX` so the Taylor
+//!   path is never asked to produce an out-of-range result.
+//! * `x < -23` — `e^-23 ≈ 1.02e-10 < ULP`, so the true value is below
+//!   Q32.32 precision and snapping to `Q3232::ZERO` is exact.
+//!
+//! The lower cut-off in the previous revision of this module was `x < -22`;
+//! the reviewer pointed out that `e^-22 ≈ 2.74e-10` is one ULP above ULP and
+//! therefore *representable*. It turns out to be representable but **not
+//! computable** by the current algorithm: `e^f · e^k` is realised as `e^f /
+//! e · e / e · …` (22 saturating divisions for `k = -22`), and the
+//! accumulated rounding eats the final bits, so the computed result snaps
+//! to zero around `x ≈ -22` in practice. Tightening the cut-off to `-23`
+//! costs nothing (those values would have computed to zero anyway) and
+//! removes a one-ULP regime where the cut-off was visibly more aggressive
+//! than the maths demanded. Actually preserving values near `x = -22`
+//! would require a faster algorithm (precomputed `e^-1, e^-2, e^-4, …` and
+//! binary decomposition of `k`) — a sensible upgrade when this helper is
+//! promoted to `beast-core` but out of scope for Sprint 2.
 
 use beast_core::Q3232;
 use fixed::types::I32F32;
@@ -44,6 +69,10 @@ pub(crate) fn q_ln(x: Q3232) -> Option<Q3232> {
     }
     // Decompose x = 2^k * m, m in [1, 2).
     let inner: I32F32 = x.into_inner();
+    // `int_log2` panics on non-positive input; the guard above guarantees
+    // `inner > 0`, so this call is infallible. Tying the two together here
+    // so a future refactor can't silently drop the guard and reinstate a
+    // panic path.
     let k = inner.int_log2();
 
     // Compute m_bits = x / 2^k. For I32F32 the raw bit pattern is an i64 of
@@ -80,20 +109,24 @@ pub(crate) fn q_ln(x: Q3232) -> Option<Q3232> {
 
 /// Natural exponential on Q32.32 with saturating behaviour outside the
 /// representable range.
+///
+/// Cut-offs (see module docs for derivation):
+/// * `x > 22` → [`Q3232::MAX`] (would overflow)
+/// * `x < -23` → [`Q3232::ZERO`] (below Q3232 ULP, zero is exact)
 pub(crate) fn q_exp(x: Q3232) -> Q3232 {
-    // Q3232 maxes at ~2.15e9; e^22 ~= 3.58e9 already overflows. Use a
-    // conservative cut-off to avoid pointless iteration and give a stable
-    // saturated answer on the edge.
     if x > Q3232::from(22_i32) {
         return Q3232::MAX;
     }
-    if x < Q3232::from(-22_i32) {
+    if x < Q3232::from(-23_i32) {
         return Q3232::ZERO;
     }
 
-    // Split into integer part k and fractional part f in (-1, 1).
-    let k: i64 = x.to_num::<i64>();
-    let f = x - Q3232::from(k as i32);
+    // Split into integer part k and fractional part f in (-1, 1). The cut-off
+    // above bounds `|x| <= 23`, which fits in i8 let alone i32 — no silent
+    // truncation from the Q3232 → i32 conversion.
+    let k: i32 = x.to_num::<i32>();
+    debug_assert!((-23..=22).contains(&k), "q_exp cut-off guard violated: k={k}");
+    let f = x - Q3232::from(k);
 
     // e^f via Taylor: 1 + f + f²/2! + f³/3! + ... (converges fast, |f| < 1).
     let mut sum = Q3232::ONE;
@@ -103,7 +136,7 @@ pub(crate) fn q_exp(x: Q3232) -> Q3232 {
         sum += term;
     }
 
-    // Multiply by e^k via repeated mul/div. k is small (|k| <= 22 from the
+    // Multiply by e^k via repeated mul/div. k is small (|k| <= 23 from the
     // cut-off), so the loop is bounded and cheap.
     let base = e();
     let mut result = sum;
@@ -123,7 +156,10 @@ pub(crate) fn q_exp(x: Q3232) -> Q3232 {
 ///
 /// Returns `None` when the result is mathematically undefined (e.g. negative
 /// base with a non-integer exponent, or `0^0` which is left to the caller to
-/// define). Zero-base with positive exponent returns `Some(0)`.
+/// define) *or* when the magnitude underflows the Q32.32 grid during the
+/// negative-base integer-exponent loop below, which would otherwise silently
+/// reappear as [`Q3232::MAX`] through saturating reciprocation. Zero-base
+/// with positive exponent returns `Some(0)`.
 pub(crate) fn q_pow(base: Q3232, exp: Q3232) -> Option<Q3232> {
     if base > Q3232::ZERO {
         return Some(q_exp(exp * q_ln(base)?));
@@ -155,6 +191,15 @@ pub(crate) fn q_pow(base: Q3232, exp: Q3232) -> Option<Q3232> {
         result = -result;
     }
     if rounded < 0 {
+        // If the repeated-multiply loop saturated `result` to zero (e.g. a
+        // base_abs well below 1 with a large `|rounded|`), the subsequent
+        // 1/result would saturate to ±Q3232::MAX via saturating division and
+        // silently masquerade as a real value. Surface the underflow as
+        // `None` so callers — like the cost evaluator — can report it
+        // instead of propagating a bogus finite number.
+        if result == Q3232::ZERO {
+            return None;
+        }
         result = Q3232::ONE / result;
     }
     Some(result)
@@ -246,5 +291,34 @@ mod tests {
         for _ in 0..10 {
             assert_eq!(q_pow(base, exp).unwrap(), a);
         }
+    }
+
+    #[test]
+    fn exp_preserves_values_well_above_ulp() {
+        // e^-18 ≈ 1.52e-8 ≈ 65 ULP — comfortably inside what the iterative
+        // algorithm can resolve after accumulated rounding. Locks in that
+        // the lower cut-off hasn't crept into the regime the algorithm
+        // actually supports.
+        let result = q_exp(Q3232::from(-18_i32));
+        assert!(
+            result > Q3232::ZERO,
+            "e^-18 should be representable and computable, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn exp_snaps_well_below_ulp_to_zero() {
+        // e^-24 ≈ 3.78e-11 is well below Q3232 ULP; returning zero is exact.
+        assert_eq!(q_exp(Q3232::from(-24_i32)), Q3232::ZERO);
+    }
+
+    #[test]
+    fn pow_negative_base_underflow_reported_not_faked() {
+        // base_abs = 0.1, rounded = -100: the repeated-multiply loop
+        // saturates result to ZERO, then 1/ZERO would saturate to MAX.
+        // Instead we must surface None.
+        let base = Q3232::from_num(-0.1_f64);
+        let exp = Q3232::from(-100_i32);
+        assert_eq!(q_pow(base, exp), None);
     }
 }
