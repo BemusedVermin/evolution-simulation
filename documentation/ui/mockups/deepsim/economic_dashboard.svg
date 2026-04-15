@@ -1,0 +1,212 @@
+<svg viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      text { font-family: monospace; font-size: 12px; }
+      .panel { fill: #f5f5f5; stroke: #333; stroke-width: 1; }
+      .kpi { fill: #e8f4f8; stroke: #0099cc; stroke-width: 1; }
+      .chart-bg { fill: #fff; stroke: #666; stroke-width: 1; }
+      .line-chart { stroke: #0066cc; stroke-width: 2; fill: none; }
+      .line-2 { stroke: #cc6600; stroke-width: 2; fill: none; }
+      .line-3 { stroke: #00aa00; stroke-width: 2; fill: none; }
+      .axis-line { stroke: #333; stroke-width: 1; }
+      .grid-line { stroke: #ddd; stroke-width: 0.5; stroke-dasharray: 2,2; }
+      .flow-line { stroke: #ff6600; stroke-width: 2; }
+      .flow-line-2 { stroke: #0066ff; stroke-width: 2; }
+      .label-text { font-size: 11px; fill: #333; }
+      .title-text { font-size: 14px; font-weight: bold; fill: #000; }
+      .annotation-text { font-size: 10px; fill: #cc0000; }
+    </style>
+    <title>Economic Dashboard</title>
+    <desc>Multi-modal economy inspector with price history, trade routes, and faction inventories. Sources: Trade Log (routes, volumes), Price Oracle (inflation, volatility), Chronicler (supply shocks, events).</desc>
+  </defs>
+
+  <!-- Top KPI strip -->
+  <rect class="kpi" x="0" y="0" width="1920" height="80"/>
+  <text class="title-text" x="10" y="25">ECONOMY DASHBOARD</text>
+
+  <rect class="kpi" x="10" y="30" width="200" height="45"/>
+  <text class="label-text" x="20" y="45">Inflation Proxy</text>
+  <text class="title-text" x="20" y="65">+2.3%</text>
+
+  <rect class="kpi" x="220" y="30" width="200" height="45"/>
+  <text class="label-text" x="230" y="45">Trade Volume (goods/tick)</text>
+  <text class="title-text" x="230" y="65">487</text>
+
+  <rect class="kpi" x="430" y="30" width="200" height="45"/>
+  <text class="label-text" x="440" y="45">Price Index Volatility</text>
+  <text class="title-text" x="440" y="65">8.7σ</text>
+
+  <rect class="kpi" x="640" y="30" width="200" height="45"/>
+  <text class="label-text" x="650" y="45">Active Currencies</text>
+  <text class="title-text" x="650" y="65">7</text>
+
+  <rect class="kpi" x="850" y="30" width="200" height="45"/>
+  <text class="label-text" x="860" y="45">Open Trade Routes</text>
+  <text class="title-text" x="860" y="65">24</text>
+
+  <rect class="kpi" x="1060" y="30" width="200" height="45"/>
+  <text class="label-text" x="1070" y="45">Median Trade Distance</text>
+  <text class="title-text" x="1070" y="65">437 tiles</text>
+
+  <rect class="kpi" x="1270" y="30" width="200" height="45"/>
+  <text class="label-text" x="1280" y="45">Market Mode Dominance</text>
+  <text class="title-text" x="1280" y="65">61%</text>
+
+  <rect class="kpi" x="1480" y="30" width="200" height="45"/>
+  <text class="label-text" x="1490" y="45">Polanyi Redistribution</text>
+  <text class="title-text" x="1490" y="65">18%</text>
+
+  <rect class="kpi" x="1690" y="30" width="200" height="45"/>
+  <text class="label-text" x="1700" y="45">Reciprocity Acts</text>
+  <text class="title-text" x="1700" y="65">21%</text>
+
+  <!-- Filter chips -->
+  <rect x="10" y="85" width="80" height="25" fill="#ddd" stroke="#666" stroke-width="1"/>
+  <text class="label-text" x="20" y="102">Good: Obsidian</text>
+
+  <rect x="100" y="85" width="80" height="25" fill="#ddd" stroke="#666" stroke-width="1"/>
+  <text class="label-text" x="110" y="102">Faction: All</text>
+
+  <rect x="190" y="85" width="100" height="25" fill="#ddd" stroke="#666" stroke-width="1"/>
+  <text class="label-text" x="200" y="102">Range: t=8000-9000</text>
+
+  <!-- Main three-pane layout below KPI -->
+
+  <!-- LEFT PANE: Price history line chart -->
+  <rect class="panel" x="10" y="120" width="600" height="700"/>
+  <text class="title-text" x="20" y="145">PRICE HISTORY (selected goods)</text>
+
+  <rect class="chart-bg" x="20" y="160" width="580" height="630"/>
+
+  <!-- Chart axes -->
+  <line class="axis-line" x1="50" y1="760" x2="580" y2="760"/>
+  <line class="axis-line" x1="50" y1="170" x2="50" y2="760"/>
+
+  <!-- Y-axis labels (price) -->
+  <text class="label-text" x="15" y="765">0</text>
+  <text class="label-text" x="10" y="550">50</text>
+  <text class="label-text" x="10" y="330">100</text>
+  <text class="label-text" x="10" y="175">150</text>
+
+  <!-- X-axis labels (time) -->
+  <text class="label-text" x="45" y="780">t=8000</text>
+  <text class="label-text" x="250" y="780">t=8500</text>
+  <text class="label-text" x="450" y="780">t=9000</text>
+
+  <!-- Grid lines -->
+  <line class="grid-line" x1="50" y1="550" x2="580" y2="550"/>
+  <line class="grid-line" x1="50" y1="330" x2="580" y2="330"/>
+
+  <!-- Placeholder price curves -->
+  <polyline class="line-chart" points="50,500 120,480 190,520 260,510 330,400 400,350 470,320 540,300"/>
+  <polyline class="line-2" points="50,600 120,580 190,620 260,610 330,500 400,450 470,420 540,400"/>
+  <polyline class="line-3" points="50,400 120,420 190,380 260,390 330,300 400,280 470,250 540,280"/>
+
+  <!-- Legend -->
+  <line class="line-chart" x1="60" y1="700" x2="100" y2="700"/>
+  <text class="label-text" x="110" y="705">Obsidian</text>
+
+  <line class="line-2" x1="250" y1="700" x2="290" y2="700"/>
+  <text class="label-text" x="300" y="705">Copper</text>
+
+  <line class="line-3" x1="420" y1="700" x2="460" y2="700"/>
+  <text class="label-text" x="470" y="705">Grain</text>
+
+  <!-- Annotation: supply shock -->
+  <circle cx="330" cy="400" r="4" fill="none" stroke="#cc0000" stroke-width="2"/>
+  <text class="annotation-text" x="340" y="395">Supply shock</text>
+  <text class="annotation-text" x="340" y="410">regional collapse</text>
+
+  <!-- CENTER PANE: Trade route map overlay -->
+  <rect class="panel" x="620" y="120" width="680" height="700"/>
+  <text class="title-text" x="630" y="145">TRADE ROUTE OVERLAY (thickness = volume)</text>
+
+  <rect class="chart-bg" x="630" y="160" width="660" height="640"/>
+
+  <!-- Placeholder map grid/background -->
+  <line class="grid-line" x1="700" y1="160" x2="700" y2="800"/>
+  <line class="grid-line" x1="800" y1="160" x2="800" y2="800"/>
+  <line class="grid-line" x1="900" y1="160" x2="900" y2="800"/>
+
+  <line class="grid-line" x1="630" y1="300" x2="1290" y2="300"/>
+  <line class="grid-line" x1="630" y1="450" x2="1290" y2="450"/>
+  <line class="grid-line" x1="630" y1="600" x2="1290" y2="600"/>
+
+  <!-- Nodes (factions) -->
+  <circle cx="700" cy="300" r="8" fill="#ffcc00" stroke="#cc6600" stroke-width="2"/>
+  <text class="label-text" x="690" y="325">Stonewater</text>
+
+  <circle cx="850" cy="450" r="8" fill="#ffcc00" stroke="#cc6600" stroke-width="2"/>
+  <text class="label-text" x="830" y="475">Skyreach</text>
+
+  <circle cx="1000" cy="600" r="8" fill="#ffcc00" stroke="#cc6600" stroke-width="2"/>
+  <text class="label-text" x="980" y="625">Grassland</text>
+
+  <circle cx="750" cy="600" r="8" fill="#ffcc00" stroke="#cc6600" stroke-width="2"/>
+  <text class="label-text" x="730" y="625">Riverside</text>
+
+  <!-- Trade route flows -->
+  <line class="flow-line" x1="700" y1="300" x2="850" y2="450" stroke-width="3"/>
+  <text class="label-text" x="750" y="360">Obsidian</text>
+
+  <line class="flow-line-2" x1="850" y1="450" x2="1000" y2="600" stroke-width="2"/>
+  <text class="label-text" x="900" y="510">Grain</text>
+
+  <line class="flow-line" x1="700" y1="300" x2="750" y2="600" stroke-width="4"/>
+  <text class="label-text" x="700" y="450">Copper</text>
+
+  <!-- Currency label on line -->
+  <text class="label-text" x="870" y="370">(Aurora)</text>
+  <text class="label-text" x="920" y="530">(Markstone)</text>
+
+  <!-- RIGHT PANE: Per-faction economy -->
+  <rect class="panel" x="1310" y="120" width="600" height="700"/>
+  <text class="title-text" x="1320" y="145">FACTION ECONOMY (Stonewater)</text>
+
+  <text class="label-text" x="1320" y="175">Polanyi Mode Dominance:</text>
+  <rect x="1320" y="180" width="580" height="50" fill="#fff" stroke="#666" stroke-width="1"/>
+  <rect x="1320" y="180" width="350" height="15" fill="#ff9999" stroke="none"/>
+  <text class="label-text" x="1330" y="193">Market: 61%</text>
+
+  <rect x="1320" y="198" width="110" height="15" fill="#99ff99" stroke="none"/>
+  <text class="label-text" x="1330" y="211">Redistr: 18%</text>
+
+  <rect x="1433" y="198" width="100" height="15" fill="#9999ff" stroke="none"/>
+  <text class="label-text" x="1443" y="211">Recipr: 21%</text>
+
+  <text class="label-text" x="1320" y="255">Active Currencies:</text>
+  <text class="label-text" x="1330" y="275">- Aurora (42% of trades)</text>
+  <text class="label-text" x="1330" y="295">- Markstone (28% of trades)</text>
+  <text class="label-text" x="1330" y="315">- Coinage (18% of trades)</text>
+  <text class="label-text" x="1330" y="335">- Wavetoken (12% of trades)</text>
+
+  <text class="label-text" x="1320" y="375">Top 10 Held Material Stacks (by value):</text>
+  <rect x="1320" y="380" width="580" height="210" fill="#fff" stroke="#666" stroke-width="1"/>
+
+  <text class="label-text" x="1330" y="400">1. Obsidian: 4,520 units (value: 226k Aurora)</text>
+  <text class="label-text" x="1330" y="420">2. Copper: 12,300 units (value: 184k Aurora)</text>
+  <text class="label-text" x="1330" y="440">3. Grain: 28,400 units (value: 156k Aurora)</text>
+  <text class="label-text" x="1330" y="460">4. Fish: 8,900 units (value: 89k Aurora)</text>
+  <text class="label-text" x="1330" y="480">5. Timber: 15,600 units (value: 78k Aurora)</text>
+  <text class="label-text" x="1330" y="500">6. Stone: 62,100 units (value: 62k Aurora)</text>
+  <text class="label-text" x="1330" y="520">7. Flint: 1,240 units (value: 62k Aurora)</text>
+  <text class="label-text" x="1330" y="540">8. Clay: 44,700 units (value: 45k Aurora)</text>
+  <text class="label-text" x="1330" y="560">9. Herb: 3,350 units (value: 27k Aurora)</text>
+  <text class="label-text" x="1330" y="580">10. Ore (Iron): 2,100 units (value: 21k Aurora)</text>
+
+  <!-- Bottom: Anomalies list -->
+  <rect class="panel" x="10" y="830" width="1900" height="230"/>
+  <text class="title-text" x="20" y="855">ANOMALIES &amp; SUPPLY SHOCKS</text>
+
+  <rect x="20" y="870" width="1880" height="170" fill="#fff" stroke="#666" stroke-width="1"/>
+
+  <text class="label-text" x="30" y="895">1. OBSIDIAN PRICE SPIKE — t=8321-8420 | Stonewater | +400% in 30 ticks</text>
+  <text class="label-text" x="50" y="915">Cause: Regional supply collapse at mining node 7 (volcanic cooling). Demand steady. Recovered after node 12 reopened.</text>
+
+  <text class="label-text" x="30" y="945">2. GRAIN FLOOD — t=8800-8850 | Grassland | -28% price, +180% volume</text>
+  <text class="label-text" x="50" y="965">Cause: Unusually wet season (precipitation anomaly). Surplus offloaded via new trade route to Riverside. Mode shift to Market (+5%).</text>
+
+  <text class="label-text" x="30" y="995">3. CURRENCY COLLAPSE — t=9100 | Coinage (Skyreach) | -67% adoption in 1 tick</text>
+  <text class="label-text" x="50" y="1015">Cause: Faction schism event; rival group coined Wavetoken. Aurora remains stable (arbitrage flows normalized by t=9150).</text>
+
+</svg>

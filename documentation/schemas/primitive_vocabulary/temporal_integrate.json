@@ -1,0 +1,54 @@
+{
+  "id": "temporal_integrate",
+  "category": "spatial_integration",
+  "description": "Accumulates sensory signals over time windows for pattern recognition and memory. Enables learning of predator signatures, prey movement prediction, and temporal reasoning.",
+  "parameter_schema": {
+    "window_s": {
+      "type": "number",
+      "range": {
+        "min": 0.1,
+        "max": 3600
+      },
+      "units": "seconds",
+      "default": 5
+    },
+    "retention_confidence": {
+      "type": "number",
+      "range": {
+        "min": 0,
+        "max": 1
+      },
+      "units": "dimensionless",
+      "default": 0.8
+    }
+  },
+  "composition_compatibility": [
+    {
+      "channel_family": "cognitive"
+    },
+    {
+      "channel_family": "sensory"
+    }
+  ],
+  "cost_function": {
+    "base_metabolic_cost": 1.5,
+    "parameter_scaling": [
+      {
+        "parameter": "window_s",
+        "exponent": 0.6,
+        "coefficient": 0.1
+      },
+      {
+        "parameter": "retention_confidence",
+        "exponent": 1.5,
+        "coefficient": 0.4
+      }
+    ]
+  },
+  "observable_signature": {
+    "modality": "behavioral",
+    "detection_range_m": 0,
+    "pattern_key": "temporal_memory_v1"
+  },
+  "provenance": "core"
+}

@@ -1,0 +1,52 @@
+{
+  "id": "form_host_attachment",
+  "category": "bond_formation",
+  "description": "Establishes parasitic or commensal attachment to host organism. Coupling sign determines benefit direction (negative=parasite, positive=mutualist); magnitude specifies intimacy and metabolic integration.",
+  "parameter_schema": {
+    "coupling_sign": {
+      "type": "number",
+      "range": {
+        "min": -1,
+        "max": 1
+      },
+      "units": "dimensionless",
+      "default": -0.5
+    },
+    "coupling_magnitude": {
+      "type": "number",
+      "range": {
+        "min": 0,
+        "max": 1
+      },
+      "units": "dimensionless",
+      "default": 0.6
+    },
+    "attachment_site": {
+      "type": "string"
+    }
+  },
+  "composition_compatibility": [
+    {
+      "channel_family": "social"
+    },
+    {
+      "channel_family": "metabolic"
+    }
+  ],
+  "cost_function": {
+    "base_metabolic_cost": 0.2,
+    "parameter_scaling": [
+      {
+        "parameter": "coupling_magnitude",
+        "exponent": 2.0,
+        "coefficient": 0.3
+      }
+    ]
+  },
+  "observable_signature": {
+    "modality": "topological",
+    "detection_range_m": 0,
+    "pattern_key": "host_attachment_v1"
+  },
+  "provenance": "core"
+}

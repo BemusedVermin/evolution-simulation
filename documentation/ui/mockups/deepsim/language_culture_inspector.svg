@@ -1,0 +1,198 @@
+<svg viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      text { font-family: monospace; font-size: 12px; }
+      .panel { fill: #f5f5f5; stroke: #333; stroke-width: 1; }
+      .chart-bg { fill: #fff; stroke: #666; stroke-width: 1; }
+      .tree-node { fill: #ccddff; stroke: #0066cc; stroke-width: 1; }
+      .tree-node-active { fill: #99ff99; stroke: #00cc00; stroke-width: 2; }
+      .heatmap-cold { fill: #3366ff; }
+      .heatmap-warm { fill: #ffaa00; }
+      .heatmap-hot { fill: #ff3333; }
+      .axis-line { stroke: #333; stroke-width: 1; }
+      .grid-line { stroke: #ddd; stroke-width: 0.5; stroke-dasharray: 2,2; }
+      .label-text { font-size: 11px; fill: #333; }
+      .title-text { font-size: 14px; font-weight: bold; fill: #000; }
+      .legend-text { font-size: 10px; fill: #555; }
+      .phoneme-text { font-size: 9px; fill: #000; }
+      .coined-term { font-size: 10px; fill: #003399; font-weight: bold; }
+      .normal-text { font-size: 10px; fill: #333; }
+    </style>
+    <title>Language &amp; Culture Inspector</title>
+    <desc>Linguistic/cultural drift viewer tracking phoneme inventory, coined terms, ritual repertoire, and emergent songs. Sources: Chronicler (labels, drift events, songs), Language Module (phoneme drift, Axelrod transmission, dialect divergence).</desc>
+  </defs>
+
+  <!-- Top title bar -->
+  <rect x="0" y="0" width="1920" height="50" fill="#e0e0e0" stroke="#333" stroke-width="1"/>
+  <text class="title-text" x="10" y="30">LANGUAGE &amp; CULTURE INSPECTOR</text>
+
+  <!-- LEFT PANEL: Faction tree picker -->
+  <rect class="panel" x="10" y="60" width="240" height="990"/>
+  <text class="title-text" x="20" y="85">FACTIONS</text>
+
+  <!-- Faction tree -->
+  <rect class="tree-node-active" x="20" y="100" width="220" height="24"/>
+  <text class="label-text" x="30" y="118">Stonewater (Root)</text>
+
+  <line x1="30" y1="124" x2="30" y2="144"/>
+  <line x1="30" y1="144" x2="50" y2="144"/>
+
+  <rect class="tree-node" x="50" y="140" width="190" height="20"/>
+  <text class="label-text" x="60" y="155">Skyreach (splinter, t=5200)</text>
+
+  <line x1="60" y1="160" x2="60" y2="175"/>
+  <line x1="60" y1="175" x2="80" y2="175"/>
+
+  <rect class="tree-node" x="80" y="172" width="160" height="18"/>
+  <text class="label-text" x="90" y="185">Cloud Sect (drift, t=7100)</text>
+
+  <line x1="30" y1="124" x2="30" y2="220"/>
+  <line x1="30" y1="220" x2="50" y2="220"/>
+
+  <rect class="tree-node" x="50" y="216" width="190" height="20"/>
+  <text class="label-text" x="60" y="231">Riverside (coastal branch)</text>
+
+  <line x1="30" y1="124" x2="30" y2="290"/>
+  <line x1="30" y1="290" x2="50" y2="290"/>
+
+  <rect class="tree-node" x="50" y="286" width="190" height="20"/>
+  <text class="label-text" x="60" y="301">Grassland (nomadic off-shoot)</text>
+
+  <text class="label-text" x="20" y="330">Selected: Stonewater</text>
+  <text class="legend-text" x="20" y="350">Pop: 3,247</text>
+  <text class="legend-text" x="20" y="365">Age: 9,871 ticks</text>
+  <text class="legend-text" x="20" y="380">Phonemes: 31</text>
+  <text class="legend-text" x="20" y="395">Coined terms: 8</text>
+  <text class="legend-text" x="20" y="410">Tech lost (Tasmanian): 3</text>
+
+  <!-- MAIN UPPER PANE: Phoneme drift heatmap -->
+  <rect class="panel" x="260" y="60" width="1650" height="350"/>
+  <text class="title-text" x="270" y="85">PHONEME INVENTORY DRIFT: Stonewater vs Neighbor (Skyreach)</text>
+
+  <text class="label-text" x="270" y="110">Rows = Stonewater phonemes; Cols = Skyreach phonemes. Heat = frequency correlation.</text>
+
+  <rect class="chart-bg" x="270" y="125" width="1630" height="260"/>
+
+  <!-- Phoneme labels (simplified) -->
+  <text class="phoneme-text" x="240" y="155">/p/</text>
+  <text class="phoneme-text" x="240" y="175">/b/</text>
+  <text class="phoneme-text" x="240" y="195">/t/</text>
+  <text class="phoneme-text" x="240" y="215">/d/</text>
+  <text class="phoneme-text" x="240" y="235">/k/</text>
+  <text class="phoneme-text" x="240" y="255">/a/</text>
+  <text class="phoneme-text" x="240" y="275">/e/</text>
+
+  <text class="phoneme-text" x="290" y="115">/p/</text>
+  <text class="phoneme-text" x="310" y="115">/b/</text>
+  <text class="phoneme-text" x="330" y="115">/t/</text>
+  <text class="phoneme-text" x="350" y="115">/d/</text>
+  <text class="phoneme-text" x="370" y="115">/k/</text>
+  <text class="phoneme-text" x="390" y="115">/a/</text>
+  <text class="phoneme-text" x="410" y="115">/e/</text>
+
+  <!-- Heatmap blocks -->
+  <rect class="heatmap-hot" x="290" y="150" width="15" height="15"/>
+  <rect class="heatmap-warm" x="310" y="150" width="15" height="15"/>
+  <rect class="heatmap-cold" x="330" y="150" width="15" height="15"/>
+
+  <rect class="heatmap-warm" x="290" y="170" width="15" height="15"/>
+  <rect class="heatmap-hot" x="310" y="170" width="15" height="15"/>
+  <rect class="heatmap-cold" x="330" y="170" width="15" height="15"/>
+
+  <rect class="heatmap-cold" x="290" y="190" width="15" height="15"/>
+  <rect class="heatmap-warm" x="310" y="190" width="15" height="15"/>
+  <rect class="heatmap-hot" x="330" y="190" width="15" height="15"/>
+
+  <rect class="heatmap-warm" x="290" y="210" width="15" height="15"/>
+  <rect class="heatmap-cold" x="310" y="210" width="15" height="15"/>
+  <rect class="heatmap-warm" x="330" y="210" width="15" height="15"/>
+
+  <!-- Drift annotation -->
+  <text class="legend-text" x="270" y="350">/p/-/b/ correlation declining (drift separation). /k/ shows high stability (Axelrod constraint).</text>
+
+  <!-- MAIN LOWER PANE: Coined terms list -->
+  <rect class="panel" x="260" y="420" width="1650" height="320"/>
+  <text class="title-text" x="270" y="445">COINED TERMS (overrides Chronicler default labels)</text>
+
+  <rect class="chart-bg" x="270" y="460" width="1630" height="260"/>
+
+  <!-- Coined term rows -->
+  <text class="coined-term" x="280" y="485">kalt-sho</text>
+  <text class="normal-text" x="380" y="485">(overrides: "bitter_water") | Coined t=8200</text>
+  <text class="normal-text" x="750" y="485">Speakers: 847/3247 (26%) | Transmission:</text>
+
+  <text class="coined-term" x="280" y="510">vren-mark</text>
+  <text class="normal-text" x="380" y="510">(overrides: "sky_ritual") | Coined t=8650</text>
+  <text class="normal-text" x="750" y="510">Speakers: 1,204/3247 (37%) | Transmission: [micro-graph]</text>
+
+  <text class="coined-term" x="280" y="535">thok-vel</text>
+  <text class="normal-text" x="380" y="535">(overrides: "stone_kin") | Coined t=7920</text>
+  <text class="normal-text" x="750" y="535">Speakers: 612/3247 (19%) | Transmission: [micro-graph]</text>
+
+  <text class="coined-term" x="280" y="560">shiir-dawn</text>
+  <text class="normal-text" x="380" y="560">(overrides: "dawn_hunt") | Coined t=9100</text>
+  <text class="normal-text" x="750" y="560">Speakers: 2,156/3247 (66%) | Transmission: [micro-graph] (rapid)</text>
+
+  <text class="coined-term" x="280" y="585">plo-shard</text>
+  <text class="normal-text" x="380" y="585">(overrides: "obsidian") | Coined t=8400</text>
+  <text class="normal-text" x="750" y="585">Speakers: 1,890/3247 (58%) | Transmission: [micro-graph]</text>
+
+  <text class="normal-text" x="280" y="610">[...5 more terms]</text>
+
+  <!-- RIGHT PANEL: Ritual &amp; Tech repertoire -->
+  <rect class="panel" x="1630" y="60" width="280" height="680"/>
+  <text class="title-text" x="1640" y="85">RITUALS &amp; TECH</text>
+
+  <text class="label-text" x="1640" y="115">Ritual Repertoire:</text>
+  <rect x="1640" y="120" width="260" height="140" fill="#fff" stroke="#666" stroke-width="1"/>
+  <text class="normal-text" x="1650" y="140">- Hunt Opening (daily)</text>
+  <text class="normal-text" x="1650" y="160">- Kin Bonding (weekly)</text>
+  <text class="normal-text" x="1650" y="180">- Stone Offering (quarterly)</text>
+  <text class="normal-text" x="1650" y="200">- Ancestor Recall (seasonal)</text>
+  <text class="normal-text" x="1650" y="220">- Sky Petition (on eclipse)</text>
+  <text class="normal-text" x="1650" y="240">+ 3 unknown local rituals</text>
+
+  <text class="label-text" x="1640" y="280">Tech Known vs Lost:</text>
+  <rect x="1640" y="285" width="260" height="180" fill="#fff" stroke="#666" stroke-width="1"/>
+  <text class="normal-text" x="1650" y="305">Known (18):</text>
+  <text class="normal-text" x="1660" y="320">- Fire (stable, t=-infinity)</text>
+  <text class="normal-text" x="1660" y="335">- Flint knapping (stable)</text>
+  <text class="normal-text" x="1660" y="350">- Bone tool (t=2100)</text>
+  <text class="normal-text" x="1660" y="365">- Weaving (t=4800)</text>
+  <text class="normal-text" x="1660" y="380">+ 14 more...</text>
+
+  <text class="normal-text" x="1650" y="410">Lost (3) [Tasmanian effect]:</text>
+  <text class="normal-text" x="1660" y="425" fill="#cc6600">- Archery (lost t=6200)</text>
+  <text class="normal-text" x="1660" y="440" fill="#cc6600">- Ceramic (lost t=7450)</text>
+  <text class="normal-text" x="1660" y="455" fill="#cc6600">- Sailing (lost t=8100)</text>
+
+  <text class="label-text" x="1640" y="490">Naming System:</text>
+  <text class="normal-text" x="1650" y="510">Pattern: [Ritual]-[Kin]-[Site]</text>
+  <text class="normal-text" x="1650" y="525">Example: Vren-Sho-Peak</text>
+  <text class="normal-text" x="1650" y="540">(Sky ceremony, mother clan,</text>
+  <text class="normal-text" x="1650" y="555">north ridge)</text>
+
+  <!-- BOTTOM: Song/Story reader -->
+  <rect class="panel" x="10" y="790" width="1910" height="270"/>
+  <text class="title-text" x="20" y="815">EMERGENT SONG / STORY READER</text>
+
+  <text class="label-text" x="20" y="845">Song: "Kalt-sho Memoria" | Chronicler ID: SNG-4427 | Composed t=8850 | Faction: Stonewater</text>
+
+  <rect x="20" y="860" width="920" height="180" fill="#fff" stroke="#666" stroke-width="1"/>
+  <text class="label-text" x="30" y="880">STONEWATER DIALECT (phonetic transcription):</text>
+  <text class="normal-text" x="30" y="900">Kalt-sho vel, thok-mark </text>
+  <text class="normal-text" x="30" y="920">Shiir vel plo-shun kren, </text>
+  <text class="normal-text" x="30" y="940">Vren-dawn, kren-vel-ko, </text>
+  <text class="normal-text" x="30" y="960">Throk-sha, pla-va kren-vel...</text>
+
+  <rect x="970" y="860" width="920" height="180" fill="#fff" stroke="#666" stroke-width="1"/>
+  <text class="label-text" x="980" y="880">PLAYER LANGUAGE TRANSLATION:</text>
+  <text class="normal-text" x="980" y="900">Bitter water flows, stone kin returns</text>
+  <text class="normal-text" x="980" y="920">Dawn light breaks the sacred stone,</text>
+  <text class="normal-text" x="980" y="940">Sky ritual, sacred bond,</text>
+  <text class="normal-text" x="980" y="960">Stone whispers, deep-earth memory...</text>
+
+  <text class="label-text" x="20" y="1055">[Previous Song] [Pause/Play] [Next Song] [Save] [Linguistic Notes] | This song documents Stonewater's spiritual connection to geology</text>
+  <text class="label-text" x="20" y="1075">and water, with heavy repetition of /k/ and /th/ phonemes (drift signature: stability in stop consonants, high salience).</text>
+
+</svg>

@@ -1,0 +1,57 @@
+{
+  "id": "absorb_substance",
+  "category": "mass_transfer",
+  "description": "Selectively absorbs substances from environment (water, soil, food, toxins). Enables nutrient uptake, toxin sequestration, and chemical-based metabolism. Low baseline cost; selectivity tunes efficacy.",
+  "parameter_schema": {
+    "substance_id": {
+      "type": "string"
+    },
+    "rate_ml_per_s": {
+      "type": "number",
+      "range": {
+        "min": 0.001,
+        "max": 10
+      },
+      "units": "ml/second",
+      "default": 0.1
+    },
+    "selectivity": {
+      "type": "number",
+      "range": {
+        "min": 0,
+        "max": 1
+      },
+      "units": "dimensionless",
+      "default": 0.8
+    }
+  },
+  "composition_compatibility": [
+    {
+      "channel_family": "metabolic"
+    },
+    {
+      "channel_family": "sensory"
+    }
+  ],
+  "cost_function": {
+    "base_metabolic_cost": 0.5,
+    "parameter_scaling": [
+      {
+        "parameter": "rate_ml_per_s",
+        "exponent": 1.0,
+        "coefficient": 0.2
+      },
+      {
+        "parameter": "selectivity",
+        "exponent": 2.0,
+        "coefficient": 0.1
+      }
+    ]
+  },
+  "observable_signature": {
+    "modality": "chemical",
+    "detection_range_m": 0,
+    "pattern_key": "absorption_v1"
+  },
+  "provenance": "core"
+}

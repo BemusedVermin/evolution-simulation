@@ -1,0 +1,54 @@
+{
+  "id": "elevate_metabolic_rate",
+  "category": "energy_modulation",
+  "description": "Temporarily elevates metabolic rate for burst speed, heat generation, or cognitive load. Multiplier and duration adjustable. Cost scales superlinearly with multiplier.",
+  "parameter_schema": {
+    "multiplier": {
+      "type": "number",
+      "range": {
+        "min": 1,
+        "max": 5
+      },
+      "units": "dimensionless",
+      "default": 2
+    },
+    "duration_s": {
+      "type": "number",
+      "range": {
+        "min": 1,
+        "max": 3600
+      },
+      "units": "seconds",
+      "default": 30
+    }
+  },
+  "composition_compatibility": [
+    {
+      "channel_family": "metabolic"
+    },
+    {
+      "channel_family": "regulatory"
+    }
+  ],
+  "cost_function": {
+    "base_metabolic_cost": 1.0,
+    "parameter_scaling": [
+      {
+        "parameter": "multiplier",
+        "exponent": 2.0,
+        "coefficient": 1.5
+      },
+      {
+        "parameter": "duration_s",
+        "exponent": 1.0,
+        "coefficient": 0.01
+      }
+    ]
+  },
+  "observable_signature": {
+    "modality": "thermal",
+    "detection_range_m": 50,
+    "pattern_key": "metabolic_burst_v1"
+  },
+  "provenance": "core"
+}

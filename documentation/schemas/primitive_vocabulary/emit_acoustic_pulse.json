@@ -1,0 +1,66 @@
+{
+  "id": "emit_acoustic_pulse",
+  "category": "signal_emission",
+  "description": "Emits a directional acoustic pulse at specified frequency and amplitude. Core mechanism for vocalization, echolocation, and long-range signaling.",
+  "parameter_schema": {
+    "frequency_hz": {
+      "type": "number",
+      "range": {
+        "min": 20,
+        "max": 200000
+      },
+      "units": "Hz",
+      "default": 5000
+    },
+    "amplitude_db": {
+      "type": "number",
+      "range": {
+        "min": 20,
+        "max": 180
+      },
+      "units": "dB",
+      "default": 80
+    },
+    "directionality": {
+      "type": "number",
+      "range": {
+        "min": 0,
+        "max": 1
+      },
+      "units": "dimensionless",
+      "default": 0.5
+    }
+  },
+  "composition_compatibility": [
+    {
+      "channel_family": "motor"
+    },
+    {
+      "channel_family": "cognitive"
+    },
+    {
+      "channel_id": "vocal_modulation"
+    }
+  ],
+  "cost_function": {
+    "base_metabolic_cost": 2.5,
+    "parameter_scaling": [
+      {
+        "parameter": "amplitude_db",
+        "exponent": 1.5,
+        "coefficient": 0.01
+      },
+      {
+        "parameter": "directionality",
+        "exponent": 1.0,
+        "coefficient": 0.3
+      }
+    ]
+  },
+  "observable_signature": {
+    "modality": "acoustic",
+    "detection_range_m": 500,
+    "pattern_key": "acoustic_pulse_v1"
+  },
+  "provenance": "core"
+}

@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .bg-panel { fill: #2a2a2a; }
+      .panel { fill: #353535; stroke: #505050; stroke-width: 1; }
+      .header-text { font-family: Arial, sans-serif; font-size: 20px; font-weight: bold; fill: #d0d0d0; }
+      .section-text { font-family: Arial, sans-serif; font-size: 16px; font-weight: bold; fill: #c0c0c0; }
+      .label-text { font-family: Arial, sans-serif; font-size: 13px; fill: #a0a0a0; }
+      .value-text { font-family: Arial, sans-serif; font-size: 12px; fill: #c0c0c0; }
+      .input-field { fill: #2a2a2a; stroke: #505050; stroke-width: 1; }
+      .slider { fill: #505050; stroke: #606060; stroke-width: 1; }
+      .slider-handle { fill: #ff6b35; }
+      .toggle-box { fill: #404040; stroke: #505050; stroke-width: 1; }
+      .toggle-checked { fill: #ff6b35; }
+      .btn { fill: #404040; stroke: #606060; stroke-width: 1; }
+      .btn-text { font-family: Arial, sans-serif; font-size: 14px; fill: #d0d0d0; text-anchor: middle; dominant-baseline: middle; }
+      .preview-placeholder { fill: #404040; stroke: #606060; stroke-width: 1; }
+      .impact-text { font-family: Arial, sans-serif; font-size: 11px; fill: #808080; font-style: italic; }
+    </style>
+  </defs>
+
+  <title>Seed Picker (New Game)</title>
+  <desc>Seed input with random button, world size slider, biome preview, advanced toggles, registry composition, and preview/start buttons.</desc>
+
+  <rect class="bg-panel" width="1920" height="1080"/>
+
+  <!-- Header -->
+  <text class="header-text" x="40" y="50">New Game Configuration</text>
+
+  <!-- Seed input section -->
+  <text class="section-text" x="40" y="110">World Seed</text>
+  <rect class="input-field" x="40" y="130" width="400" height="40"/>
+  <text class="label-text" x="60" y="157">a7f2e1d3-9c7b-4f2a</text>
+
+  <rect class="btn" x="450" y="130" width="80" height="40"/>
+  <text class="btn-text" x="490" y="150">Dice</text>
+
+  <!-- World size section -->
+  <text class="section-text" x="40" y="230">World Size</text>
+  <rect class="slider" x="40" y="250" width="500" height="20"/>
+  <circle class="slider-handle" cx="290" cy="260" r="8"/>
+  <text class="label-text" x="40" y="285">Small (256×256)</text>
+  <text class="label-text" x="290" y="285">Medium (512×512) [selected]</text>
+  <text class="label-text" x="550" y="285">Large (1024×1024)</text>
+  <text class="impact-text" x="40" y="310">~40,000 agents | ~2GB initial memory</text>
+
+  <!-- Starting biome preview -->
+  <text class="section-text" x="40" y="360">Starting Biome Preview</text>
+  <rect class="preview-placeholder" x="40" y="380" width="500" height="250"/>
+  <text class="label-text" x="290" y="550" text-anchor="middle">Biome Terrain Render Placeholder</text>
+
+  <!-- Advanced toggles (left column) -->
+  <text class="section-text" x="620" y="110">Advanced Configuration</text>
+
+  <rect class="toggle-box" x="620" y="135" width="16" height="16"/>
+  <rect class="toggle-checked" x="620" y="135" width="16" height="16"/>
+  <text class="label-text" x="650" y="147">High Mutation Rate (1.5x)</text>
+
+  <rect class="toggle-box" x="620" y="165" width="16" height="16"/>
+  <text class="label-text" x="650" y="177">High Channel Genesis (2.0x)</text>
+
+  <rect class="toggle-box" x="620" y="195" width="16" height="16"/>
+  <text class="label-text" x="650" y="207">High Primitive Genesis (disabled)</text>
+
+  <rect class="toggle-box" x="620" y="225" width="16" height="16"/>
+  <rect class="toggle-checked" x="620" y="225" width="16" height="16"/>
+  <text class="label-text" x="650" y="237">Climate Variability (High)</text>
+
+  <!-- Technology start era -->
+  <text class="label-text" x="620" y="280">Technology Start Era:</text>
+  <rect class="input-field" x="620" y="295" width="200" height="30"/>
+  <text class="value-text" x="635" y="315">Medieval (default)</text>
+
+  <!-- Starting population -->
+  <text class="label-text" x="620" y="360">Starting Sapient Population:</text>
+  <rect class="input-field" x="620" y="375" width="200" height="30"/>
+  <text class="value-text" x="635" y="395">1,000</text>
+
+  <!-- Registry composition section -->
+  <text class="section-text" x="1000" y="110">Registry Composition</text>
+
+  <rect class="toggle-box" x="1000" y="135" width="16" height="16"/>
+  <rect class="toggle-checked" x="1000" y="135" width="16" height="16"/>
+  <text class="label-text" x="1030" y="147">Core Channels</text>
+
+  <rect class="toggle-box" x="1000" y="165" width="16" height="16"/>
+  <rect class="toggle-checked" x="1000" y="165" width="16" height="16"/>
+  <text class="label-text" x="1030" y="177">Extended Creatures Pack</text>
+
+  <rect class="toggle-box" x="1000" y="195" width="16" height="16"/>
+  <rect class="toggle-checked" x="1000" y="195" width="16" height="16"/>
+  <text class="label-text" x="1030" y="207">Biome Expansion v1.2.0</text>
+
+  <rect class="toggle-box" x="1000" y="225" width="16" height="16"/>
+  <text class="label-text" x="1030" y="237">Exotic Mutations (opt-in)</text>
+
+  <rect class="toggle-box" x="1000" y="255" width="16" height="16"/>
+  <rect class="toggle-checked" x="1000" y="255" width="16" height="16"/>
+  <text class="label-text" x="1030" y="267">Climate System</text>
+
+  <!-- Preview simulation & start game buttons -->
+  <rect class="btn" x="40" y="900" width="240" height="50"/>
+  <text class="btn-text" x="160" y="925">Preview Simulation</text>
+
+  <rect class="btn" x="1680" y="900" width="240" height="50"/>
+  <text class="btn-text" x="1800" y="925">Start Game</text>
+
+  <!-- Status line -->
+  <text class="label-text" x="40" y="1010">Config ready. Estimated load time: ~3 seconds.</text>
+</svg>

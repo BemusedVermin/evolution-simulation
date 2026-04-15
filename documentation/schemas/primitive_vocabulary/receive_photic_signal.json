@@ -1,0 +1,67 @@
+{
+  "id": "receive_photic_signal",
+  "category": "signal_reception",
+  "description": "Passively receives light signals across specified wavelength bands. Enables vision, color discrimination, and light-based navigation. Low metabolic cost (passive sensing).",
+  "parameter_schema": {
+    "wavelength_min_nm": {
+      "type": "number",
+      "range": {
+        "min": 300,
+        "max": 1000
+      },
+      "units": "nm",
+      "default": 400
+    },
+    "wavelength_max_nm": {
+      "type": "number",
+      "range": {
+        "min": 300,
+        "max": 1000
+      },
+      "units": "nm",
+      "default": 700
+    },
+    "sensitivity": {
+      "type": "number",
+      "range": {
+        "min": 0,
+        "max": 1
+      },
+      "units": "dimensionless",
+      "default": 0.7
+    },
+    "resolution": {
+      "type": "number",
+      "range": {
+        "min": 0.01,
+        "max": 10
+      },
+      "units": "degrees",
+      "default": 1
+    }
+  },
+  "composition_compatibility": [
+    {
+      "channel_family": "sensory"
+    },
+    {
+      "channel_family": "cognitive"
+    }
+  ],
+  "cost_function": {
+    "base_metabolic_cost": 0.4,
+    "parameter_scaling": [
+      {
+        "parameter": "resolution",
+        "exponent": -1.2,
+        "coefficient": 0.5
+      }
+    ]
+  },
+  "observable_signature": {
+    "modality": "visual",
+    "detection_range_m": 0,
+    "pattern_key": "photic_reception_v1"
+  },
+  "provenance": "core"
+}

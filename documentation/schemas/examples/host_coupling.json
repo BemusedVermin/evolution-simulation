@@ -1,0 +1,41 @@
+{
+  "id": "host_coupling",
+  "family": "social",
+  "description": "Strength of symbiotic/parasitic bonding between pathogen and host cell, normalized 0-1. Core channel for pathogen-scale micro organisms.",
+  "range": {
+    "min": 0,
+    "max": 1,
+    "units": "dimensionless"
+  },
+  "mutation_kernel": {
+    "sigma": 0.18,
+    "bounds_policy": "clamp",
+    "genesis_weight": 1.5,
+    "correlation_with": [
+      {
+        "channel": "metabolic_rate",
+        "coefficient": 0.5
+      }
+    ]
+  },
+  "composition_hooks": [
+    {
+      "with": "metabolic_rate",
+      "kind": "additive",
+      "coefficient": 0.2
+    }
+  ],
+  "expression_conditions": [
+    {
+      "kind": "scale_band",
+      "min_kg": 1e-15,
+      "max_kg": 1e-03
+    }
+  ],
+  "scale_band": {
+    "min_kg": 1e-15,
+    "max_kg": 1e-03
+  },
+  "body_site_applicable": true,
+  "provenance": "core"
+}

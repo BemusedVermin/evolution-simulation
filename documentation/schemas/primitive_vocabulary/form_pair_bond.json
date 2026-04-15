@@ -1,0 +1,54 @@
+{
+  "id": "form_pair_bond",
+  "category": "bond_formation",
+  "description": "Establishes emotional/behavioral pair bond with another individual for mating, cooperation, or kin coordination. Strength and expected duration determine investment and behavioral commitment.",
+  "parameter_schema": {
+    "strength": {
+      "type": "number",
+      "range": {
+        "min": 0,
+        "max": 1
+      },
+      "units": "dimensionless",
+      "default": 0.7
+    },
+    "duration_days_expected": {
+      "type": "number",
+      "range": {
+        "min": 1,
+        "max": 3650
+      },
+      "units": "days",
+      "default": 100
+    }
+  },
+  "composition_compatibility": [
+    {
+      "channel_family": "social"
+    },
+    {
+      "channel_family": "reproductive"
+    }
+  ],
+  "cost_function": {
+    "base_metabolic_cost": 0.3,
+    "parameter_scaling": [
+      {
+        "parameter": "strength",
+        "exponent": 1.5,
+        "coefficient": 0.5
+      },
+      {
+        "parameter": "duration_days_expected",
+        "exponent": 0.5,
+        "coefficient": 0.002
+      }
+    ]
+  },
+  "observable_signature": {
+    "modality": "behavioral",
+    "detection_range_m": 500,
+    "pattern_key": "pair_bond_v1"
+  },
+  "provenance": "core"
+}

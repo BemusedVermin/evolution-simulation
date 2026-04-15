@@ -1,0 +1,47 @@
+{
+  "id": "auditory_sensitivity",
+  "family": "sensory",
+  "description": "Hearing perception threshold in decibels. Lower values indicate greater sensitivity; represents the quietest sound the organism can detect.",
+  "range": {
+    "min": 20,
+    "max": 100,
+    "units": "dB"
+  },
+  "mutation_kernel": {
+    "sigma": 0.08,
+    "bounds_policy": "clamp",
+    "genesis_weight": 1.2,
+    "correlation_with": [
+      {
+        "channel": "vocal_modulation",
+        "coefficient": 0.6
+      }
+    ]
+  },
+  "composition_hooks": [
+    {
+      "with": "spatial_cognition",
+      "kind": "threshold",
+      "coefficient": 1.0,
+      "threshold": 0.5
+    },
+    {
+      "with": "vocal_modulation",
+      "kind": "threshold",
+      "coefficient": 0.8,
+      "threshold": 0.4
+    }
+  ],
+  "expression_conditions": [
+    {
+      "kind": "biome_flag",
+      "flag": "complex_soundscape"
+    }
+  ],
+  "scale_band": {
+    "min_kg": 0.01,
+    "max_kg": 1000
+  },
+  "body_site_applicable": true,
+  "provenance": "core"
+}

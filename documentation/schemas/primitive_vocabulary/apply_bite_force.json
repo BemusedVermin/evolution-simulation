@@ -1,0 +1,66 @@
+{
+  "id": "apply_bite_force",
+  "category": "force_application",
+  "description": "Applies concentrated bite force at specified magnitude and duration. Enables predation, material processing, and defensive mechanisms. Cost scales superlinearly with force.",
+  "parameter_schema": {
+    "force_newtons": {
+      "type": "number",
+      "range": {
+        "min": 10,
+        "max": 50000
+      },
+      "units": "newtons",
+      "default": 1000
+    },
+    "duration_ms": {
+      "type": "number",
+      "range": {
+        "min": 10,
+        "max": 5000
+      },
+      "units": "milliseconds",
+      "default": 200
+    },
+    "contact_area_cm2": {
+      "type": "number",
+      "range": {
+        "min": 0.1,
+        "max": 100
+      },
+      "units": "cm²",
+      "default": 5
+    }
+  },
+  "composition_compatibility": [
+    {
+      "channel_family": "motor"
+    },
+    {
+      "channel_family": "structural"
+    },
+    {
+      "channel_id": "kinetic_force"
+    }
+  ],
+  "cost_function": {
+    "base_metabolic_cost": 3.0,
+    "parameter_scaling": [
+      {
+        "parameter": "force_newtons",
+        "exponent": 1.5,
+        "coefficient": 0.002
+      },
+      {
+        "parameter": "duration_ms",
+        "exponent": 1.0,
+        "coefficient": 0.001
+      }
+    ]
+  },
+  "observable_signature": {
+    "modality": "mechanical",
+    "detection_range_m": 10,
+    "pattern_key": "bite_force_v1"
+  },
+  "provenance": "core"
+}

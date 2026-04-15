@@ -1,0 +1,164 @@
+<svg viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      body { font-family: system-ui, sans-serif; }
+      .panel { fill: #f5f5f5; stroke: #ccc; stroke-width: 2; }
+      .header { fill: #2c3e50; color: white; }
+      .label { fill: #333; font-size: 14px; font-weight: 500; }
+      .subtext { fill: #666; font-size: 12px; }
+      .accent { fill: #0099cc; }
+      .accent-text { fill: #0099cc; font-weight: 600; }
+      .toggle { fill: #ddd; stroke: #999; stroke-width: 1; }
+      .toggle-on { fill: #0099cc; }
+      .row-alt { fill: #fafafa; }
+      .chart-bar { fill: #0099cc; opacity: 0.7; }
+      .divider { stroke: #ddd; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <title>Bestiary Catalog — Species &#38; Lineage Discovery View</title>
+  <desc>Lineage catalog with Chronicler labels, primitive clusters, channel profiles, and discovered populations. Sources: PrimitiveEffect interpreter, Chronicler label assignment, channel analysis.</desc>
+
+  <!-- Top search bar -->
+  <rect x="10" y="10" width="1900" height="50" class="panel" rx="3" />
+  <text x="30" y="40" class="label">Search lineages...</text>
+
+  <!-- Filters row -->
+  <text x="30" y="75" class="label">Filters:</text>
+  <rect x="30" y="85" width="120" height="30" class="toggle" rx="3" />
+  <text x="45" y="105" class="subtext">Biome</text>
+
+  <rect x="160" y="85" width="120" height="30" class="toggle" rx="3" />
+  <text x="175" y="105" class="subtext">Trophic Role</text>
+
+  <rect x="290" y="85" width="120" height="30" class="toggle" rx="3" />
+  <text x="305" y="105" class="subtext">Sapience Range</text>
+
+  <rect x="420" y="85" width="150" height="30" class="toggle" rx="3" />
+  <text x="435" y="105" class="subtext">Discovery Date</text>
+
+  <!-- Show undiscovered toggle -->
+  <rect x="1750" y="85" width="30" height="30" class="toggle" rx="3" />
+  <text x="1795" y="105" class="subtext">Show Undiscovered</text>
+
+  <!-- LEFT PANEL: Lineage tree/list -->
+  <rect x="10" y="125" width="350" height="945" class="panel" rx="3" />
+  <text x="25" y="150" class="label" font-weight="700">Discovered Lineages</text>
+
+  <!-- Lineage entries (scrollable region) -->
+  <rect x="20" y="165" width="330" height="35" class="row-alt" rx="2" />
+  <text x="30" y="190" class="label">▸ Echolocation-Hunter α</text>
+
+  <rect x="20" y="205" width="330" height="35" rx="2" />
+  <text x="30" y="230" class="label">▸ Venom-Delivery β</text>
+
+  <rect x="20" y="245" width="330" height="35" class="row-alt" rx="2" />
+  <text x="30" y="270" class="label">▸ Pair-Bond γ</text>
+
+  <rect x="20" y="285" width="330" height="35" rx="2" />
+  <text x="30" y="310" class="label">▸ Herd-Coordination δ</text>
+
+  <rect x="20" y="325" width="330" height="35" class="row-alt" rx="2" />
+  <text x="30" y="350" class="label">▸ Parasitism ε (NEW)</text>
+
+  <!-- CENTER PANEL: Lineage detail card -->
+  <g>
+    <!-- Card background -->
+    <rect x="370" y="125" width="1200" height="945" class="panel" rx="3" />
+
+    <!-- Header -->
+    <rect x="370" y="125" width="1200" height="60" class="header" rx="3 3 0 0" />
+    <text x="390" y="155" fill="white" class="label" font-size="18" font-weight="700">Echolocation-Hunter α</text>
+    <text x="390" y="175" fill="#aaa" class="subtext">Top predator | Acoustic | 3 individuals tracked</text>
+
+    <!-- Category breakdown chips -->
+    <rect x="390" y="195" width="90" height="25" class="accent" rx="3" opacity="0.1" />
+    <text x="405" y="212" class="accent-text" font-size="12">Predator</text>
+
+    <rect x="490" y="195" width="100" height="25" class="accent" rx="3" opacity="0.1" />
+    <text x="505" y="212" class="accent-text" font-size="12">Acoustic</text>
+
+    <rect x="600" y="195" width="90" height="25" class="accent" rx="3" opacity="0.1" />
+    <text x="615" y="212" class="accent-text" font-size="12">Nocturnal</text>
+
+    <!-- Section 1: Primitive Cluster List -->
+    <text x="390" y="245" class="label" font-weight="700">Primitive Cluster Profile</text>
+    <line x1="390" y1="250" x2="1550" y2="250" class="divider" />
+
+    <text x="390" y="275" class="subtext">emit_acoustic_pulse [0.2–1.4 MHz] | n=156 events</text>
+    <rect x="390" y="283" width="120" height="8" class="chart-bar" rx="2" />
+
+    <text x="390" y="310" class="subtext">modulate_pitch [15–95 kHz] | n=89 events</text>
+    <rect x="390" y="318" width="80" height="8" class="chart-bar" rx="2" />
+
+    <text x="390" y="345" class="subtext">echo_process [latency 12–25ms] | n=201 events</text>
+    <rect x="390" y="353" width="140" height="8" class="chart-bar" rx="2" />
+
+    <!-- Section 2: Channel Profile Summary -->
+    <text x="390" y="395" class="label" font-weight="700">Channel Distribution (18 core channels)</text>
+    <line x1="390" y1="400" x2="1550" y2="400" class="divider" />
+
+    <!-- Mini bar chart rows for channels -->
+    <text x="390" y="420" class="subtext">Acoustic:</text>
+    <rect x="500" y="413" width="200" height="12" class="chart-bar" rx="2" />
+    <text x="710" y="420" class="subtext">95%</text>
+
+    <text x="390" y="445" class="subtext">Chemical:</text>
+    <rect x="500" y="438" width="40" height="12" class="chart-bar" rx="2" />
+    <text x="710" y="445" class="subtext">18%</text>
+
+    <text x="390" y="470" class="subtext">Thermal:</text>
+    <rect x="500" y="463" width="30" height="12" class="chart-bar" rx="2" />
+    <text x="710" y="470" class="subtext">12%</text>
+
+    <text x="390" y="495" class="subtext">Kinetic:</text>
+    <rect x="500" y="488" width="80" height="12" class="chart-bar" rx="2" />
+    <text x="710" y="495" class="subtext">38%</text>
+
+    <!-- Section 3: Body-site overlay -->
+    <text x="390" y="535" class="label" font-weight="700">Body-Site Channel Dominance</text>
+    <line x1="390" y1="540" x2="1550" y2="540" class="divider" />
+
+    <!-- Creature silhouette placeholder -->
+    <ellipse cx="500" cy="610" rx="30" ry="50" fill="none" stroke="#999" stroke-width="2" />
+    <circle cx="500" cy="560" r="20" fill="none" stroke="#999" stroke-width="2" />
+    <line x1="530" y1="600" x2="570" y2="610" stroke="#999" stroke-width="2" />
+    <line x1="470" y1="600" x2="430" y2="610" stroke="#999" stroke-width="2" />
+
+    <!-- Zone labels -->
+    <text x="440" y="565" class="accent-text" font-size="11">Head: Acoustic</text>
+    <text x="480" y="635" class="accent-text" font-size="11">Body: Kinetic</text>
+
+    <!-- Section 4: Ecological role -->
+    <text x="390" y="675" class="label" font-weight="700">Ecological Role</text>
+    <line x1="390" y1="680" x2="1550" y2="680" class="divider" />
+
+    <text x="390" y="705" class="subtext">Trophic Position: 4.2 (top predator)</text>
+    <text x="390" y="730" class="subtext">Primary Prey: Small fish (Prey-Hunter β), Flying insectivores</text>
+    <text x="390" y="755" class="subtext">Predators: None recorded; possibly apex in discovered regions</text>
+
+    <!-- Section 5: Known populations -->
+    <text x="390" y="795" class="label" font-weight="700">Known Populations</text>
+    <line x1="390" y1="800" x2="1550" y2="800" class="divider" />
+
+    <text x="390" y="825" class="subtext">Cavern-Deep region: 2 individuals (Ticks 2341–5012)</text>
+    <text x="390" y="850" class="subtext">Underground Lake: 1 individual (Ticks 4100–5020)</text>
+
+    <!-- Section 6: Chronicler notes -->
+    <text x="390" y="890" class="label" font-weight="700">Chronicler Notes</text>
+    <line x1="390" y1="895" x2="1550" y2="895" class="divider" />
+
+    <text x="390" y="920" class="subtext">First observed: Tick 2341 | Labeled: "Echolocation-Hunter" (recurring acoustic+kinetic cluster)</text>
+    <text x="390" y="940" class="subtext">Notable: Pair-bonding events detected Ticks 3201–3205 | Possible territoriality (3 individuals never overlap)</text>
+  </g>
+
+  <!-- RIGHT PANEL: Comparison pane -->
+  <rect x="1580" y="125" width="330" height="945" class="panel" rx="3" />
+  <text x="1595" y="150" class="label" font-weight="700">Comparison</text>
+  <text x="1595" y="180" class="subtext">(select second lineage to compare)</text>
+
+  <!-- Placeholder for comparison -->
+  <rect x="1595" y="200" width="300" height="30" class="toggle" rx="2" />
+  <text x="1610" y="220" class="subtext">+ Add lineage</text>
+
+</svg>

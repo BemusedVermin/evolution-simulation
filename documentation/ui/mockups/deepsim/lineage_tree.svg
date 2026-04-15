@@ -1,0 +1,143 @@
+<svg viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      body, text { font-family: monospace; font-size: 12px; }
+      .panel { fill: #f5f5f5; stroke: #333; stroke-width: 1; }
+      .toolbar { fill: #e0e0e0; stroke: #333; stroke-width: 1; }
+      .node { fill: #cce5ff; stroke: #0066cc; stroke-width: 2; }
+      .node-label { font-size: 10px; fill: #000; }
+      .axis-line { stroke: #666; stroke-width: 1; }
+      .tick { stroke: #666; stroke-width: 1; }
+      .grid-line { stroke: #ddd; stroke-width: 0.5; stroke-dasharray: 2,2; }
+      .hovercard { fill: #fff; stroke: #666; stroke-width: 1; }
+      .title-text { font-size: 14px; font-weight: bold; fill: #000; }
+      .legend-text { font-size: 11px; fill: #333; }
+    </style>
+    <title>Lineage Tree Inspector</title>
+    <desc>Phylogenetic viewer for population evolution, speciation, and trait divergence. Sources: Chronicler (labels, events), Genome Registry (channel profiles, primitives).</desc>
+  </defs>
+
+  <!-- Top toolbar -->
+  <rect class="toolbar" x="0" y="0" width="1920" height="50"/>
+  <text class="title-text" x="10" y="25">LINEAGE TREE INSPECTOR</text>
+  <text class="legend-text" x="400" y="25">[Search]</text>
+  <rect x="395" y="12" width="120" height="26" fill="#fff" stroke="#666" stroke-width="1"/>
+  <text class="legend-text" x="550" y="25">[Export]</text>
+  <text class="legend-text" x="650" y="25">[Zoom +/-]</text>
+
+  <!-- Left panel: filter -->
+  <rect class="panel" x="0" y="50" width="280" height="1030"/>
+  <text class="title-text" x="10" y="75">FILTERS</text>
+  <text class="legend-text" x="10" y="100">Channel:</text>
+  <rect x="10" y="105" width="260" height="20" fill="#fff" stroke="#666" stroke-width="1"/>
+  <text class="legend-text" x="15" y="120">emit_acoustic_pulse</text>
+
+  <text class="legend-text" x="10" y="150">Primitive:</text>
+  <rect x="10" y="155" width="260" height="20" fill="#fff" stroke="#666" stroke-width="1"/>
+  <text class="legend-text" x="15" y="170">sapience > 0.5</text>
+
+  <text class="legend-text" x="10" y="200">Population size:</text>
+  <rect x="10" y="205" width="260" height="20" fill="#fff" stroke="#666" stroke-width="1"/>
+  <text class="legend-text" x="15" y="220">> 10000</text>
+
+  <text class="legend-text" x="10" y="250">[Apply Filters]</text>
+
+  <!-- Main tree area -->
+  <rect class="panel" x="280" y="50" width="1360" height="800"/>
+  <text class="title-text" x="300" y="75">PHYLOGENETIC TREE (Time flow →)</text>
+
+  <!-- Axis at bottom -->
+  <line class="axis-line" x1="300" y1="800" x2="1600" y2="800"/>
+  <text class="legend-text" x="300" y="820">t=0</text>
+  <text class="legend-text" x="700" y="820">t=5000 (Era I)</text>
+  <text class="legend-text" x="1100" y="820">t=10000 (Era II)</text>
+  <text class="legend-text" x="1500" y="820">t=15000 (Era III)</text>
+
+  <!-- Placeholder tree nodes and branches -->
+  <!-- Root -->
+  <circle class="node" cx="320" cy="400" r="8"/>
+  <text class="node-label" x="315" y="405">α-00</text>
+
+  <!-- Branch 1 -->
+  <line class="axis-line" x1="320" y1="408" x2="480" y2="300"/>
+  <circle class="node" cx="480" cy="300" r="8"/>
+  <text class="node-label" x="475" y="305">α-01</text>
+
+  <!-- Branch 2 -->
+  <line class="axis-line" x1="320" y1="408" x2="480" y2="500"/>
+  <circle class="node" cx="480" cy="500" r="8"/>
+  <text class="node-label" x="475" y="505">α-02</text>
+
+  <!-- Branch 1.1 -->
+  <line class="axis-line" x1="480" y1="300" x2="700" y2="250"/>
+  <circle class="node" cx="700" cy="250" r="8"/>
+  <text class="node-label" x="695" y="255">α-03</text>
+
+  <!-- Branch 1.2 -->
+  <line class="axis-line" x1="480" y1="300" x2="700" y2="350"/>
+  <circle class="node" cx="700" cy="350" r="8"/>
+  <text class="node-label" x="695" y="355">α-04</text>
+
+  <!-- Branch 2.1 -->
+  <line class="axis-line" x1="480" y1="500" x2="800" y2="480"/>
+  <circle class="node" cx="800" cy="480" r="8"/>
+  <text class="node-label" x="795" y="485">α-05</text>
+
+  <!-- Branch 2.2 -->
+  <line class="axis-line" x1="480" y1="500" x2="800" y2="580"/>
+  <circle class="node" cx="800" cy="580" r="8"/>
+  <text class="node-label" x="795" y="585">α-06</text>
+
+  <!-- Deep branches -->
+  <line class="axis-line" x1="700" y1="250" x2="1000" y2="200"/>
+  <circle class="node" cx="1000" cy="200" r="8"/>
+  <text class="node-label" x="995" y="205">α-07</text>
+
+  <line class="axis-line" x1="800" y1="480" x2="1100" y2="450"/>
+  <circle class="node" cx="1100" cy="450" r="8"/>
+  <text class="node-label" x="1095" y="455">α-08</text>
+
+  <!-- Hover card (selected node α-07) -->
+  <rect class="hovercard" x="950" y="100" width="280" height="140"/>
+  <text class="legend-text" x="960" y="120">NODE: α-07</text>
+  <text class="legend-text" x="960" y="140">Population: 8,432</text>
+  <text class="legend-text" x="960" y="160">Channels gained: 2</text>
+  <text class="legend-text" x="960" y="180">Primitives lost: emit_light</text>
+  <text class="legend-text" x="960" y="200">Events: speciation,</text>
+  <text class="legend-text" x="960" y="220">climate shock @ t=7821</text>
+
+  <!-- Right panel: genome diff -->
+  <rect class="panel" x="1640" y="50" width="280" height="800"/>
+  <text class="title-text" x="1650" y="75">GENOME DIFF</text>
+  <text class="legend-text" x="1650" y="100">α-04 vs α-07</text>
+
+  <text class="legend-text" x="1650" y="130">CHANNELS:</text>
+  <rect x="1650" y="135" width="260" height="120" fill="#fff" stroke="#666" stroke-width="1"/>
+  <text class="legend-text" x="1660" y="155">emit_sound: +0.3</text>
+  <text class="legend-text" x="1660" y="175">herd_cohesion: -0.1</text>
+  <text class="legend-text" x="1660" y="195">territory_claim: +0.5</text>
+  <text class="legend-text" x="1660" y="215">mate_display: =0.0</text>
+  <text class="legend-text" x="1660" y="235">hunt_coord: +0.2</text>
+
+  <text class="legend-text" x="1650" y="275">PRIMITIVES:</text>
+  <rect x="1650" y="280" width="260" height="100" fill="#fff" stroke="#666" stroke-width="1"/>
+  <text class="legend-text" x="1660" y="300">+ memory_spatial</text>
+  <text class="legend-text" x="1660" y="320">+ tool_use_basic</text>
+  <text class="legend-text" x="1660" y="340">- predator_fear</text>
+  <text class="legend-text" x="1660" y="360">= vision_color</text>
+
+  <!-- Bottom scrubber / playback -->
+  <rect class="panel" x="280" y="850" width="1360" height="180"/>
+  <text class="title-text" x="300" y="875">PLAYBACK SCRUBBER (Read-only rewind to any tick)</text>
+
+  <rect x="300" y="900" width="1300" height="30" fill="#fff" stroke="#666" stroke-width="1"/>
+  <line class="axis-line" x1="300" y1="915" x2="1600" y2="915"/>
+  <circle cx="900" cy="915" r="6" fill="#cc0000" stroke="#cc0000"/>
+  <text class="legend-text" x="300" y="945">t=0</text>
+  <text class="legend-text" x="900" y="945">t=9827 (current)</text>
+  <text class="legend-text" x="1550" y="945">t=15000</text>
+
+  <text class="legend-text" x="300" y="980">Drag scrubber left to rewind; tree state updates. Events list below shows</text>
+  <text class="legend-text" x="300" y="1000">what was known at selected tick.</text>
+
+</svg>

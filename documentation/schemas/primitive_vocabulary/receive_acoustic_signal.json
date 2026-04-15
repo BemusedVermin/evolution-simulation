@@ -1,0 +1,67 @@
+{
+  "id": "receive_acoustic_signal",
+  "category": "signal_reception",
+  "description": "Passively receives acoustic signals within a specified frequency band. Enables hearing, echolocation perception, and communication. Low metabolic cost (passive sensing).",
+  "parameter_schema": {
+    "frequency_min_hz": {
+      "type": "number",
+      "range": {
+        "min": 20,
+        "max": 100000
+      },
+      "units": "Hz",
+      "default": 1000
+    },
+    "frequency_max_hz": {
+      "type": "number",
+      "range": {
+        "min": 20,
+        "max": 200000
+      },
+      "units": "Hz",
+      "default": 50000
+    },
+    "sensitivity_db": {
+      "type": "number",
+      "range": {
+        "min": 0,
+        "max": 100
+      },
+      "units": "dB",
+      "default": 60
+    },
+    "directionality": {
+      "type": "number",
+      "range": {
+        "min": 0,
+        "max": 1
+      },
+      "units": "dimensionless",
+      "default": 0.3
+    }
+  },
+  "composition_compatibility": [
+    {
+      "channel_family": "sensory"
+    },
+    {
+      "channel_family": "cognitive"
+    }
+  ],
+  "cost_function": {
+    "base_metabolic_cost": 0.3,
+    "parameter_scaling": [
+      {
+        "parameter": "sensitivity_db",
+        "exponent": 0.8,
+        "coefficient": 0.002
+      }
+    ]
+  },
+  "observable_signature": {
+    "modality": "acoustic",
+    "detection_range_m": 0,
+    "pattern_key": "acoustic_reception_v1"
+  },
+  "provenance": "core"
+}

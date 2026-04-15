@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+  <title>Persistent HUD Overlay</title>
+  <desc>HUD overlay shown across both world map and encounter modes. Includes minimap, vitals, status effects, compass, target reticle, notifications, and clock.</desc>
+
+  <style>
+    .panel { fill: #f5f5f5; stroke: #333; stroke-width: 2; }
+    .label { font-family: Arial, sans-serif; font-size: 14px; fill: #333; }
+    .label-small { font-family: Arial, sans-serif; font-size: 11px; fill: #666; }
+    .accent { fill: #ff6b35; }
+    .status-ok { fill: #4a90e2; }
+    .status-warning { fill: #ffa500; }
+    .status-danger { fill: #ff6b35; }
+    .button { fill: #e0e0e0; stroke: #333; stroke-width: 1; }
+  </style>
+
+  <!-- Background: mostly transparent, showing the game underneath -->
+  <rect x="0" y="0" width="1920" height="1080" fill="none"/>
+
+  <!-- VITALS PANEL: Top-Left -->
+  <!-- Comment: HP, stamina, temperature, hunger, thirst, mood. Real-time updates from agent state. Colors shift with stress (green → yellow → red). -->
+  <rect class="panel" x="10" y="10" width="180" height="200"/>
+  <text class="label" x="20" y="30" font-weight="bold">Vitals</text>
+
+  <!-- HP Bar -->
+  <text class="label-small" x="20" y="50">HP</text>
+  <rect class="panel" x="20" y="55" width="150" height="12" fill="#fff"/>
+  <rect x="20" y="55" width="107" height="12" class="status-ok"/>
+  <text class="label-small" x="130" y="64">45/60</text>
+
+  <!-- Stamina Bar -->
+  <text class="label-small" x="20" y="80">Stamina</text>
+  <rect class="panel" x="20" y="85" width="150" height="12" fill="#fff"/>
+  <rect x="20" y="85" width="96" height="12" class="status-ok"/>
+  <text class="label-small" x="130" y="94">32/50</text>
+
+  <!-- Temperature -->
+  <text class="label-small" x="20" y="110">Temp: 37°C</text>
+
+  <!-- Hunger -->
+  <text class="label-small" x="20" y="130">Hunger: 6/10</text>
+
+  <!-- Thirst -->
+  <text class="label-small" x="20" y="150">Thirst: 3/10</text>
+
+  <!-- Mood -->
+  <text class="label-small" x="20" y="170">Mood: Vigilant</text>
+
+  <!-- STATUS EFFECTS BAR: Under Vitals -->
+  <!-- Comment: Shows active state_induction primitives (e.g., STATUS_BLEEDING, STATUS_FRIGHTENED). Clicking effect shows remaining duration. -->
+  <rect class="panel" x="10" y="220" width="180" height="80"/>
+  <text class="label" x="20" y="240" font-weight="bold">Status Effects</text>
+
+  <rect class="status-danger" x="20" y="250" width="160" height="20"/>
+  <text class="label-small" x="25" y="263">BLEEDING (2 turns)</text>
+
+  <rect class="status-warning" x="20" y="275" width="160" height="20"/>
+  <text class="label-small" x="25" y="288">SLOWED (1 turn)</text>
+
+  <!-- MINIMAP: Top-Right -->
+  <!-- Comment: Shows explored terrain, player position (center), and nearby entities. Driven by world state; fog of war based on sensory ranges (vision, hearing, olfaction). -->
+  <rect class="panel" x="1730" y="10" width="180" height="180"/>
+  <text class="label" x="1740" y="30" font-weight="bold">Minimap</text>
+
+  <!-- Minimap grid (simplified) -->
+  <rect x="1740" y="45" width="160" height="160" fill="#fafafa" stroke="#999" stroke-width="1"/>
+
+  <!-- Tiles on minimap (faint grid) -->
+  <line x1="1740" y1="65" x2="1900" y2="65" stroke="#ddd" stroke-width="0.5"/>
+  <line x1="1740" y1="85" x2="1900" y2="85" stroke="#ddd" stroke-width="0.5"/>
+  <line x1="1740" y1="105" x2="1900" y2="105" stroke="#ddd" stroke-width="0.5"/>
+  <line x1="1740" y1="125" x2="1900" y2="125" stroke="#ddd" stroke-width="0.5"/>
+  <line x1="1740" y1="145" x2="1900" y2="145" stroke="#ddd" stroke-width="0.5"/>
+  <line x1="1740" y1="165" x2="1900" y2="165" stroke="#ddd" stroke-width="0.5"/>
+
+  <line x1="1760" y1="45" x2="1760" y2="205" stroke="#ddd" stroke-width="0.5"/>
+  <line x1="1780" y1="45" x2="1780" y2="205" stroke="#ddd" stroke-width="0.5"/>
+  <line x1="1800" y1="45" x2="1800" y2="205" stroke="#ddd" stroke-width="0.5"/>
+  <line x1="1820" y1="45" x2="1820" y2="205" stroke="#ddd" stroke-width="0.5"/>
+  <line x1="1840" y1="45" x2="1840" y2="205" stroke="#ddd" stroke-width="0.5"/>
+  <line x1="1860" y1="45" x2="1860" y2="205" stroke="#ddd" stroke-width="0.5"/>
+  <line x1="1880" y1="45" x2="1880" y2="205" stroke="#ddd" stroke-width="0.5"/>
+
+  <!-- Player position on minimap (center) -->
+  <circle class="accent" cx="1820" cy="125" r="4"/>
+
+  <!-- Nearby entities on minimap -->
+  <circle class="status-ok" cx="1860" cy="85" r="3"/>
+  <circle class="status-ok" cx="1780" cy="145" r="3"/>
+
+  <!-- COMPASS: Under Minimap -->
+  <!-- Comment: Cardinal directions; player can rotate view or pan. Shows current heading. -->
+  <rect class="panel" x="1730" y="200" width="180" height="100"/>
+  <text class="label" x="1740" y="220" font-weight="bold">Compass</text>
+
+  <!-- Cardinal points -->
+  <text class="label" x="1810" y="245">N</text>
+  <text class="label" x="1880" y="270">E</text>
+  <text class="label" x="1810" y="295">S</text>
+  <text class="label" x="1740" y="270">W</text>
+
+  <!-- Compass rose (simple cross) -->
+  <line x1="1820" y1="250" x2="1820" y2="290" stroke="#333" stroke-width="1"/>
+  <line x1="1800" y1="270" x2="1840" y2="270" stroke="#333" stroke-width="1"/>
+
+  <!-- CURRENT TARGET RETICLE: Bottom-Right -->
+  <!-- Comment: Shows when hovering or targeting an entity. Displays entity label, distance, visual status (health bar). -->
+  <rect class="panel" x="1650" y="900" width="260" height="170"/>
+  <text class="label" x="1660" y="920" font-weight="bold">Target: Bear-α</text>
+
+  <text class="label-small" x="1660" y="945">Distance: 45m</text>
+  <text class="label-small" x="1660" y="965">Lineage: apex predator</text>
+  <text class="label-small" x="1660" y="985">Population: 3</text>
+
+  <!-- Target health bar -->
+  <text class="label-small" x="1660" y="1005">HP:</text>
+  <rect class="panel" x="1700" y="1000" width="200" height="12" fill="#fff"/>
+  <rect x="1700" y="1000" width="161" height="12" class="status-ok"/>
+  <text class="label-small" x="1810" y="1009">68/80</text>
+
+  <!-- Target status -->
+  <text class="label-small" x="1660" y="1035">Status: Normal</text>
+  <text class="label-small" x="1660" y="1055">Range: Attack ready</text>
+
+  <!-- NOTIFICATION COLUMN: Bottom-Left -->
+  <!-- Comment: Scrolling list of Chronicler events, trade route updates, faction news, discoveries. Auto-dismisses after 10 seconds or on click. -->
+  <rect class="panel" x="10" y="800" width="300" height="270"/>
+  <text class="label" x="20" y="820" font-weight="bold">Notifications</text>
+
+  <!-- Notification 1 -->
+  <rect x="20" y="830" width="280" height="40" fill="#e8f8ff" stroke="#4a90e2" stroke-width="1"/>
+  <text class="label-small" x="25" y="850">NEW LABEL discovered in region 4:</text>
+  <text class="label-small" x="25" y="862">"spore-bloom predation"</text>
+
+  <!-- Notification 2 -->
+  <rect x="20" y="877" width="280" height="40" fill="#fff8e8" stroke="#ffa500" stroke-width="1"/>
+  <text class="label-small" x="25" y="897">Trade route formed:</text>
+  <text class="label-small" x="25" y="909">Stonewater ↔ Ashcairn</text>
+
+  <!-- Notification 3 -->
+  <rect x="20" y="924" width="280" height="40" fill="#ffe8e8" stroke="#ff6b35" stroke-width="1"/>
+  <text class="label-small" x="25" y="944">FACTION ALERT:</text>
+  <text class="label-small" x="25" y="956">Stonewater reputation: +5</text>
+
+  <!-- TICK/DAY CLOCK: Bottom Center -->
+  <!-- Comment: Shows current global tick, day/season, and local time. Updates in real-time; determinism-critical for replay. -->
+  <rect class="panel" x="800" y="900" width="320" height="170"/>
+  <text class="label" x="820" y="925" font-weight="bold">Time &#38; Tick</text>
+
+  <text class="label" x="820" y="955">Day 142 — Spring, Year 18</text>
+  <text class="label-small" x="820" y="975">Local time: 14:32 (afternoon)</text>
+
+  <text class="label" x="820" y="1005">Global Tick: 18,542</text>
+  <text class="label-small" x="820" y="1025">Seed: 0x7a2f8c9e</text>
+
+  <!-- Tick rate indicator -->
+  <text class="label-small" x="820" y="1050">Tick rate: 60 Hz</text>
+
+</svg>

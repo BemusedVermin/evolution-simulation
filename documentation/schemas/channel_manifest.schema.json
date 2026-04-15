@@ -1,0 +1,280 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beast-evolution.local/schemas/channel-manifest.json",
+  "title": "Channel Manifest Schema",
+  "description": "Formal definition of a Beast Evolution Game channel manifest. Channels are genetically regulated traits organized into families. They support mutation, composition, and emergent ability expression.",
+  "type": "object",
+  "required": [
+    "id",
+    "family",
+    "description",
+    "range",
+    "mutation_kernel",
+    "composition_hooks",
+    "expression_conditions",
+    "scale_band",
+    "body_site_applicable",
+    "provenance"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z_][a-z0-9_]*$",
+      "description": "Unique identifier for this channel, in snake_case. Alphanumeric and underscore only, must start with letter or underscore."
+    },
+    "family": {
+      "type": "string",
+      "enum": [
+        "sensory",
+        "motor",
+        "metabolic",
+        "structural",
+        "regulatory",
+        "social",
+        "cognitive",
+        "reproductive",
+        "developmental"
+      ],
+      "description": "Biological family of this channel. Determines typical mutation behavior, composition patterns, and expression logic."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 500,
+      "description": "Human-readable short description of what this channel represents (e.g., 'auditory perception threshold in dB', 'leg muscle fiber density')."
+    },
+    "range": {
+      "type": "object",
+      "required": ["min", "max", "units"],
+      "additionalProperties": false,
+      "properties": {
+        "min": {
+          "type": "number",
+          "description": "Minimum valid value for this channel."
+        },
+        "max": {
+          "type": "number",
+          "description": "Maximum valid value for this channel."
+        },
+        "units": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50,
+          "description": "Physical units (e.g., 'dB', 'kg', 'Hz', 'dimensionless')."
+        }
+      },
+      "description": "Valid numeric range and physical units for this channel."
+    },
+    "mutation_kernel": {
+      "type": "object",
+      "required": ["sigma", "bounds_policy", "genesis_weight"],
+      "additionalProperties": false,
+      "properties": {
+        "sigma": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Standard deviation of Gaussian mutation kernel. Proportional to typical mutation step size; scaled by range width at runtime."
+        },
+        "bounds_policy": {
+          "type": "string",
+          "enum": ["clamp", "reflect", "wrap"],
+          "description": "How mutations hitting range boundaries are handled: clamp (truncate to boundary), reflect (bounce off boundary), wrap (periodic)."
+        },
+        "genesis_weight": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Relative probability this channel is selected for duplication during channel genesis. Higher weight = more likely to be copied."
+        },
+        "correlation_with": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["channel", "coefficient"],
+            "additionalProperties": false,
+            "properties": {
+              "channel": {
+                "type": "string",
+                "pattern": "^[a-z_][a-z0-9_]*$",
+                "description": "ID of another channel to correlate mutations with."
+              },
+              "coefficient": {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1,
+                "description": "Pearson correlation coefficient (-1 to 1). Positive = codirection, negative = antagonistic direction, zero = no correlation."
+              }
+            }
+          },
+          "description": "Declares shared mutation directions with other channels, enabling coordinated evolution."
+        }
+      },
+      "description": "Gaussian mutation kernel parameters and correlation structure."
+    },
+    "composition_hooks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["with", "kind", "coefficient"],
+        "additionalProperties": false,
+        "properties": {
+          "with": {
+            "type": "string",
+            "description": "Channel ID to compose with, or 'self' for auto-interaction (e.g., squared term)."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "additive",
+              "multiplicative",
+              "threshold",
+              "gating",
+              "antagonistic"
+            ],
+            "description": "Composition type: additive (sum), multiplicative (product), threshold (activation above value), gating (binary switch), antagonistic (subtraction)."
+          },
+          "coefficient": {
+            "type": "number",
+            "description": "Weight or scaling factor for this composition operation."
+          },
+          "threshold": {
+            "type": "number",
+            "description": "Activation threshold value. Required when kind is 'threshold' or 'gating'."
+          }
+        },
+        "if": {
+          "properties": {
+            "kind": {
+              "enum": ["threshold", "gating"]
+            }
+          }
+        },
+        "then": {
+          "required": ["threshold"]
+        },
+        "description": "How this channel combines with other channels or itself to influence phenotype or enable emergent abilities."
+      },
+      "description": "Array of composition hooks defining interactions with other channels."
+    },
+    "expression_conditions": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["kind", "flag"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "biome_flag"
+              },
+              "flag": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Named biome or environmental flag (e.g., 'aquatic', 'arboreal', 'nocturnal')."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["kind", "min_kg", "max_kg"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "scale_band"
+              },
+              "min_kg": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Minimum body mass (kg) for this channel to express."
+              },
+              "max_kg": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Maximum body mass (kg) for this channel to express."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["kind", "season"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "season"
+              },
+              "season": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Season name when this channel expresses (e.g., 'spring', 'winter')."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["kind", "stage"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "developmental_stage"
+              },
+              "stage": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Life stage when this channel expresses (e.g., 'juvenile', 'breeding_adult')."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["kind", "min_per_km2", "max_per_km2"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "social_density"
+              },
+              "min_per_km2": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Minimum population density (individuals/km²) for expression."
+              },
+              "max_per_km2": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Maximum population density (individuals/km²) for expression."
+              }
+            }
+          }
+        ]
+      },
+      "description": "Array of conditions (all must hold) under which this channel expresses. Empty array = always express."
+    },
+    "scale_band": {
+      "type": "object",
+      "required": ["min_kg", "max_kg"],
+      "additionalProperties": false,
+      "properties": {
+        "min_kg": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Minimum body mass (kg) for which this channel is relevant."
+        },
+        "max_kg": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Maximum body mass (kg) for which this channel is relevant."
+        }
+      },
+      "description": "Applicable body mass range. Defines macro, meso, micro scales."
+    },
+    "body_site_applicable": {
+      "type": "boolean",
+      "description": "Whether this channel can have variant expression at different body locations (e.g., thick hide on back vs thin on belly)."
+    },
+    "provenance": {
+      "type": "string",
+      "pattern": "^(core|mod:[a-z_][a-z0-9_]*|genesis:[a-z_][a-z0-9_]*:[0-9]+)$",
+      "description": "Origin of this channel: 'core' (canonical), 'mod:<id>' (from mod), 'genesis:<parent_id>:<generation>' (duplicated and diverged)."
+    }
+  }
+}

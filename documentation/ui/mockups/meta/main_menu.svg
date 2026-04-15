@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      body { margin: 0; padding: 0; }
+      .bg-panel { fill: #2a2a2a; }
+      .title-text { font-family: Arial, sans-serif; font-size: 72px; font-weight: bold; fill: #e0e0e0; text-anchor: middle; }
+      .btn { fill: #404040; stroke: #606060; stroke-width: 2; cursor: pointer; }
+      .btn:hover { fill: #4a4a4a; }
+      .btn-text { font-family: Arial, sans-serif; font-size: 24px; fill: #d0d0d0; text-anchor: middle; dominant-baseline: middle; }
+      .accent { fill: #ff6b35; }
+      .footer-text { font-family: Arial, sans-serif; font-size: 14px; fill: #808080; }
+    </style>
+  </defs>
+
+  <title>Main Menu</title>
+  <desc>Beast Evolution Game main menu. Title top-center, large action buttons, version/engine info bottom corners.</desc>
+
+  <!-- Background panel -->
+  <rect class="bg-panel" width="1920" height="1080"/>
+
+  <!-- Title -->
+  <text class="title-text" x="960" y="120">Beast Evolution Game</text>
+
+  <!-- Button Container (7 main buttons) -->
+  <!-- Continue -->
+  <rect class="btn" x="710" y="240" width="500" height="80" rx="4"/>
+  <text class="btn-text" x="960" y="280">Continue</text>
+
+  <!-- New Game -->
+  <rect class="btn" x="710" y="340" width="500" height="80" rx="4"/>
+  <text class="btn-text" x="960" y="380">New Game</text>
+
+  <!-- Load -->
+  <rect class="btn" x="710" y="440" width="500" height="80" rx="4"/>
+  <text class="btn-text" x="960" y="480">Load</text>
+
+  <!-- Mods -->
+  <rect class="btn" x="710" y="540" width="500" height="80" rx="4"/>
+  <text class="btn-text" x="960" y="580">Mods</text>
+
+  <!-- Settings -->
+  <rect class="btn" x="710" y="640" width="500" height="80" rx="4"/>
+  <text class="btn-text" x="960" y="680">Settings</text>
+
+  <!-- Credits -->
+  <rect class="btn" x="710" y="740" width="500" height="80" rx="4"/>
+  <text class="btn-text" x="960" y="780">Credits</text>
+
+  <!-- Quit -->
+  <rect class="btn accent" x="710" y="840" width="500" height="80" rx="4"/>
+  <text class="btn-text" x="960" y="880">Quit</text>
+
+  <!-- Version string (bottom-left) -->
+  <text class="footer-text" x="30" y="1050">v0.1.0-alpha</text>
+
+  <!-- Engine info (bottom-right) -->
+  <text class="footer-text" x="1890" y="1050" text-anchor="end">Rust + SDL3</text>
+</svg>

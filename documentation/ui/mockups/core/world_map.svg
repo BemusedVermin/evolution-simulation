@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+  <title>World Map — Top-Down View</title>
+  <desc>Main world map screen showing tile-based 2D rendering with player position, nearby entities, and context panels.</desc>
+
+  <style>
+    .panel { fill: #f5f5f5; stroke: #333; stroke-width: 2; }
+    .label { font-family: Arial, sans-serif; font-size: 14px; fill: #333; }
+    .label-small { font-family: Arial, sans-serif; font-size: 11px; fill: #666; }
+    .accent { fill: #ff6b35; }
+    .header-bar { fill: #e8e8e8; stroke: #333; stroke-width: 1; }
+    .grid-line { stroke: #ddd; stroke-width: 1; opacity: 0.5; }
+    .player-marker { fill: #ff6b35; }
+    .entity-icon { fill: #4a90e2; }
+    .button { fill: #e0e0e0; stroke: #333; stroke-width: 1; }
+  </style>
+
+  <!-- TOP BAR: Day/Season, Global Tick, Seed, Weather -->
+  <rect class="header-bar" x="0" y="0" width="1920" height="60"/>
+
+  <!-- Calendar info -->
+  <text class="label" x="20" y="25">Day 142 — Spring, Year 18</text>
+  <text class="label" x="20" y="45">Global Tick: 18,542 | Seed: 0x7a2f8c9e</text>
+
+  <!-- Weather glyph (simple circle + label) -->
+  <circle cx="1850" cy="30" r="15" fill="#e0e0e0" stroke="#333" stroke-width="1"/>
+  <text class="label-small" x="1790" y="35">Clear Skies</text>
+
+  <!-- LEFT PANEL: Mini Character Sheet -->
+  <rect class="panel" x="10" y="70" width="220" height="280"/>
+  <text class="label" x="20" y="95" font-weight="bold">Character</text>
+
+  <!-- Vitals -->
+  <text class="label-small" x="20" y="120">HP: 45/60</text>
+  <rect x="20" y="125" width="190" height="12" fill="#fff" stroke="#333" stroke-width="1"/>
+  <rect x="20" y="125" width="142" height="12" fill="#ff6b35"/>
+
+  <text class="label-small" x="20" y="150">Stamina: 32/50</text>
+  <rect x="20" y="155" width="190" height="12" fill="#fff" stroke="#333" stroke-width="1"/>
+  <rect x="20" y="155" width="121" height="12" fill="#4a90e2"/>
+
+  <!-- Active Primitives -->
+  <text class="label-small" x="20" y="185">Active Emits:</text>
+  <text class="label-small" x="30" y="205">Thermal scan (3)</text>
+  <text class="label-small" x="30" y="220">Pheromone trail (1)</text>
+
+  <!-- Active Labels -->
+  <text class="label-small" x="20" y="245">Labels Active:</text>
+  <text class="label-small" x="30" y="260">"Night hunter" α</text>
+  <text class="label-small" x="30" y="275">Hunger alert</text>
+
+  <!-- RIGHT PANEL: Context & Entities on Tile -->
+  <rect class="panel" x="1690" y="70" width="220" height="280"/>
+  <text class="label" x="1700" y="95" font-weight="bold">Tile Context</text>
+
+  <text class="label-small" x="1700" y="120">Terrain: Forest</text>
+  <text class="label-small" x="1700" y="135">Biome: Temperate</text>
+
+  <text class="label-small" x="1700" y="160">Nearby Sounds:</text>
+  <text class="label-small" x="1710" y="175">- Mammal vocalizing (50m)</text>
+  <text class="label-small" x="1710" y="190">- Water flow (80m)</text>
+
+  <text class="label-small" x="1700" y="215">Entities:</text>
+  <text class="label-small" x="1710" y="230">1 NPC (Stonewater trader)</text>
+  <text class="label-small" x="1710" y="245">3 neutral creatures</text>
+
+  <!-- MAIN MAP AREA: Central hex/grid with hinted tile structure -->
+  <!-- Large map panel -->
+  <rect x="240" y="70" width="1440" height="820" fill="#fafafa" stroke="#333" stroke-width="2"/>
+
+  <!-- Faint grid lines (hex or square) -->
+  <g class="grid-line">
+    <line x1="240" y1="120" x2="1680" y2="120"/>
+    <line x1="240" y1="170" x2="1680" y2="170"/>
+    <line x1="240" y1="220" x2="1680" y2="220"/>
+    <line x1="240" y1="270" x2="1680" y2="270"/>
+    <line x1="240" y1="320" x2="1680" y2="320"/>
+    <line x1="240" y1="370" x2="1680" y2="370"/>
+    <line x1="240" y1="420" x2="1680" y2="420"/>
+    <line x1="240" y1="470" x2="1680" y2="470"/>
+    <line x1="240" y1="520" x2="1680" y2="520"/>
+    <line x1="240" y1="570" x2="1680" y2="570"/>
+    <line x1="240" y1="620" x2="1680" y2="620"/>
+    <line x1="240" y1="670" x2="1680" y2="670"/>
+    <line x1="240" y1="720" x2="1680" y2="720"/>
+    <line x1="240" y1="770" x2="1680" y2="770"/>
+    <line x1="240" y1="820" x2="1680" y2="820"/>
+    <line x1="240" y1="870" x2="1680" y2="870"/>
+
+    <line x1="300" y1="70" x2="300" y2="890"/>
+    <line x1="360" y1="70" x2="360" y2="890"/>
+    <line x1="420" y1="70" x2="420" y2="890"/>
+    <line x1="480" y1="70" x2="480" y2="890"/>
+    <line x1="540" y1="70" x2="540" y2="890"/>
+    <line x1="600" y1="70" x2="600" y2="890"/>
+    <line x1="660" y1="70" x2="660" y2="890"/>
+    <line x1="720" y1="70" x2="720" y2="890"/>
+    <line x1="780" y1="70" x2="780" y2="890"/>
+    <line x1="840" y1="70" x2="840" y2="890"/>
+    <line x1="900" y1="70" x2="900" y2="890"/>
+    <line x1="960" y1="70" x2="960" y2="890"/>
+    <line x1="1020" y1="70" x2="1020" y2="890"/>
+    <line x1="1080" y1="70" x2="1080" y2="890"/>
+    <line x1="1140" y1="70" x2="1140" y2="890"/>
+    <line x1="1200" y1="70" x2="1200" y2="890"/>
+    <line x1="1260" y1="70" x2="1260" y2="890"/>
+    <line x1="1320" y1="70" x2="1320" y2="890"/>
+    <line x1="1380" y1="70" x2="1380" y2="890"/>
+    <line x1="1440" y1="70" x2="1440" y2="890"/>
+    <line x1="1500" y1="70" x2="1500" y2="890"/>
+    <line x1="1560" y1="70" x2="1560" y2="890"/>
+    <line x1="1620" y1="70" x2="1620" y2="890"/>
+    <line x1="1680" y1="70" x2="1680" y2="890"/>
+  </g>
+
+  <!-- Player marker (centered, highlighted) -->
+  <!-- Comment: Player is rendered as a colored circle at current tile coordinates; position drives state and encounter triggers -->
+  <circle class="player-marker" cx="960" cy="480" r="20"/>
+  <text class="label-small" x="920" y="515">Player</text>
+
+  <!-- Nearby entities as simple shapes + labels -->
+  <!-- Comment: Entities shown at grid positions; clicking reveals phylogenetic lineage, faction affiliation, population, phenotype cluster info -->
+
+  <!-- Entity 1: Bear-like creature -->
+  <rect class="entity-icon" x="1100" y="300" width="30" height="30"/>
+  <text class="label-small" x="1050" y="340">bear-like, lineage α</text>
+  <text class="label-small" x="1050" y="355">pop. 3</text>
+
+  <!-- Entity 2: Hominid NPC -->
+  <circle class="entity-icon" cx="750" cy="520" r="15"/>
+  <text class="label-small" x="680" y="555">Stonewater trader</text>
+  <text class="label-small" x="680" y="570">Reputation: +15</text>
+
+  <!-- Entity 3: Unnamed cluster -->
+  <polygon class="entity-icon" points="500,650 520,650 510,670"/>
+  <text class="label-small" x="420" y="700">unnamed cluster</text>
+  <text class="label-small" x="420" y="715">pop. 12</text>
+
+  <!-- BOTTOM BAR: Action Buttons & Hotkeys -->
+  <rect class="header-bar" x="0" y="900" width="1920" height="80"/>
+
+  <text class="label" x="20" y="925" font-weight="bold">Actions:</text>
+
+  <!-- Action buttons -->
+  <rect class="button" x="20" y="935" width="80" height="35"/>
+  <text class="label-small" x="35" y="960">[M] Move</text>
+
+  <rect class="button" x="110" y="935" width="80" height="35"/>
+  <text class="label-small" x="120" y="960">[I] Interact</text>
+
+  <rect class="button" x="200" y="935" width="80" height="35"/>
+  <text class="label-small" x="205" y="960">[C] Catalog</text>
+
+  <rect class="button" x="290" y="935" width="80" height="35"/>
+  <text class="label-small" x="295" y="960">[V] Inventory</text>
+
+  <rect class="button" x="380" y="935" width="80" height="35"/>
+  <text class="label-small" x="395" y="960">[Esc] Menu</text>
+
+  <!-- Compass rose -->
+  <!-- Comment: Compass shows cardinal directions; player can rotate view or pan in cardinal directions -->
+  <text class="label" x="1800" y="450">N</text>
+  <text class="label" x="1800" y="480">^</text>
+  <line x1="1810" y1="460" x2="1810" y2="490" stroke="#333" stroke-width="1"/>
+
+  <!-- Zoom controls -->
+  <rect class="button" x="1760" y="510" width="40" height="25"/>
+  <text class="label" x="1772" y="528">+</text>
+
+  <rect class="button" x="1760" y="540" width="40" height="25"/>
+  <text class="label" x="1772" y="558">-</text>
+
+  <text class="label-small" x="1750" y="575">Zoom</text>
+
+</svg>

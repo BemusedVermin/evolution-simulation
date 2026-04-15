@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .bg-panel { fill: #2a2a2a; }
+      .panel { fill: #353535; stroke: #505050; stroke-width: 1; }
+      .header-text { font-family: Arial, sans-serif; font-size: 20px; font-weight: bold; fill: #d0d0d0; }
+      .tab { fill: #404040; stroke: #505050; stroke-width: 1; cursor: pointer; }
+      .tab-active { fill: #ff6b35; }
+      .tab-text { font-family: Arial, sans-serif; font-size: 13px; fill: #a0a0a0; text-anchor: middle; dominant-baseline: middle; }
+      .tab-text-active { fill: #ffffff; }
+      .section-text { font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; fill: #c0c0c0; }
+      .label-text { font-family: Arial, sans-serif; font-size: 12px; fill: #a0a0a0; }
+      .value-text { font-family: Arial, sans-serif; font-size: 12px; fill: #c0c0c0; }
+      .input-field { fill: #2a2a2a; stroke: #505050; stroke-width: 1; }
+      .slider { fill: #505050; stroke: #606060; stroke-width: 1; }
+      .slider-handle { fill: #ff6b35; }
+      .toggle-box { fill: #404040; stroke: #505050; stroke-width: 1; }
+      .toggle-checked { fill: #ff6b35; }
+      .btn { fill: #404040; stroke: #606060; stroke-width: 1; }
+      .btn-text { font-family: Arial, sans-serif; font-size: 14px; fill: #d0d0d0; text-anchor: middle; dominant-baseline: middle; }
+      .table-header { font-family: Arial, sans-serif; font-size: 11px; font-weight: bold; fill: #808080; }
+      .table-row { fill: none; stroke: #505050; stroke-width: 0.5; }
+    </style>
+  </defs>
+
+  <title>Settings Screen</title>
+  <desc>Left tabs (Graphics, Audio, Input, Gameplay, Simulation, Determinism, Accessibility). Right pane with settings fields. Apply/Revert/Defaults buttons.</desc>
+
+  <rect class="bg-panel" width="1920" height="1080"/>
+
+  <!-- Header -->
+  <text class="header-text" x="40" y="50">Settings</text>
+
+  <!-- Tab bar (left side) -->
+  <rect class="tab" x="40" y="80" width="180" height="40"/>
+  <text class="tab-text tab-text-active" x="130" y="100">Graphics</text>
+
+  <rect class="tab" x="40" y="130" width="180" height="40"/>
+  <text class="tab-text" x="130" y="150">Audio</text>
+
+  <rect class="tab" x="40" y="180" width="180" height="40"/>
+  <text class="tab-text" x="130" y="200">Input</text>
+
+  <rect class="tab" x="40" y="230" width="180" height="40"/>
+  <text class="tab-text" x="130" y="250">Gameplay</text>
+
+  <rect class="tab" x="40" y="280" width="180" height="40"/>
+  <text class="tab-text" x="130" y="300">Simulation</text>
+
+  <rect class="tab" x="40" y="330" width="180" height="40"/>
+  <text class="tab-text" x="130" y="350">Determinism</text>
+
+  <rect class="tab" x="40" y="380" width="180" height="40"/>
+  <text class="tab-text" x="130" y="400">Accessibility</text>
+
+  <!-- Right pane: Graphics settings (active tab) -->
+  <rect class="panel" x="280" y="80" width="1580" height="850"/>
+
+  <text class="section-text" x="300" y="120">Graphics</text>
+
+  <text class="label-text" x="300" y="160">Resolution:</text>
+  <rect class="input-field" x="300" y="170" width="200" height="30"/>
+  <text class="value-text" x="315" y="192">1920x1080</text>
+
+  <text class="label-text" x="300" y="230">VSync:</text>
+  <rect class="toggle-box" x="300" y="240" width="16" height="16"/>
+  <rect class="toggle-checked" x="300" y="240" width="16" height="16"/>
+  <text class="label-text" x="330" y="252">Enabled</text>
+
+  <text class="label-text" x="300" y="290">Window Mode:</text>
+  <rect class="input-field" x="300" y="300" width="200" height="30"/>
+  <text class="value-text" x="315" y="322">Fullscreen</text>
+
+  <text class="label-text" x="300" y="360">Tile Render Scale:</text>
+  <rect class="slider" x="300" y="375" width="300" height="15"/>
+  <circle class="slider-handle" cx="450" cy="382" r="7"/>
+  <text class="label-text" x="620" y="385">100%</text>
+
+  <text class="label-text" x="300" y="430">UI Scale:</text>
+  <rect class="slider" x="300" y="445" width="300" height="15"/>
+  <circle class="slider-handle" cx="450" cy="452" r="7"/>
+  <text class="label-text" x="620" y="455">100%</text>
+
+  <text class="label-text" x="300" y="500">Colorblind Mode:</text>
+  <rect class="input-field" x="300" y="510" width="200" height="30"/>
+  <text class="value-text" x="315" y="532">Off</text>
+
+  <text class="label-text" x="300" y="590">Frame Cap (FPS):</text>
+  <rect class="input-field" x="300" y="600" width="200" height="30"/>
+  <text class="value-text" x="315" y="622">60</text>
+
+  <text class="label-text" x="300" y="680">Shadow Quality:</text>
+  <rect class="input-field" x="300" y="690" width="200" height="30"/>
+  <text class="value-text" x="315" y="712">High</text>
+
+  <!-- Buttons at bottom -->
+  <rect class="btn" x="300" y="1000" width="140" height="40"/>
+  <text class="btn-text" x="370" y="1020">Apply</text>
+
+  <rect class="btn" x="460" y="1000" width="140" height="40"/>
+  <text class="btn-text" x="530" y="1020">Revert</text>
+
+  <rect class="btn" x="620" y="1000" width="140" height="40"/>
+  <text class="btn-text" x="690" y="1020">Defaults</text>
+</svg>

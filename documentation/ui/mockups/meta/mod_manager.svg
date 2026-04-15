@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .bg-panel { fill: #2a2a2a; }
+      .panel { fill: #353535; stroke: #505050; stroke-width: 1; }
+      .header-text { font-family: Arial, sans-serif; font-size: 20px; font-weight: bold; fill: #d0d0d0; }
+      .section-text { font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; fill: #c0c0c0; }
+      .label-text { font-family: Arial, sans-serif; font-size: 12px; fill: #a0a0a0; }
+      .value-text { font-family: Arial, sans-serif; font-size: 12px; fill: #c0c0c0; }
+      .row { fill: #404040; stroke: #505050; stroke-width: 0.5; }
+      .row-selected { fill: #4a4a4a; stroke: #ff6b35; stroke-width: 1.5; }
+      .row-text { font-family: Arial, sans-serif; font-size: 11px; fill: #a0a0a0; }
+      .status-enabled { fill: #90ee90; }
+      .status-disabled { fill: #ff8888; }
+      .status-conflicting { fill: #ffaa00; }
+      .status-text { font-family: Arial, sans-serif; font-size: 10px; text-anchor: middle; dominant-baseline: middle; }
+      .btn { fill: #404040; stroke: #606060; stroke-width: 1; }
+      .btn-text { font-family: Arial, sans-serif; font-size: 12px; fill: #d0d0d0; text-anchor: middle; dominant-baseline: middle; }
+      .manifest-field { fill: #2a2a2a; stroke: #505050; stroke-width: 1; font-family: monospace; font-size: 9px; fill: #808080; }
+      .compatibility-ok { fill: #90ee90; }
+      .compatibility-fail { fill: #ff8888; }
+    </style>
+  </defs>
+
+  <title>Mod Manager</title>
+  <desc>Left: installed mods list (name, version, author, status, load order). Center: selected mod details, dependencies, manifest preview. Right: load-order reorder list.</desc>
+
+  <rect class="bg-panel" width="1920" height="1080"/>
+
+  <!-- Header -->
+  <text class="header-text" x="40" y="50">Mod Manager</text>
+
+  <!-- Top action buttons -->
+  <rect class="btn" x="40" y="70" width="140" height="35"/>
+  <text class="btn-text" x="110" y="90">Install File</text>
+
+  <rect class="btn" x="190" y="70" width="140" height="35"/>
+  <text class="btn-text" x="260" y="90">Install URL</text>
+
+  <rect class="btn" x="340" y="70" width="140" height="35"/>
+  <text class="btn-text" x="410" y="90">Refresh</text>
+
+  <rect class="btn" x="490" y="70" width="140" height="35"/>
+  <text class="btn-text" x="560" y="90">Browse</text>
+
+  <!-- Left panel: Installed mods list -->
+  <rect class="panel" x="40" y="120" width="420" height="900"/>
+  <text class="section-text" x="60" y="150">Installed Mods</text>
+
+  <!-- Mod 1 (selected) -->
+  <rect class="row-selected" x="50" y="170" width="400" height="60"/>
+  <text class="row-text" x="70" y="190">Biome Expansion</text>
+  <text class="label-text" x="70" y="205">v1.2.0 | By Terrain Team</text>
+  <circle class="status-enabled" cx="380" cy="195" r="6"/>
+  <text class="label-text" x="70" y="225">Load order: 1</text>
+
+  <!-- Mod 2 -->
+  <rect class="row" x="50" y="240" width="400" height="60"/>
+  <text class="row-text" x="70" y="260">Extended Creatures</text>
+  <text class="label-text" x="70" y="275">v2.0.1 | By Fauna Devs</text>
+  <circle class="status-enabled" cx="380" cy="265" r="6"/>
+  <text class="label-text" x="70" y="295">Load order: 2</text>
+
+  <!-- Mod 3 -->
+  <rect class="row" x="50" y="310" width="400" height="60"/>
+  <text class="row-text" x="70" y="330">Climate Mutations</text>
+  <text class="label-text" x="70" y="345">v0.9.5 | By Climate Lab</text>
+  <circle class="status-enabled" cx="380" cy="335" r="6"/>
+  <text class="label-text" x="70" y="365">Load order: 3</text>
+
+  <!-- Mod 4 (disabled) -->
+  <rect class="row" x="50" y="380" width="400" height="60"/>
+  <text class="row-text" x="70" y="400">Legacy Creatures</text>
+  <text class="label-text" x="70" y="415">v1.0.0 | By Archive</text>
+  <circle class="status-disabled" cx="380" cy="405" r="6"/>
+  <text class="label-text" x="70" y="435">Load order: disabled</text>
+
+  <!-- Center panel: Selected mod details -->
+  <rect class="panel" x="480" y="120" width="880" height="900"/>
+  <text class="section-text" x="500" y="150">Mod Details: Biome Expansion</text>
+
+  <!-- What it registers -->
+  <text class="label-text" x="500" y="190">Registered Content:</text>
+  <text class="value-text" x="500" y="210">8 Channels | 23 Primitives | 5 Composition Hooks</text>
+
+  <!-- Dependencies -->
+  <text class="label-text" x="500" y="250">Dependencies:</text>
+  <text class="value-text" x="500" y="270">Core Engine v0.1.0+ [satisfied]</text>
+
+  <!-- Conflicts -->
+  <text class="label-text" x="500" y="310">Conflicts:</text>
+  <text class="value-text" x="500" y="330">None</text>
+
+  <!-- Save compatibility -->
+  <text class="label-text" x="500" y="370">Current Save Compatibility:</text>
+  <circle class="compatibility-ok" cx="500" cy="390" r="6"/>
+  <text class="value-text" x="520" y="395">Compatible (mod in current active set)</text>
+
+  <!-- Manifest preview section -->
+  <text class="label-text" x="500" y="440">Manifest (read-only):</text>
+  <rect class="manifest-field" x="500" y="460" width="840" height="180"/>
+  <text class="label-text" x="515" y="480">{</text>
+  <text class="label-text" x="515" y="498">  "name": "Biome Expansion",</text>
+  <text class="label-text" x="515" y="516">  "version": "1.2.0",</text>
+  <text class="label-text" x="515" y="534">  "channels": ["TropicalBiome", "DesertBiome", ...],</text>
+  <text class="label-text" x="515" y="552">  "primitives": ["PalmTree", "Cactus", ...],</text>
+  <text class="label-text" x="515" y="570">  "dependencies": {"core": "^0.1.0"},</text>
+  <text class="label-text" x="515" y="588">  "conflicts": []</text>
+  <text class="label-text" x="515" y="606">}</text>
+
+  <!-- Action buttons -->
+  <rect class="btn" x="500" y="820" width="120" height="40"/>
+  <text class="btn-text" x="560" y="840">Enable</text>
+
+  <rect class="btn" x="640" y="820" width="120" height="40"/>
+  <text class="btn-text" x="700" y="840">Disable</text>
+
+  <rect class="btn" x="780" y="820" width="120" height="40"/>
+  <text class="btn-text" x="840" y="840">Update</text>
+
+  <rect class="btn" x="920" y="820" width="120" height="40"/>
+  <text class="btn-text" x="980" y="840">Uninstall</text>
+
+  <!-- Right panel: Load order editor -->
+  <rect class="panel" x="1380" y="120" width="480" height="900"/>
+  <text class="section-text" x="1400" y="150">Load Order</text>
+
+  <!-- Load order instructions -->
+  <text class="label-text" x="1400" y="190">(Drag to reorder)</text>
+
+  <!-- Load order items -->
+  <rect class="row" x="1390" y="210" width="460" height="45"/>
+  <text class="row-text" x="1410" y="235">1. Biome Expansion</text>
+
+  <rect class="row" x="1390" y="265" width="460" height="45"/>
+  <text class="row-text" x="1410" y="290">2. Extended Creatures</text>
+
+  <rect class="row" x="1390" y="320" width="460" height="45"/>
+  <text class="row-text" x="1410" y="345">3. Climate Mutations</text>
+
+  <!-- Precedence resolution log -->
+  <text class="label-text" x="1400" y="400">Precedence Resolution:</text>
+  <text class="value-text" x="1400" y="420">Biome Expansion provides: TropicalBiome</text>
+  <text class="value-text" x="1400" y="440">Extended Creatures extends: TropicalBiome</text>
+  <text class="value-text" x="1400" y="460">Climate Mutations modifies: all biome channels</text>
+  <text class="label-text" x="1400" y="490">Status: No conflicts detected. Load order valid.</text>
+</svg>

@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beast-evolution.local/schemas/primitive-manifest.json",
+  "title": "Primitive Effect Manifest Schema",
+  "description": "Formal definition of a primitive effect in the Beast Evolution Game. Primitive effects are atomic phenotype outputs emitted by the phenotype interpreter—building blocks for named abilities. A primitive is never itself a named ability (e.g., 'echolocation', 'venom'), but rather contributes to one or more ability labels that the Chronicler assigns post-hoc over recurring clusters.",
+  "type": "object",
+  "required": [
+    "id",
+    "category",
+    "description",
+    "parameter_schema",
+    "composition_compatibility",
+    "cost_function",
+    "observable_signature",
+    "provenance"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z_][a-z0-9_]*$",
+      "description": "Unique snake_case identifier for this primitive effect. Must start with letter or underscore; alphanumeric and underscore only."
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "signal_emission",
+        "signal_reception",
+        "force_application",
+        "state_induction",
+        "spatial_integration",
+        "mass_transfer",
+        "energy_modulation",
+        "bond_formation"
+      ],
+      "description": "Functional category of this primitive. Determines semantic role in phenotype interpretation: signal_emission (broadcast), signal_reception (sense), force_application (mechanical action), state_induction (physiological change), spatial_integration (coordinate fusion), mass_transfer (substance movement), energy_modulation (metabolic control), bond_formation (social/symbiotic attachment)."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 500,
+      "description": "Human-readable explanation of what this primitive effect does and how it contributes to phenotype (e.g., 'emits an acoustic pulse at specified frequency and amplitude', 'integrates sensory signals from specified modalities into unified spatial map')."
+    },
+    "parameter_schema": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["type"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["number", "integer", "string", "boolean"],
+            "description": "Parameter value type: number (continuous), integer (discrete), string (categorical), boolean (switch)."
+          },
+          "range": {
+            "type": "object",
+            "required": ["min", "max"],
+            "additionalProperties": false,
+            "properties": {
+              "min": {
+                "type": "number",
+                "description": "Minimum valid value for this parameter."
+              },
+              "max": {
+                "type": "number",
+                "description": "Maximum valid value for this parameter."
+              }
+            },
+            "description": "Valid numeric range [min, max]. Required for number and integer types."
+          },
+          "units": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50,
+            "description": "Physical units if applicable (e.g., 'Hz', 'dB', 'newtons', 'milliseconds', 'dimensionless')."
+          },
+          "default": {
+            "description": "Default parameter value if not explicitly set by channel composition."
+          }
+        }
+      },
+      "description": "Formal specification of input parameters to this primitive. At least one parameter required. Each parameter defines name, type, range, units, and default value."
+    },
+    "composition_compatibility": {
+      "type": "array",
+      "minProperties": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["channel_family"],
+            "additionalProperties": false,
+            "properties": {
+              "channel_family": {
+                "type": "string",
+                "enum": [
+                  "sensory",
+                  "motor",
+                  "metabolic",
+                  "structural",
+                  "regulatory",
+                  "social",
+                  "cognitive",
+                  "reproductive",
+                  "developmental"
+                ],
+                "description": "This primitive is compatible with channels from this family."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["channel_id"],
+            "additionalProperties": false,
+            "properties": {
+              "channel_id": {
+                "type": "string",
+                "pattern": "^[a-z_][a-z0-9_]*$",
+                "description": "This primitive is compatible with this specific channel ID."
+              }
+            }
+          }
+        ]
+      },
+      "description": "Declares which channels (by family or specific ID) can emit this primitive during phenotype interpretation. Enables modular composition."
+    },
+    "cost_function": {
+      "type": "object",
+      "required": ["base_metabolic_cost"],
+      "additionalProperties": false,
+      "properties": {
+        "base_metabolic_cost": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Baseline metabolic energy cost (dimensionless or in ATP equivalents) to emit/maintain this primitive once."
+        },
+        "parameter_scaling": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["parameter", "exponent", "coefficient"],
+            "additionalProperties": false,
+            "properties": {
+              "parameter": {
+                "type": "string",
+                "pattern": "^[a-z_][a-z0-9_]*$",
+                "description": "Name of a parameter from parameter_schema that scales cost."
+              },
+              "exponent": {
+                "type": "number",
+                "description": "Power law exponent: cost *= (parameter_value ^ exponent). Exponent 1.0 = linear, >1 = superlinear, <1 = sublinear."
+              },
+              "coefficient": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Multiplicative coefficient: cost *= coefficient × (parameter_value ^ exponent)."
+              }
+            }
+          },
+          "description": "Optional per-parameter cost scaling. Each parameter can add a power-law term to total cost."
+        }
+      },
+      "description": "Defines metabolic cost of this primitive. Base cost plus optional parameter-dependent scaling for complex effects."
+    },
+    "observable_signature": {
+      "type": "object",
+      "required": ["modality", "detection_range_m", "pattern_key"],
+      "additionalProperties": false,
+      "properties": {
+        "modality": {
+          "type": "string",
+          "enum": [
+            "acoustic",
+            "chemical",
+            "visual",
+            "electric",
+            "mechanical",
+            "thermal",
+            "topological",
+            "behavioral"
+          ],
+          "description": "Sense modality by which this primitive is perceivable: acoustic (sound), chemical (olfaction), visual (light), electric (electroreception), mechanical (touch/vibration), thermal (heat), topological (spatial/morphological), behavioral (action patterns)."
+        },
+        "detection_range_m": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Maximum distance in meters from the effect source at which it can be detected under typical conditions. Zero means non-propagating (local)."
+        },
+        "pattern_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Signature string (e.g., 'acoustic_pulse_v1', 'chemical_marker_pheromone') used by the Chronicler for pattern matching and ability label inference. Enables post-hoc clustering of primitive emissions into named abilities."
+        }
+      },
+      "description": "How this primitive is observable in the world. Determines what other organisms can perceive and enables Chronicler ability labeling."
+    },
+    "provenance": {
+      "type": "string",
+      "pattern": "^(core|mod:[a-z_][a-z0-9_]*|genesis:[a-z_][a-z0-9_]*:[0-9]+)$",
+      "description": "Origin of this primitive: 'core' (canonical starter), 'mod:<id>' (from mod), 'genesis:<parent_id>:<generation>' (evolutionarily derived from another primitive)."
+    }
+  }
+}

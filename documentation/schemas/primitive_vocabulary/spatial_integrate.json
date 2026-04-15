@@ -1,0 +1,57 @@
+{
+  "id": "spatial_integrate",
+  "category": "spatial_integration",
+  "description": "Fuses sensory signals from multiple modalities into unified spatial map. Enables echolocation, multi-sensory navigation, and coordinated tracking. Cost scales inversely with resolution (fine maps are cheaper).",
+  "parameter_schema": {
+    "source_modalities": {
+      "type": "string"
+    },
+    "resolution_m": {
+      "type": "number",
+      "range": {
+        "min": 0.01,
+        "max": 100
+      },
+      "units": "meters",
+      "default": 1
+    },
+    "update_hz": {
+      "type": "number",
+      "range": {
+        "min": 1,
+        "max": 1000
+      },
+      "units": "Hz",
+      "default": 10
+    }
+  },
+  "composition_compatibility": [
+    {
+      "channel_family": "cognitive"
+    },
+    {
+      "channel_family": "sensory"
+    }
+  ],
+  "cost_function": {
+    "base_metabolic_cost": 2.5,
+    "parameter_scaling": [
+      {
+        "parameter": "resolution_m",
+        "exponent": -1.0,
+        "coefficient": 0.8
+      },
+      {
+        "parameter": "update_hz",
+        "exponent": 0.7,
+        "coefficient": 0.05
+      }
+    ]
+  },
+  "observable_signature": {
+    "modality": "topological",
+    "detection_range_m": 0,
+    "pattern_key": "spatial_map_v1"
+  },
+  "provenance": "core"
+}

@@ -1,0 +1,46 @@
+{
+  "id": "kinetic_force",
+  "family": "motor",
+  "description": "Maximum force output of leg musculature, measured in Newtons. Higher values enable faster acceleration and explosive jumps.",
+  "range": {
+    "min": 10,
+    "max": 5000,
+    "units": "N"
+  },
+  "mutation_kernel": {
+    "sigma": 0.12,
+    "bounds_policy": "clamp",
+    "genesis_weight": 1.0,
+    "correlation_with": [
+      {
+        "channel": "metabolic_rate",
+        "coefficient": 0.7
+      }
+    ]
+  },
+  "composition_hooks": [
+    {
+      "with": "metabolic_rate",
+      "kind": "multiplicative",
+      "coefficient": -0.3
+    },
+    {
+      "with": "self",
+      "kind": "multiplicative",
+      "coefficient": 0.05
+    }
+  ],
+  "expression_conditions": [
+    {
+      "kind": "scale_band",
+      "min_kg": 5,
+      "max_kg": 10000
+    }
+  ],
+  "scale_band": {
+    "min_kg": 5,
+    "max_kg": 10000
+  },
+  "body_site_applicable": true,
+  "provenance": "core"
+}

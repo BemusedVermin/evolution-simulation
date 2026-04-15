@@ -1,0 +1,47 @@
+{
+  "id": "vocal_modulation",
+  "family": "motor",
+  "description": "Precision and range of vocalization control, normalized 0-1. Higher values enable fine-grained sound frequency modulation, essential for echolocation.",
+  "range": {
+    "min": 0,
+    "max": 1,
+    "units": "dimensionless"
+  },
+  "mutation_kernel": {
+    "sigma": 0.15,
+    "bounds_policy": "clamp",
+    "genesis_weight": 0.9,
+    "correlation_with": [
+      {
+        "channel": "auditory_sensitivity",
+        "coefficient": 0.6
+      }
+    ]
+  },
+  "composition_hooks": [
+    {
+      "with": "spatial_cognition",
+      "kind": "threshold",
+      "coefficient": 1.0,
+      "threshold": 0.5
+    },
+    {
+      "with": "auditory_sensitivity",
+      "kind": "threshold",
+      "coefficient": 0.8,
+      "threshold": 0.4
+    }
+  ],
+  "expression_conditions": [
+    {
+      "kind": "biome_flag",
+      "flag": "complex_soundscape"
+    }
+  ],
+  "scale_band": {
+    "min_kg": 0.01,
+    "max_kg": 1000
+  },
+  "body_site_applicable": false,
+  "provenance": "core"
+}

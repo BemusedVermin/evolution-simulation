@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+  <title>NPC Dialogue Overlay</title>
+  <desc>Dialogue system UI showing NPC portrait, memory hints, dialogue text, response options with social consequences, and interaction buttons.</desc>
+
+  <style>
+    .panel { fill: #f5f5f5; stroke: #333; stroke-width: 2; }
+    .label { font-family: Arial, sans-serif; font-size: 14px; fill: #333; }
+    .label-small { font-family: Arial, sans-serif; font-size: 11px; fill: #666; }
+    .accent { fill: #ff6b35; }
+    .button { fill: #e0e0e0; stroke: #333; stroke-width: 1; cursor: pointer; }
+    .response-option { fill: #e8f0f8; stroke: #4a90e2; stroke-width: 1; }
+    .consequence-positive { fill: #c8e6c9; }
+    .consequence-negative { fill: #ffcccc; }
+    .consequence-neutral { fill: #fff9c4; }
+    .dimmed-bg { fill: #000; opacity: 0.5; }
+  </style>
+
+  <!-- DIMMED BACKGROUND: Covers underlying scene -->
+  <!-- Comment: Semi-transparent overlay; click outside dialogue box to close (if allowed). -->
+  <rect class="dimmed-bg" x="0" y="0" width="1920" height="1080"/>
+
+  <!-- MAIN DIALOGUE PANEL: Center of screen -->
+  <rect class="panel" x="300" y="200" width="1320" height="680"/>
+
+  <!-- NPC PORTRAIT SECTION: Left side -->
+  <!-- Comment: Placeholder portrait area; driven by NPC appearance, faction, lineage. Click to expand detail view of phenotype. -->
+  <rect x="320" y="220" width="280" height="400" fill="#e8e8e8" stroke="#333" stroke-width="1"/>
+  <text class="label-small" x="450" y="420">NPC Portrait</text>
+  <text class="label-small" x="450" y="440">(visual representation)</text>
+
+  <!-- NPC NAME & INFO -->
+  <text class="label" x="320" y="650" font-weight="bold">Krell Stonewater</text>
+  <text class="label-small" x="320" y="670">Stonewater Faction — Trader</text>
+
+  <!-- Reputation with player -->
+  <text class="label-small" x="320" y="690">Reputation: +15</text>
+  <rect x="320" y="695" width="100" height="8" fill="#fff" stroke="#333" stroke-width="0.5"/>
+  <rect x="320" y="695" width="75" height="8" fill="#4a90e2"/>
+
+  <!-- DIALOGUE TEXT SECTION: Center-top -->
+  <!-- Comment: NPC utterance rendered here; driven by dialogue tree, player prior history, faction state, and chosen language. -->
+  <rect class="panel" x="620" y="220" width="880" height="160"/>
+  <text class="label" x="640" y="245" font-weight="bold">Krell's Message</text>
+
+  <!-- NPC dialogue text -->
+  <text class="label-small" x="640" y="275">"Ah, trader. Good timing. Word reaches us of a large unmapped creature</text>
+  <text class="label-small" x="640" y="295">cluster moving through the Ashfells. We'd pay well for fresh intelligence—</text>
+  <text class="label-small" x="640" y="315">phenotype sketches, behavioral notes, population estimates.</text>
+  <text class="label-small" x="640" y="335">What say you? Can you scout the region?"</text>
+
+  <!-- Language/translation toggle -->
+  <rect class="button" x="640" y="350" width="160" height="25"/>
+  <text class="label-small" x="655" y="367">[T] Translate (Stonewater)</text>
+
+  <!-- NPC MEMORY HINTS: Right of portrait -->
+  <!-- Comment: Contextual memory snippets from NPC's knowledge graph. Updates as player builds relationship. Shown as read-only hints. -->
+  <rect class="panel" x="620" y="400" width="880" height="180"/>
+  <text class="label" x="640" y="425" font-weight="bold">NPC's Known Facts About You</text>
+
+  <text class="label-small" x="640" y="450">Remembers you as: "the curious trader, good for exotic materials"</text>
+  <text class="label-small" x="640" y="470">Knows you've met: Ashcairn council, three Stonewater scouts</text>
+  <text class="label-small" x="640" y="490">Notes: you've traded 12 times, always honest dealing</text>
+  <text class="label-small" x="640" y="510">Faction standing: Stonewater favors you (recent scout rescue)</text>
+  <text class="label-small" x="640" y="530">Rumor: You were spotted with a rare phenotype near Blackpeak</text>
+
+  <!-- RESPONSE OPTIONS: Bottom half -->
+  <!-- Comment: 3–5 options derived from player dialogue tree and inferred consequences. Shows relationship impact and quest flags. -->
+  <text class="label" x="620" y="610" font-weight="bold">Your Response:</text>
+
+  <!-- Option 1: Accept -->
+  <rect class="response-option" x="620" y="625" width="880" height="45"/>
+  <text class="label-small" x="640" y="645" font-weight="bold">[1] "I can scout the Ashfells for you."</text>
+  <rect class="consequence-positive" x="640" y="652" width="15" height="15"/>
+  <text class="label-small" x="665" y="663">+10 Stonewater rep | Quest: Ashfells Scout</text>
+
+  <!-- Option 2: Negotiate -->
+  <rect class="response-option" x="620" y="680" width="880" height="45"/>
+  <text class="label-small" x="640" y="700" font-weight="bold">[2] "What's the pay? And supplies?"</text>
+  <rect class="consequence-neutral" x="640" y="707" width="15" height="15"/>
+  <text class="label-small" x="665" y="718">Negotiation check | Trade opportunity</text>
+
+  <!-- Option 3: Decline -->
+  <rect class="response-option" x="620" y="735" width="880" height="45"/>
+  <text class="label-small" x="640" y="755" font-weight="bold">[3] "I'm not interested right now."</text>
+  <rect class="consequence-negative" x="640" y="762" width="15" height="15"/>
+  <text class="label-small" x="665" y="773">-5 Stonewater rep | Quest removed</text>
+
+  <!-- INTERACTION BUTTONS: Bottom of panel -->
+  <!-- Comment: Barter, gift, show-item, and exit options. -->
+  <rect class="button" x="620" y="800" width="100" height="30"/>
+  <text class="label-small" x="635" y="821">[B] Barter</text>
+
+  <rect class="button" x="730" y="800" width="100" height="30"/>
+  <text class="label-small" x="740" y="821">[G] Gift Item</text>
+
+  <rect class="button" x="840" y="800" width="100" height="30"/>
+  <text class="label-small" x="850" y="821">[I] Inspect</text>
+
+  <rect class="button" x="1400" y="800" width="100" height="30"/>
+  <text class="label-small" x="1410" y="821">[Esc] Close</text>
+
+  <!-- DIALOGUE TREE INDICATOR (subtle) -->
+  <!-- Comment: Shows player's current position in NPC's dialogue tree; helpful for branching/consequences understanding. -->
+  <text class="label-small" x="620" y="855">Dialogue node: stonewater_quest_ashfells_v2 | Branch: neutral start</text>
+
+</svg>

@@ -1,0 +1,201 @@
+<svg viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      body { font-family: system-ui, sans-serif; }
+      .panel { fill: #f5f5f5; stroke: #ccc; stroke-width: 2; }
+      .header { fill: #2c3e50; color: white; }
+      .label { fill: #333; font-size: 14px; font-weight: 500; }
+      .subtext { fill: #666; font-size: 12px; }
+      .accent { fill: #9966cc; }
+      .accent-text { fill: #9966cc; font-weight: 600; }
+      .divider { stroke: #ddd; stroke-width: 1; }
+      .row-alt { fill: #fafafa; }
+      .chart-bar { fill: #9966cc; opacity: 0.7; }
+      .banner-placeholder { fill: #ddd; stroke: #999; stroke-width: 1; }
+      .relation-node { fill: #0099cc; }
+      .relation-edge { stroke: #999; stroke-width: 2; }
+      .sentiment-positive { fill: #00bb44; }
+      .sentiment-neutral { fill: #999; }
+      .sentiment-negative { fill: #ff6b35; }
+    </style>
+  </defs>
+
+  <title>Faction Catalog — Society &#38; Relationship Viewer</title>
+  <desc>Faction social models, economies, languages, lineage composition, and player reputation. Sources: Heider balance sim, language drift, ritual repertoire, material trade logs, player action history.</desc>
+
+  <!-- TOP: Header -->
+  <rect x="10" y="10" width="1900" height="50" class="panel" rx="3" />
+  <text x="30" y="40" class="label" font-weight="700">Known Factions &#38; Societies</text>
+
+  <!-- LEFT PANEL: Faction list -->
+  <rect x="10" y="70" width="350" height="1000" class="panel" rx="3" />
+  <text x="25" y="100" class="label" font-weight="700">Factions</text>
+
+  <!-- Faction entries with row details -->
+  <!-- Faction 1: Traders -->
+  <rect x="20" y="120" width="330" height="80" class="row-alt" rx="2" />
+
+  <!-- Banner placeholder -->
+  <rect x="30" y="130" width="40" height="40" class="banner-placeholder" rx="2" />
+
+  <text x="80" y="145" class="label">Traders' Collective</text>
+  <text x="80" y="162" class="subtext">Size: 240 indiv. | Cohesion: 78%</text>
+
+  <!-- Mode indicator -->
+  <text x="80" y="180" class="subtext" font-size="11">Mode: ⬭ Market dominance | Hostility: ↔ Neutral</text>
+  <text x="80" y="195" class="accent-text" font-size="11">Dialect: Merchant's Cant</text>
+
+  <!-- Faction 2: Apex Hunters -->
+  <rect x="20" y="210" width="330" height="80" rx="2" />
+
+  <rect x="30" y="220" width="40" height="40" class="banner-placeholder" rx="2" />
+
+  <text x="80" y="235" class="label">Apex Hunters</text>
+  <text x="80" y="252" class="subtext">Size: 45 indiv. | Cohesion: 92%</text>
+
+  <text x="80" y="270" class="subtext" font-size="11">Mode: ⬭ Redistribution | Hostility: ↗ Defensive</text>
+  <text x="80" y="285" class="accent-text" font-size="11">Dialect: Hunt-Song</text>
+
+  <!-- Faction 3: Hominid Tribe -->
+  <rect x="20" y="300" width="330" height="80" class="row-alt" rx="2" />
+
+  <rect x="30" y="310" width="40" height="40" class="banner-placeholder" rx="2" />
+
+  <text x="80" y="325" class="label">Hominid Tribe Δ</text>
+  <text x="80" y="342" class="subtext">Size: 67 indiv. | Cohesion: 65%</text>
+
+  <text x="80" y="360" class="subtext" font-size="11">Mode: ⬭ Polanyi reciprocity | Hostility: ↙ Warm</text>
+  <text x="80" y="375" class="accent-text" font-size="11">Dialect: Guttural Trade Pidgin</text>
+
+  <!-- Faction 4: Mycelium Network -->
+  <rect x="20" y="390" width="330" height="80" rx="2" />
+
+  <rect x="30" y="400" width="40" height="40" class="banner-placeholder" rx="2" />
+
+  <text x="80" y="415" class="label">Mycelium Network</text>
+  <text x="80" y="432" class="subtext">Size: 1000+ (distributed) | Cohesion: 88%</text>
+
+  <text x="80" y="450" class="subtext" font-size="11">Mode: ⬭ Distributed consensus | Hostility: ↔ Neutral</text>
+  <text x="80" y="465" class="accent-text" font-size="11">Dialect: Spore Signals</text>
+
+  <!-- CENTER PANEL: Faction detail -->
+  <rect x="370" y="70" width="1200" height="1000" class="panel" rx="3" />
+
+  <!-- Header -->
+  <rect x="370" y="70" width="1200" height="60" class="header" rx="3 3 0 0" />
+  <text x="390" y="105" fill="white" class="label" font-size="18" font-weight="700">Traders' Collective</text>
+
+  <!-- Section 1: Social Model Snapshot -->
+  <text x="390" y="155" class="label" font-weight="700">Social Model Snapshot</text>
+  <line x1="390" y1="160" x2="1550" y2="160" class="divider" />
+
+  <text x="390" y="185" class="subtext">Opinion clusters: [Pro-trade], [Resource sharing], [Neutral on hunting]</text>
+  <text x="390" y="205" class="subtext">Heider balance: 3 unstable triads (Traders ↔ Apex, Apex ↔ Mycelium, Mycelium ↔ Tribe)</text>
+  <text x="390" y="225" class="subtext">Active rituals: Market ceremonies (3x per 100 ticks), Gift exchanges (weekly), Conflict resolution circles</text>
+
+  <!-- Section 2: Economy Snapshot -->
+  <text x="390" y="265" class="label" font-weight="700">Economy Snapshot</text>
+  <line x1="390" y1="270" x2="1550" y2="270" class="divider" />
+
+  <text x="390" y="295" class="subtext">Market goods: Chitin Extract (48 units), Amber Resin (120 units), Crystalline Bone (35 units)</text>
+  <text x="390" y="315" class="subtext">Currency: Pearl Tokens (892 in circulation), Barter rate: 1 Pearl = 3 Resin equivalents</text>
+  <text x="390" y="335" class="subtext">Price anomalies: Chitin +40% (supply shortage), Venom Gland −15% (overstock)</text>
+
+  <!-- Section 3: Language Snapshot -->
+  <text x="390" y="375" class="label" font-weight="700">Language &#38; Dialect</text>
+  <line x1="390" y1="380" x2="1550" y2="380" class="divider" />
+
+  <text x="390" y="405" class="subtext">Phoneme drift from neighbors: Apex Hunters +12%, Hominid Tribe +8% (convergence toward trade pidgin)</text>
+  <text x="390" y="425" class="subtext">Coined terms: "price-storm" (sudden market volatility), "bond-breach" (faction betrayal), "harvest-horn" (seasonal peak)</text>
+  <text x="390" y="445" class="subtext">Label overrides: "venom-dancers" (instead of Chronicler's "inject-specialists")</text>
+
+  <!-- Section 4: Lineage Composition -->
+  <text x="390" y="485" class="label" font-weight="700">Lineage Composition</text>
+  <line x1="390" y1="490" x2="1550" y2="490" class="divider" />
+
+  <!-- Lineage bar chart -->
+  <text x="390" y="515" class="subtext">Echolocation-Hunter α:</text>
+  <rect x="650" y="508" width="180" height="12" class="chart-bar" rx="2" />
+  <text x="850" y="515" class="subtext">8 members (sapience 3.2 avg)</text>
+
+  <text x="390" y="540" class="subtext">Pair-Bond γ:</text>
+  <rect x="650" y="533" width="140" height="12" class="chart-bar" rx="2" />
+  <text x="850" y="540" class="subtext">6 members (sapience 2.8 avg)</text>
+
+  <text x="390" y="565" class="subtext">Hominid variants:</text>
+  <rect x="650" y="558" width="200" height="12" class="chart-bar" rx="2" />
+  <text x="850" y="565" class="subtext">14 members (sapience 6.9 avg)</text>
+
+  <!-- Section 5: Relations Diagram (simplified) -->
+  <text x="390" y="605" class="label" font-weight="700">Relations to Other Factions</text>
+  <line x1="390" y1="610" x2="1550" y2="610" class="divider" />
+
+  <!-- Node layout: Traders (center), then radiating factions -->
+  <!-- Central node: Traders -->
+  <circle cx="800" cy="700" r="25" class="relation-node" />
+  <text x="800" y="708" fill="white" class="subtext" text-anchor="middle" font-weight="600">Traders</text>
+
+  <!-- Apex Hunters node -->
+  <circle cx="1100" cy="650" r="25" fill="#0099cc" opacity="0.6" />
+  <text x="1100" y="658" fill="white" class="subtext" text-anchor="middle" font-weight="600" font-size="11">Apex</text>
+
+  <!-- Hominid Tribe node -->
+  <circle cx="600" cy="650" r="25" fill="#0099cc" opacity="0.6" />
+  <text x="600" y="658" fill="white" class="subtext" text-anchor="middle" font-weight="600" font-size="11">Hominid</text>
+
+  <!-- Mycelium node -->
+  <circle cx="800" cy="800" r="25" fill="#0099cc" opacity="0.6" />
+  <text x="800" y="808" fill="white" class="subtext" text-anchor="middle" font-weight="600" font-size="11">Mycelium</text>
+
+  <!-- Relation edges (weighted) -->
+  <!-- Traders ↔ Apex: +50 (cooperative) -->
+  <line x1="820" y1="720" x2="1080" y2="670" class="relation-edge" stroke="#00bb44" stroke-width="3" />
+  <text x="900" y="690" class="subtext" fill="#00bb44" font-weight="600" font-size="11">+50</text>
+
+  <!-- Traders ↔ Hominid: +72 (friendly) -->
+  <line x1="780" y1="720" x2="620" y2="670" class="relation-edge" stroke="#00bb44" stroke-width="4" />
+  <text x="700" y="690" class="subtext" fill="#00bb44" font-weight="600" font-size="11">+72</text>
+
+  <!-- Traders ↔ Mycelium: −25 (wary) -->
+  <line x1="800" y1="725" x2="800" y2="775" class="relation-edge" stroke="#ff6b35" stroke-width="2" />
+  <text x="815" y="755" class="subtext" fill="#ff6b35" font-weight="600" font-size="11">−25</text>
+
+  <!-- RIGHT PANEL: Player Standing -->
+  <rect x="1580" y="70" width="330" height="1000" class="panel" rx="3" />
+  <text x="1595" y="100" class="label" font-weight="700">Player Standing</text>
+  <line x1="1595" y1="105" x2="1890" y2="105" class="divider" />
+
+  <!-- Reputation score -->
+  <text x="1595" y="140" class="label" font-weight="600">Reputation: +45</text>
+  <rect x="1595" y="150" width="280" height="15" fill="#ddd" rx="3" />
+  <rect x="1595" y="150" width="180" height="15" class="sentiment-positive" rx="3" />
+
+  <text x="1595" y="185" class="label" font-weight="600" font-size="12">Memory Log</text>
+  <line x1="1595" y1="190" x2="1890" y2="190" class="divider" />
+
+  <!-- Recent events they credit/blame player for -->
+  <text x="1595" y="215" class="subtext" font-size="11">✓ Delivered 50 kg Chitin (Tick 4980)</text>
+  <text x="1595" y="235" class="subtext" font-size="11" fill="#00bb44">→ Credited reputation +12</text>
+
+  <text x="1595" y="260" class="subtext" font-size="11">✓ Brokered peace with Apex (Tick 4750)</text>
+  <text x="1595" y="280" class="subtext" font-size="11" fill="#00bb44">→ Credited reputation +25</text>
+
+  <text x="1595" y="305" class="subtext" font-size="11">✗ Poached Mycelium resources (Tick 4200)</text>
+  <text x="1595" y="325" class="subtext" font-size="11" fill="#ff6b35">→ Minor reputation hit (−8)</text>
+
+  <!-- Interaction history -->
+  <text x="1595" y="360" class="label" font-weight="600" font-size="12">Last Interaction</text>
+  <line x1="1595" y1="365" x2="1890" y2="365" class="divider" />
+
+  <text x="1595" y="390" class="subtext" font-size="11">Tick 5010 — Trade mission accepted</text>
+  <text x="1595" y="410" class="subtext" font-size="11">Deliver "Signal Amplifiers" to Apex Hunters</text>
+  <text x="1595" y="430" class="subtext" font-size="11">Reward: 500 Pearl Tokens + reputation</text>
+
+  <!-- Offer standing -->
+  <text x="1595" y="470" class="label" font-weight="600" font-size="12">Current Offer</text>
+  <line x1="1595" y1="475" x2="1890" y2="475" class="divider" />
+
+  <text x="1595" y="500" class="subtext" font-size="11">Seasonal barter: trade 200 Amber Resin</text>
+  <text x="1595" y="520" class="subtext" font-size="11">for exclusive maps to new hunting grounds</text>
+
+</svg>

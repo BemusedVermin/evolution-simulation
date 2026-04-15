@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .bg-panel { fill: #2a2a2a; }
+      .panel { fill: #353535; stroke: #505050; stroke-width: 1; }
+      .header-text { font-family: Arial, sans-serif; font-size: 20px; font-weight: bold; fill: #d0d0d0; }
+      .slot-text { font-family: Arial, sans-serif; font-size: 13px; fill: #a0a0a0; }
+      .selected-slot { fill: #404040; stroke: #ff6b35; stroke-width: 2; }
+      .label-text { font-family: Arial, sans-serif; font-size: 12px; fill: #808080; }
+      .value-text { font-family: Arial, sans-serif; font-size: 12px; fill: #c0c0c0; }
+      .btn { fill: #404040; stroke: #606060; stroke-width: 1; }
+      .btn-text { font-family: Arial, sans-serif; font-size: 14px; fill: #d0d0d0; text-anchor: middle; dominant-baseline: middle; }
+      .warning-text { font-family: Arial, sans-serif; font-size: 11px; fill: #ff8800; }
+      .thumbnail-placeholder { fill: #505050; stroke: #606060; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <title>Save/Load Screen</title>
+  <desc>Left: save slot list (name, seed, tick, date, playtime, last-played). Right: selected save metadata with registry info and compatibility warnings.</desc>
+
+  <rect class="bg-panel" width="1920" height="1080"/>
+
+  <!-- Left panel: Save slots list -->
+  <rect class="panel" x="20" y="20" width="700" height="1040"/>
+  <text class="header-text" x="40" y="50">Save Slots</text>
+
+  <!-- Save slot 1 (selected) -->
+  <rect class="selected-slot" x="30" y="70" width="680" height="90"/>
+  <text class="slot-text" x="50" y="95">Slot 1: First Attempt</text>
+  <text class="slot-text" x="50" y="115">Seed: a7f2e1d3...</text>
+  <text class="slot-text" x="50" y="135">Tick: 48,234 | Date: Spring 142</text>
+  <text class="slot-text" x="50" y="155">Playtime: 4h 23m | Last: 2 days ago</text>
+
+  <!-- Save slot 2 -->
+  <rect class="panel" x="30" y="170" width="680" height="90"/>
+  <text class="slot-text" x="50" y="195">Slot 2: Experimental Run</text>
+  <text class="slot-text" x="50" y="215">Seed: 92c5f8a1...</text>
+  <text class="slot-text" x="50" y="235">Tick: 12,567 | Date: Summer 18</text>
+  <text class="slot-text" x="50" y="255">Playtime: 1h 10m | Last: 1 week ago</text>
+
+  <!-- Save slot 3 -->
+  <rect class="panel" x="30" y="270" width="680" height="90"/>
+  <text class="slot-text" x="50" y="295">Slot 3: Challenge Mode</text>
+  <text class="slot-text" x="50" y="315">Seed: 3b9f0e2c...</text>
+  <text class="slot-text" x="50" y="335">Tick: 156,891 | Date: Winter 73</text>
+  <text class="slot-text" x="50" y="355">Playtime: 12h 45m | Last: 2 hours ago</text>
+
+  <!-- Scroll indicator -->
+  <text class="label-text" x="50" y="900">...</text>
+
+  <!-- Right panel: Selected save metadata -->
+  <rect class="panel" x="740" y="20" width="1160" height="540"/>
+  <text class="header-text" x="760" y="50">Save Metadata</text>
+
+  <!-- Seed section -->
+  <text class="label-text" x="760" y="90">Full Seed:</text>
+  <text class="value-text" x="760" y="110">a7f2e1d3-9c7b-4f2a-8e1d-5a3b9f0c2e7a</text>
+
+  <!-- Mod compatibility -->
+  <text class="label-text" x="760" y="150">Installed Mods:</text>
+  <text class="value-text" x="760" y="170">Biome Expansion v1.2.0</text>
+  <text class="value-text" x="760" y="190">Extended Creatures v2.0.1</text>
+  <text class="value-text" x="760" y="210">Climate Mutations v0.9.5</text>
+
+  <!-- Registry counts -->
+  <text class="label-text" x="760" y="250">Registry Snapshot:</text>
+  <text class="value-text" x="760" y="270">Channels: 42 | Primitives: 187</text>
+
+  <!-- Integrity hash -->
+  <text class="label-text" x="760" y="310">Integrity Hash:</text>
+  <text class="value-text" x="760" y="330">sha256: 7c2e8f9a...</text>
+
+  <!-- Screenshot placeholder -->
+  <rect class="thumbnail-placeholder" x="1500" y="90" width="380" height="450"/>
+  <text class="label-text" x="1690" y="330" text-anchor="middle">Screenshot Placeholder</text>
+
+  <!-- Compatibility warnings panel -->
+  <rect class="panel" x="740" y="580" width="1160" height="300"/>
+  <text class="header-text" x="760" y="610">Compatibility Warnings</text>
+
+  <text class="warning-text" x="760" y="650">Mod set differs from save. Current: +2 added, -1 removed</text>
+  <text class="label-text" x="760" y="675">Added: Extended Creatures v2.0.1, Climate Mutations v0.9.5</text>
+  <text class="label-text" x="760" y="695">Removed: Old Expansion v1.0.0</text>
+  <text class="warning-text" x="760" y="740">Load without --force flag will reject this save.</text>
+
+  <!-- Action buttons -->
+  <rect class="btn" x="760" y="820" width="120" height="40"/>
+  <text class="btn-text" x="820" y="840">Load</text>
+
+  <rect class="btn" x="900" y="820" width="120" height="40"/>
+  <text class="btn-text" x="960" y="840">Duplicate</text>
+
+  <rect class="btn" x="1040" y="820" width="120" height="40"/>
+  <text class="btn-text" x="1100" y="840">Export</text>
+
+  <rect class="btn" x="1180" y="820" width="120" height="40"/>
+  <text class="btn-text" x="1240" y="840">Import</text>
+
+  <rect class="btn" x="1320" y="820" width="120" height="40"/>
+  <text class="btn-text" x="1380" y="840">Rename</text>
+
+  <rect class="btn" x="1460" y="820" width="120" height="40"/>
+  <text class="btn-text" x="1520" y="840">Delete</text>
+</svg>

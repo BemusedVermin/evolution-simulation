@@ -1,0 +1,46 @@
+{
+  "id": "structural_rigidity",
+  "family": "structural",
+  "description": "Bone mineral density and structural integrity, normalized 0-1. Higher values reduce fracture risk but increase metabolic maintenance cost.",
+  "range": {
+    "min": 0.3,
+    "max": 1.0,
+    "units": "dimensionless"
+  },
+  "mutation_kernel": {
+    "sigma": 0.09,
+    "bounds_policy": "reflect",
+    "genesis_weight": 0.8,
+    "correlation_with": [
+      {
+        "channel": "kinetic_force",
+        "coefficient": 0.5
+      }
+    ]
+  },
+  "composition_hooks": [
+    {
+      "with": "kinetic_force",
+      "kind": "multiplicative",
+      "coefficient": 0.15
+    },
+    {
+      "with": "metabolic_rate",
+      "kind": "additive",
+      "coefficient": 0.1
+    }
+  ],
+  "expression_conditions": [
+    {
+      "kind": "scale_band",
+      "min_kg": 10,
+      "max_kg": 5000
+    }
+  ],
+  "scale_band": {
+    "min_kg": 10,
+    "max_kg": 5000
+  },
+  "body_site_applicable": true,
+  "provenance": "core"
+}

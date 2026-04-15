@@ -1,0 +1,60 @@
+{
+  "id": "inject_substance",
+  "category": "mass_transfer",
+  "description": "Injects synthesized substance (venom, toxin, anticoagulant, sedative) via fangs, stingers, or other body sites. Volume, depth, and substance type specify pharmacokinetics.",
+  "parameter_schema": {
+    "substance_id": {
+      "type": "string"
+    },
+    "volume_ml": {
+      "type": "number",
+      "range": {
+        "min": 0.01,
+        "max": 100
+      },
+      "units": "milliliters",
+      "default": 1
+    },
+    "depth_mm": {
+      "type": "number",
+      "range": {
+        "min": 0.5,
+        "max": 50
+      },
+      "units": "millimeters",
+      "default": 5
+    },
+    "injection_site": {
+      "type": "string"
+    }
+  },
+  "composition_compatibility": [
+    {
+      "channel_family": "motor"
+    },
+    {
+      "channel_family": "metabolic"
+    }
+  ],
+  "cost_function": {
+    "base_metabolic_cost": 3.0,
+    "parameter_scaling": [
+      {
+        "parameter": "volume_ml",
+        "exponent": 1.2,
+        "coefficient": 0.5
+      },
+      {
+        "parameter": "depth_mm",
+        "exponent": 0.8,
+        "coefficient": 0.1
+      }
+    ]
+  },
+  "observable_signature": {
+    "modality": "behavioral",
+    "detection_range_m": 5,
+    "pattern_key": "injection_v1"
+  },
+  "provenance": "core"
+}

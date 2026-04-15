@@ -1,0 +1,57 @@
+{
+  "id": "induce_paralysis",
+  "category": "state_induction",
+  "description": "Induces temporary paralysis in target via neurotoxins or neural inhibition. Potency and duration adjustable; target system (neural vs muscular) determines recovery pathway.",
+  "parameter_schema": {
+    "potency": {
+      "type": "number",
+      "range": {
+        "min": 0,
+        "max": 1
+      },
+      "units": "dimensionless",
+      "default": 0.5
+    },
+    "duration_s": {
+      "type": "number",
+      "range": {
+        "min": 0.5,
+        "max": 3600
+      },
+      "units": "seconds",
+      "default": 30
+    },
+    "target_system": {
+      "type": "string"
+    }
+  },
+  "composition_compatibility": [
+    {
+      "channel_family": "regulatory"
+    },
+    {
+      "channel_family": "cognitive"
+    }
+  ],
+  "cost_function": {
+    "base_metabolic_cost": 4.5,
+    "parameter_scaling": [
+      {
+        "parameter": "potency",
+        "exponent": 2.0,
+        "coefficient": 2.0
+      },
+      {
+        "parameter": "duration_s",
+        "exponent": 0.8,
+        "coefficient": 0.01
+      }
+    ]
+  },
+  "observable_signature": {
+    "modality": "behavioral",
+    "detection_range_m": 100,
+    "pattern_key": "paralysis_toxin_v1"
+  },
+  "provenance": "core"
+}

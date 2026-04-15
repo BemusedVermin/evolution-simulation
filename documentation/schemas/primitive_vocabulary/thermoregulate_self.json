@@ -1,0 +1,54 @@
+{
+  "id": "thermoregulate_self",
+  "category": "state_induction",
+  "description": "Adjusts internal body temperature via metabolic heat generation or cooling. Enables behavioral thermoregulation and temperature-dependent phenotype tuning.",
+  "parameter_schema": {
+    "target_temp_delta_c": {
+      "type": "number",
+      "range": {
+        "min": -20,
+        "max": 20
+      },
+      "units": "celsius",
+      "default": 2
+    },
+    "rate_c_per_min": {
+      "type": "number",
+      "range": {
+        "min": 0.1,
+        "max": 10
+      },
+      "units": "celsius/minute",
+      "default": 1
+    }
+  },
+  "composition_compatibility": [
+    {
+      "channel_family": "metabolic"
+    },
+    {
+      "channel_family": "regulatory"
+    }
+  ],
+  "cost_function": {
+    "base_metabolic_cost": 2.0,
+    "parameter_scaling": [
+      {
+        "parameter": "target_temp_delta_c",
+        "exponent": 2.0,
+        "coefficient": 0.5
+      },
+      {
+        "parameter": "rate_c_per_min",
+        "exponent": 1.5,
+        "coefficient": 0.3
+      }
+    ]
+  },
+  "observable_signature": {
+    "modality": "thermal",
+    "detection_range_m": 20,
+    "pattern_key": "thermoregulation_v1"
+  },
+  "provenance": "core"
+}

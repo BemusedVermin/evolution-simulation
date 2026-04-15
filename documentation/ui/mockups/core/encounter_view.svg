@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+  <title>Encounter/Combat View — Fixed 2.5D Perspective</title>
+  <desc>Combat encounter screen showing fixed 2.5D perspective with player and opponent sprites, vitals, primitives, and action interface.</desc>
+
+  <style>
+    .panel { fill: #f5f5f5; stroke: #333; stroke-width: 2; }
+    .label { font-family: Arial, sans-serif; font-size: 14px; fill: #333; }
+    .label-small { font-family: Arial, sans-serif; font-size: 11px; fill: #666; }
+    .accent { fill: #ff6b35; }
+    .scene-bg { fill: #d4d4d4; }
+    .button { fill: #e0e0e0; stroke: #333; stroke-width: 1; }
+    .vitals-bar { fill: #fff; stroke: #333; stroke-width: 1; }
+  </style>
+
+  <!-- BACKGROUND SCENE: 2.5D landscape with horizon -->
+  <!-- Comment: Simple isometric-style background; trapezoidal ground plane suggests depth. This is visual context only; collision and positioning driven by encounter state. -->
+
+  <rect class="scene-bg" x="0" y="0" width="1920" height="1080"/>
+
+  <!-- Horizon line -->
+  <line x1="0" y1="400" x2="1920" y2="400" stroke="#999" stroke-width="2"/>
+
+  <!-- Ground plane (trapezoid) -->
+  <polygon points="100,400 1820,400 1700,850 220,850" fill="#c0c0c0" stroke="#333" stroke-width="2"/>
+
+  <!-- Sky -->
+  <rect x="0" y="0" width="1920" height="400" fill="#e8f0f8"/>
+
+  <!-- INITIATIVE ORDER STRIP: Top of screen -->
+  <!-- Comment: Shows turn order; driven by Speed stat and current initiative calculations. Highlights active actor. -->
+  <rect class="panel" x="0" y="0" width="1920" height="50"/>
+
+  <text class="label" x="20" y="30" font-weight="bold">Initiative Order:</text>
+
+  <!-- Initiative slots -->
+  <rect class="button" x="250" y="10" width="60" height="30" fill="#ff6b35"/>
+  <text class="label-small" x="260" y="32">Player</text>
+
+  <rect class="button" x="320" y="10" width="60" height="30"/>
+  <text class="label-small" x="325" y="32">Bear-α</text>
+
+  <rect class="button" x="390" y="10" width="60" height="30"/>
+  <text class="label-small" x="395" y="32">Hominid</text>
+
+  <!-- PLAYER SPRITE: Foreground center -->
+  <!-- Comment: Simple placeholder shape centered in foreground; represents player phenotype. Actions from bottom panel drive animations and state transitions. -->
+  <rect class="accent" x="850" y="500" width="80" height="120" fill="#ff9966"/>
+  <circle cx="890" cy="495" r="20" fill="#ffcc99"/>
+  <text class="label-small" x="830" y="650">Player</text>
+
+  <!-- OPPONENT SPRITES: Mid-ground -->
+  <!-- Comment: Positioned at varying depths to suggest distance; multiple opponents possible in complex encounters. Clicking sprite or card below triggers targeting. -->
+
+  <!-- Opponent 1: Bear-like -->
+  <rect class="entity-icon" x="550" y="380" width="70" height="100" fill="#8b6914"/>
+  <circle cx="585" cy="375" r="18" fill="#a0826d"/>
+  <text class="label-small" x="530" y="510">Bear-α</text>
+
+  <!-- Opponent 2: Hominid -->
+  <rect class="entity-icon" x="1250" y="380" width="70" height="100" fill="#a0826d"/>
+  <circle cx="1285" cy="375" r="18" fill="#d4a574"/>
+  <text class="label-small" x="1220" y="510">Stonewater</text>
+
+  <!-- ACTOR CARDS: Left side of screen showing vitals and primitives -->
+  <!-- Comment: One card per combatant; shows Chronicler label, HP/stamina, and expandable primitive emission status. Clicking "Primitives" toggles detail pane. -->
+
+  <!-- Player card -->
+  <rect class="panel" x="10" y="70" width="220" height="200"/>
+  <text class="label" x="20" y="95" font-weight="bold">You</text>
+
+  <text class="label-small" x="20" y="120">HP: 45/60</text>
+  <rect class="vitals-bar" x="20" y="125" width="190" height="10"/>
+  <rect x="20" y="125" width="142" height="10" fill="#ff6b35"/>
+
+  <text class="label-small" x="20" y="145">Stamina: 32/50</text>
+  <rect class="vitals-bar" x="20" y="150" width="190" height="10"/>
+  <rect x="20" y="150" width="121" height="10" fill="#4a90e2"/>
+
+  <text class="label-small" x="20" y="170">Label: "Night hunter" α</text>
+
+  <!-- Primitives toggle button -->
+  <rect class="button" x="20" y="180" width="190" height="25"/>
+  <text class="label-small" x="80" y="198">[+] Primitives (3)</text>
+
+  <!-- Opponent card 1 -->
+  <rect class="panel" x="10" y="280" width="220" height="200"/>
+  <text class="label" x="20" y="305" font-weight="bold">Bear-α</text>
+
+  <text class="label-small" x="20" y="330">HP: 68/80</text>
+  <rect class="vitals-bar" x="20" y="335" width="190" height="10"/>
+  <rect x="20" y="335" width="161" height="10" fill="#ff6b35"/>
+
+  <text class="label-small" x="20" y="355">Stamina: 55/60</text>
+  <rect class="vitals-bar" x="20" y="360" width="190" height="10"/>
+  <rect x="20" y="360" width="174" height="10" fill="#4a90e2"/>
+
+  <text class="label-small" x="20" y="380">Label: "Apex predator"</text>
+
+  <rect class="button" x="20" y="390" width="190" height="25"/>
+  <text class="label-small" x="80" y="408">[+] Primitives (5)</text>
+
+  <!-- Opponent card 2 -->
+  <rect class="panel" x="10" y="490" width="220" height="200"/>
+  <text class="label" x="20" y="515" font-weight="bold">Stonewater NPC</text>
+
+  <text class="label-small" x="20" y="540">HP: 28/35</text>
+  <rect class="vitals-bar" x="20" y="545" width="190" height="10"/>
+  <rect x="20" y="545" width="152" height="10" fill="#ff6b35"/>
+
+  <text class="label-small" x="20" y="565">Stamina: 20/30</text>
+  <rect class="vitals-bar" x="20" y="570" width="190" height="10"/>
+  <rect x="20" y="570" width="126" height="10" fill="#4a90e2"/>
+
+  <text class="label-small" x="20" y="590">Label: "Tool user"</text>
+
+  <rect class="button" x="20" y="600" width="190" height="25"/>
+  <text class="label-small" x="80" y="618">[+] Primitives (2)</text>
+
+  <!-- DAMAGE/STATUS TICKER: Center-bottom of encounter area -->
+  <!-- Comment: Displays recent damage rolls, status effects applied, and event log. Updates in real-time during encounter. -->
+  <rect class="panel" x="250" y="750" width="1400" height="100"/>
+  <text class="label" x="260" y="775" font-weight="bold">Event Log</text>
+
+  <text class="label-small" x="260" y="795">Round 3: Player dealt 12 damage (bite to bear's torso)</text>
+  <text class="label-small" x="260" y="810">Bear-α used apply_pierce_force (3 primitives) → "Rend" attack on player (22 dmg)</text>
+  <text class="label-small" x="260" y="825">Player gained STATUS_BLEEDING for 2 turns</text>
+
+  <!-- ACTION TRAY: Bottom of screen -->
+  <!-- Comment: Primary actions: Attack (with body-site picker), Use Primitive, Item, Flee, Parley. Hotkeys shown. -->
+  <rect class="panel" x="0" y="900" width="1920" height="80"/>
+
+  <text class="label" x="20" y="925" font-weight="bold">Actions:</text>
+
+  <!-- Attack button -->
+  <rect class="button" x="20" y="935" width="100" height="35"/>
+  <text class="label-small" x="30" y="960">[A] Attack</text>
+
+  <!-- Body-site picker (sub-menu hint) -->
+  <text class="label-small" x="25" y="978">→ head / torso / limb</text>
+
+  <!-- Use Primitive button -->
+  <rect class="button" x="130" y="935" width="100" height="35"/>
+  <text class="label-small" x="135" y="960">[P] Primitive</text>
+
+  <!-- Item button -->
+  <rect class="button" x="240" y="935" width="100" height="35"/>
+  <text class="label-small" x="250" y="960">[I] Item</text>
+
+  <!-- Flee button -->
+  <rect class="button" x="350" y="935" width="100" height="35"/>
+  <text class="label-small" x="365" y="960">[F] Flee</text>
+
+  <!-- Parley button -->
+  <rect class="button" x="460" y="935" width="100" height="35"/>
+  <text class="label-small" x="470" y="960">[D] Dialogue</text>
+
+  <!-- Current target reticle (hint) -->
+  <text class="label-small" x="600" y="960">Current target: Bear-α (click sprite to switch)</text>
+
+</svg>
