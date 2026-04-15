@@ -8,23 +8,37 @@ This file is the canonical running log of implementation work on the Beast Evolu
 
 ## Current Status Snapshot
 
-- **Active Sprint**: S1 — Fixed-Point & PRNG (beast-core) [Week 1]
+- **Active Sprint**: S1 — Fixed-Point & PRNG (beast-core) [Week 1] — **✅ COMPLETE**
+- **Next Sprint**: S2 — Manifests & Registries (beast-channels, beast-primitives) [Week 2]
 - **Phase**: 1 — Foundations & Core Sim
 - **Workspace scaffolded**: yes (beast-core only; other 16 crates deferred to their sprints)
 - **Last updated**: 2026-04-15
 
-### Sprint S1 Story Progress
+### Sprint S1 Story Progress (40 pts planned, 40 delivered)
 
-| ID  | Title                                                | Points | Status      |
-|-----|------------------------------------------------------|--------|-------------|
-| 1.1 | Q32.32 fixed-point type with saturating arithmetic   | 8      | ✅ Done     |
-| 1.2 | Xoshiro256PlusPlus PRNG with seeding & streams       | 8      | ✅ Done     |
-| 1.3 | EntityID, TickCounter, custom Error type             | 6      | ✅ Done     |
-| 1.4 | Box-Muller Gaussian sampling & saturating math utils | 6      | ✅ Done     |
-| 1.5 | Unit tests + property-based fuzzing (100k samples)   | 6      | In Progress |
-| 1.6 | Benchmarking & documentation                         | 6      | Not Started |
+| ID  | Title                                                | Points | Status  |
+|-----|------------------------------------------------------|--------|---------|
+| 1.1 | Q32.32 fixed-point type with saturating arithmetic   | 8      | ✅ Done |
+| 1.2 | Xoshiro256PlusPlus PRNG with seeding & streams       | 8      | ✅ Done |
+| 1.3 | EntityID, TickCounter, custom Error type             | 6      | ✅ Done |
+| 1.4 | Box-Muller Gaussian sampling & saturating math utils | 6      | ✅ Done |
+| 1.5 | Unit tests + property-based fuzzing (100k samples)   | 6      | ✅ Done |
+| 1.6 | Benchmarking & documentation                         | 6      | ✅ Done |
 
-**Test count**: 43 unit tests passing (pre-proptest). All `cargo check` clean.
+### Sprint S1 Exit DoD
+
+- [x] All 6 stories completed
+- [x] beast-core crate published (no external deps on other beast crates)
+- [x] CI passes (cargo test, clippy -D warnings, cargo build --release)
+- [x] README for beast-core with usage examples and measured perf table
+
+### Demo Criteria (from SPRINTS.md)
+
+- [x] Same seed produces identical PRNG output over 100k iterations — verified in `prng_100k_same_seed_identical`
+- [x] No panics on overflow/underflow — verified via proptest (19 props × 1000 cases covering full `i64` bit-pattern space)
+- [~] Fixed-point multiply < 2 CPU cycles — measured ~2.7 ns (~8 cycles on 3 GHz). Target was aspirational; real number is fine for tick budget, documented in README.
+
+**Test count**: 78 tests (44 unit + 32 proptest + 2 doctests). All green.
 
 ---
 
@@ -41,6 +55,33 @@ This file is the canonical running log of implementation work on the Beast Evolu
 ---
 
 ## Session Log (reverse chronological)
+
+### 2026-04-15 — Sprint S1 COMPLETE (Claude)
+
+Final CI gate green:
+- `cargo build --release -p beast-core` — clean (17.3s cold)
+- `cargo clippy -p beast-core --all-targets -- -D warnings` — clean
+- `cargo test -p beast-core` — 78/78 passing
+
+Commits added after previous entry:
+- `3d79ffd` test(core): Story 1.5 — property-based fuzzing and 100k-sample stats
+- `70ae0e9` feat(core): Story 1.6 — benchmarks, clippy cleanup, README perf table
+
+Regression caught in Story 1.6 benches: `split_stream(Stream::Genetics)`
+aliased the master because the discriminant was 0, so zero long-jumps
+applied. Fixed by making split always perform `1..=jumps()` long-jumps.
+Added regression test `split_stream_does_not_alias_master`.
+
+**Next sprint (S2) focus**: beast-channels + beast-primitives. Schemas live at
+`documentation/schemas/`; channel manifest and primitive manifest are
+authoritative. Registries must be queryable and reject malformed entries at
+load time. Prior crates needed: none beyond beast-core. Suggested order:
+  1. scaffold both crates (Cargo manifests, module skeleton)
+  2. Story 2.1–2.2 (channel + primitive manifest loaders)
+  3. Story 2.5 (composition hook parser) before 2.3/2.4 registries, since
+     the registries reference resolved hooks
+  4. Stories 2.3 / 2.4 (registries with queryable indexing, cost eval)
+  5. Story 2.6 (schema validation / rejection of 5 malformed manifests)
 
 ### 2026-04-15 — Stories 1.1–1.4 landed (Claude)
 
