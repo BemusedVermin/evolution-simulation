@@ -1,0 +1,37 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/beast-core",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "Proprietary"
+authors = ["Beast Evolution Game contributors"]
+repository = "https://example.invalid/beast-evolution-game"
+publish = false
+
+[workspace.dependencies]
+fixed = { version = "1.28", features = ["serde"] }
+rand_core = "0.6"
+rand_xoshiro = { version = "0.6", features = ["serde1"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"
+
+# Dev-only
+proptest = "1.5"
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3
+debug = false
+
+[profile.bench]
+lto = "thin"
+codegen-units = 1
+opt-level = 3
+debug = true
