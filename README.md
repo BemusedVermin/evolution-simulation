@@ -2,21 +2,33 @@
 
 A deterministic evolution-simulation game in Rust. Genomes mutate, phenotypes express against biomes, creatures interact, and a separate "Chronicler" layer observes emergent behaviour and names it — sim code emits only *primitive effects* and never hand-authored ability names. Every tick is replayable bit-for-bit from a seed plus input journal.
 
-**Status**: design + Sprint S1 foundations complete. Sprint S2 (manifests + registries) is next.
+**Status**: Sprints S1 (fixed-point + PRNG) and S2 (manifests + registries) complete. Sprint S3 (genome + mutation) is next.
+
+## Live project tracking — on GitHub
+
+Sprint/story status, work-in-progress, and the up-to-date roadmap live on GitHub, **not** in the markdown planning docs. Anything here about "current sprint" or "story status" in `documentation/` is a snapshot for context; the board and issues are the source of truth.
+
+- **Project board**: https://github.com/users/BemusedVermin/projects/1 — 18 sprint epics with Sprint, Phase, Points, and Status fields. Filter by Phase or Sprint for focused views.
+- **Sprint epics**: [`label:epic`](https://github.com/BemusedVermin/evolution-simulation/issues?q=is%3Aissue+label%3Aepic) — one tracker issue per sprint (S1–S18) with goal, story checklist, demo criteria, and DoD.
+- **Current sprint issues**: filter by `label:sprint:sN` (e.g. [`sprint:s3`](https://github.com/BemusedVermin/evolution-simulation/issues?q=is%3Aopen+label%3Asprint%3As3)).
+- **Open a story issue**: use the "Feature task" GitHub issue template, label it `story` + `sprint:sN` + the relevant `crate:*`, and reference the sprint epic.
+
+The planning markdown under `documentation/planning/` (EPICS.md, SPRINTS.md, RISK_REGISTER.md) captures *design intent*: scope, risks, branch options, dependency graph. It is not edited to reflect day-to-day status.
 
 ## Quick orientation
 
 If you're picking this up fresh (human or Claude session), read in this order:
 
-1. **`documentation/PROGRESS_LOG.md`** — running session-to-session handoff. Current sprint, story status, open decisions, what landed in which commit, what to do next. Single source of truth for "where are we?".
-2. **`CLAUDE.md`** — repo conventions, tooling, invariants called out for Claude Code.
-3. **`documentation/INVARIANTS.md`** — the load-bearing contract (determinism, mechanics-label separation, registry monolithicism, scale-band unification, UI-vs-sim state). Violating any of these is a bug regardless of what else looks right.
-4. **`documentation/architecture/IMPLEMENTATION_ARCHITECTURE.md`** — primary architecture doc (stack, tradeoffs, data flow).
-5. **`documentation/architecture/CRATE_LAYOUT.md`** — all 17 planned crates, strict L0→L6 layering, inter-crate dependency DAG.
-6. **`documentation/architecture/ECS_SCHEDULE.md`** — 8-stage tick loop, per-stage parallelism, RNG-stream rules, per-system performance budget.
-7. **`documentation/systems/01_*.md` … `23_*.md`** — design spec per game system. Consult the specific file before implementing its crate.
-8. **`documentation/schemas/`** — authoritative JSON schemas for channel and primitive manifests. Mods and core data must validate against these.
-9. **`documentation/planning/`** — `IMPLEMENTATION_PLAN.md`, `EPICS.md`, `SPRINTS.md`, `RISK_REGISTER.md`. Sprint-level scope and sequencing.
+1. **[Project board](https://github.com/users/BemusedVermin/projects/1)** and the **[sprint epic for the active sprint](https://github.com/BemusedVermin/evolution-simulation/issues?q=is%3Aissue+label%3Aepic)** — what's actually in flight right now.
+2. **`documentation/PROGRESS_LOG.md`** — session-to-session handoff diary: decisions taken, pitfalls, commit references. Historical; the GitHub board tracks live status.
+3. **`CLAUDE.md`** — repo conventions, tooling, invariants called out for Claude Code.
+4. **`documentation/INVARIANTS.md`** — the load-bearing contract (determinism, mechanics-label separation, registry monolithicism, scale-band unification, UI-vs-sim state). Violating any of these is a bug regardless of what else looks right.
+5. **`documentation/architecture/IMPLEMENTATION_ARCHITECTURE.md`** — primary architecture doc (stack, tradeoffs, data flow).
+6. **`documentation/architecture/CRATE_LAYOUT.md`** — all 17 planned crates, strict L0→L6 layering, inter-crate dependency DAG.
+7. **`documentation/architecture/ECS_SCHEDULE.md`** — 8-stage tick loop, per-stage parallelism, RNG-stream rules, per-system performance budget.
+8. **`documentation/systems/01_*.md` … `23_*.md`** — design spec per game system. Consult the specific file before implementing its crate.
+9. **`documentation/schemas/`** — authoritative JSON schemas for channel and primitive manifests. Mods and core data must validate against these.
+10. **`documentation/planning/`** — `IMPLEMENTATION_PLAN.md`, `EPICS.md`, `SPRINTS.md`, `RISK_REGISTER.md`. Sprint-level *scope and sequencing* (design intent); live status lives on the GitHub board.
 
 `documentation/Beast_Evolution_Game_Master_Design.docx` is the original design doc — prefer the markdown when possible.
 

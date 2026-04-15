@@ -1,5 +1,15 @@
 # Beast Evolution Game: Sprint Plan & Detailed Breakdown
 
+> **Live status is on GitHub — not in this file.**
+>
+> The Status columns in the sprint tables below reflect *initial planning* and are kept as historical scope. They are **not** updated as work completes.
+>
+> For current sprint/story status use:
+> - **[Project board](https://github.com/users/BemusedVermin/projects/1)** — Sprint, Phase, Points, Status per item.
+> - **[Sprint epics](https://github.com/BemusedVermin/evolution-simulation/issues?q=is%3Aissue+label%3Aepic)** — one tracker issue per sprint.
+>
+> Scope changes (deferred stories, re-sized points, new stories) still land in this file via PR; in-progress status does not.
+
 ---
 
 ## Sprint Calendar (14 Sprints, MVP + 1 Deep System)
