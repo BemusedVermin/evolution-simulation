@@ -10,19 +10,21 @@ This file is the canonical running log of implementation work on the Beast Evolu
 
 - **Active Sprint**: S1 — Fixed-Point & PRNG (beast-core) [Week 1]
 - **Phase**: 1 — Foundations & Core Sim
-- **Workspace scaffolded**: no (in progress)
+- **Workspace scaffolded**: yes (beast-core only; other 16 crates deferred to their sprints)
 - **Last updated**: 2026-04-15
 
 ### Sprint S1 Story Progress
 
 | ID  | Title                                                | Points | Status      |
 |-----|------------------------------------------------------|--------|-------------|
-| 1.1 | Q32.32 fixed-point type with saturating arithmetic   | 8      | In Progress |
-| 1.2 | Xoshiro256PlusPlus PRNG with seeding & streams       | 8      | Not Started |
-| 1.3 | EntityID, TickCounter, custom Error type             | 6      | Not Started |
-| 1.4 | Box-Muller Gaussian sampling & saturating math utils | 6      | Not Started |
-| 1.5 | Unit tests + property-based fuzzing (100k samples)   | 6      | Not Started |
+| 1.1 | Q32.32 fixed-point type with saturating arithmetic   | 8      | ✅ Done     |
+| 1.2 | Xoshiro256PlusPlus PRNG with seeding & streams       | 8      | ✅ Done     |
+| 1.3 | EntityID, TickCounter, custom Error type             | 6      | ✅ Done     |
+| 1.4 | Box-Muller Gaussian sampling & saturating math utils | 6      | ✅ Done     |
+| 1.5 | Unit tests + property-based fuzzing (100k samples)   | 6      | In Progress |
 | 1.6 | Benchmarking & documentation                         | 6      | Not Started |
+
+**Test count**: 43 unit tests passing (pre-proptest). All `cargo check` clean.
 
 ---
 
@@ -39,6 +41,39 @@ This file is the canonical running log of implementation work on the Beast Evolu
 ---
 
 ## Session Log (reverse chronological)
+
+### 2026-04-15 — Stories 1.1–1.4 landed (Claude)
+
+Commits on `master`:
+- `2a6127a` feat(core): scaffold workspace and Q3232 fixed-point type
+- `4394179` feat(core): Story 1.2 — Prng wrapper with per-subsystem stream splitting
+- `2fffe87` chore: gitignore .claude/ (per-machine local state)
+- `e6f7f45` feat(core): Story 1.3 — EntityId, TickCounter, Error type
+- `aa1734e` feat(core): Story 1.4 — Box-Muller Gaussian sampler and math utils
+
+Key decisions locked in:
+- `fixed` crate's `ToFixed`/`FromFixed` traits (not `LossyFrom`) are the
+  conversion surface. `Q3232::from_num` uses `saturating_from_num` internally.
+- `Stream` enum discriminants drive `long_jump()` count. Variants MUST be
+  append-only (reordering breaks replay compat of every existing save).
+- `Prng::split_stream(&self, Stream)` takes `&self` and clones internally —
+  master is not advanced by splitting.
+- Gaussian uses `f64` for `ln/sqrt/cos` (documented in module docs as the one
+  sanctioned float use); result is saturating-converted back to `Q3232`.
+- `TickCounter` saturates; at 60 Hz, `u64::MAX` ≈ 9.7 Gyr, so saturation is a
+  bug-indicator, not a real runtime event.
+- `EntityId::NONE = u32::MAX`. `EntityIdAllocator` saturates at `u32::MAX - 1`
+  to preserve the sentinel invariant.
+
+Read-errors / pitfalls encountered:
+- Compiled-in lints `unsafe_code = "forbid"` and `clippy::float_arithmetic = "warn"`
+  at the crate level. Gaussian function uses `#[allow(clippy::float_arithmetic)]`
+  locally.
+- `fixed::I32F32` has no `saturating_div` — fell back to `checked_div` with
+  manual MIN/MAX clamp on the `MIN / -1` overflow case.
+
+Next action: Story 1.5 — add `proptest` property-based fuzzing (100k samples)
+  for Q3232 saturating algebra and PRNG statistical properties.
 
 ### 2026-04-15 — Session start (Claude)
 
@@ -73,3 +108,15 @@ This file is the canonical running log of implementation work on the Beast Evolu
 _(updated as files are created)_
 
 - `documentation/PROGRESS_LOG.md` — this file.
+- `Cargo.toml` — workspace root, shared dep versions.
+- `.gitignore`, `.gitattributes` — LF enforcement, target/ ignored, `.claude/` excluded.
+- `crates/beast-core/Cargo.toml` — crate manifest with `unsafe_code = "forbid"`.
+- `crates/beast-core/README.md` — crate overview + usage snippet.
+- `crates/beast-core/benches/core_bench.rs` — criterion stub, populated in 1.6.
+- `crates/beast-core/src/lib.rs` — crate root, re-exports.
+- `crates/beast-core/src/fixed_point.rs` — `Q3232` (Story 1.1).
+- `crates/beast-core/src/prng.rs` — `Prng`, `Stream` (Story 1.2).
+- `crates/beast-core/src/entity.rs` — `EntityId`, `EntityIdAllocator` (Story 1.3).
+- `crates/beast-core/src/time.rs` — `TickCounter` (Story 1.3).
+- `crates/beast-core/src/error.rs` — `Error`, `Result` (Story 1.3).
+- `crates/beast-core/src/math.rs` — `gaussian_q3232`, `lerp/inv_lerp/clamp/min/max` (Story 1.4).
