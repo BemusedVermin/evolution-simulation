@@ -129,10 +129,20 @@ fn resolve_value(
     if let Some(v) = params.get(parameter) {
         return Ok(*v);
     }
-    let spec: &ParameterSpec = manifest
-        .parameter_schema
-        .get(parameter)
-        .expect("scaling parameters are validated at load time");
+    // Load-time validation in `RawPrimitiveManifest::into_manifest` rejects
+    // scaling entries that name unknown parameters, so in the normal flow
+    // this lookup always succeeds. `PrimitiveManifest`'s fields are public,
+    // though, so tests and future code can hand-construct manifests that
+    // bypass the loader — surface that as `MissingParameter` rather than
+    // panicking out of a cost evaluation call.
+    let spec: &ParameterSpec =
+        manifest
+            .parameter_schema
+            .get(parameter)
+            .ok_or_else(|| CostEvalError::MissingParameter {
+                primitive_id: manifest.id.clone(),
+                parameter: parameter.to_owned(),
+            })?;
     match &spec.default {
         Some(ParameterDefault::Number(v)) => Ok(*v),
         Some(ParameterDefault::Integer(i)) => Ok(Q3232::from_num(*i)),
@@ -246,6 +256,44 @@ mod tests {
             evaluate_cost(&m, &BTreeMap::new()),
             Err(CostEvalError::MissingParameter { .. })
         ));
+    }
+
+    #[test]
+    fn hand_constructed_manifest_missing_param_is_reported_not_panicked() {
+        // PrimitiveManifest's fields are `pub`, so callers can bypass the
+        // loader's validation. This test mutates a loaded manifest so its
+        // cost function references a parameter absent from the schema —
+        // the path that used to panic via .expect() — and asserts we
+        // surface MissingParameter instead.
+        use crate::manifest::ParameterScaling;
+        let json = r#"{
+            "id": "p",
+            "category": "signal_emission",
+            "description": "Normal manifest; tampered with post-load.",
+            "parameter_schema": { "x": { "type": "number", "default": 1 } },
+            "composition_compatibility": [ { "channel_family": "motor" } ],
+            "cost_function": {
+                "base_metabolic_cost": 0,
+                "parameter_scaling": [
+                    { "parameter": "x", "exponent": 1.0, "coefficient": 1.0 }
+                ]
+            },
+            "observable_signature": { "modality": "acoustic", "detection_range_m": 1, "pattern_key": "k" },
+            "provenance": "core"
+        }"#;
+        let mut m = PrimitiveManifest::from_json_str(json).unwrap();
+        // Tamper: point the scaling term at a name that was never declared.
+        m.cost_function.parameter_scaling.push(ParameterScaling {
+            parameter: "ghost".into(),
+            exponent: Q3232::ONE,
+            coefficient: Q3232::ONE,
+        });
+        match evaluate_cost(&m, &BTreeMap::new()) {
+            Err(CostEvalError::MissingParameter { parameter, .. }) => {
+                assert_eq!(parameter, "ghost");
+            }
+            other => panic!("expected MissingParameter, got {other:?}"),
+        }
     }
 
     #[test]
