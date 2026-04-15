@@ -1,0 +1,67 @@
+# cargo-deny configuration for the Beast Evolution Game workspace.
+#
+# Run locally with `cargo deny check`. CI runs the same command against every
+# PR (see `.github/workflows/ci.yml`, job `cargo-deny`). Four sections:
+#
+# * [advisories] — RUSTSEC vulnerabilities; block on any.
+# * [licenses]   — allow a small, recognisable set; reject everything else so
+#                  GPL / unclear / unlicensed crates can't slip in unnoticed.
+# * [bans]       — block wildcard external deps; permit the workspace's own
+#                  path-based `{ workspace = true }` references.
+# * [sources]    — only crates.io and workspace paths (no arbitrary git).
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "warn"
+# Treat every unreviewed advisory as a hard failure. If we ever need to
+# acknowledge-and-ship through one, add its RUSTSEC id to `ignore` with a
+# dated justification.
+ignore = []
+
+[licenses]
+version = 2
+# Covers every permissive license used by the crates in our current graph
+# plus the handful most people reach for. If a new dep introduces an
+# unrecognised license, the CI run will fail loudly — the right response is
+# to audit the crate and either add the license here with a comment or swap
+# the crate out.
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "CC0-1.0",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+]
+confidence-threshold = 0.8
+
+# Our own workspace crates declare `license = "Proprietary"` in Cargo.toml —
+# this is not a valid SPDX expression, but these crates also set
+# `publish = false`, so treating them as private and skipping the license
+# check is correct. cargo-deny exempts a crate iff it is publish = false AND
+# its name is registered (or `ignore = true` is set here).
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# `{ workspace = true }` resolves to a wildcard version in cargo-deny's view
+# but is actually a tightly-pinned path dep inside the workspace. This flag
+# carves out that legitimate case without weakening the wildcard ban on
+# external crates.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -76,6 +76,25 @@ jobs:
       - name: cargo test
         run: cargo test --workspace --all-targets --locked
 
+  # Dependency audit: advisories, licenses, unknown registries / git sources.
+  # Configuration lives in `deny.toml` at the repo root. Failing here means a
+  # new dep has a known CVE, uses an unvetted license, or was pulled from a
+  # source we haven't approved.
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: cargo deny check
+        run: cargo deny check --hide-inclusion-graph
+
   # Release build ensures nothing regressed under opt-level=3 + LTO.
   release-build:
     name: release-build (ubuntu)
