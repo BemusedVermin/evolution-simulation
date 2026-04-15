@@ -204,7 +204,7 @@ mod tests {
             "provenance": "core"
         }"#;
         let err = load_channel_manifest(src).unwrap_err();
-        matches!(err, ChannelLoadError::SchemaViolation(_));
+        assert!(matches!(err, ChannelLoadError::SchemaViolation(_)));
     }
 
     #[test]
