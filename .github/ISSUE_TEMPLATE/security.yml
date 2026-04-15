@@ -1,0 +1,57 @@
+name: Security (non-sensitive)
+description: Hardening suggestion, defense-in-depth idea, or general security discussion.
+title: "[security] "
+labels: ["type:security", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > ### ⚠️ Is this an exploitable vulnerability?
+        >
+        > **If yes, close this template and report privately.** See
+        > [`SECURITY.md`](../blob/master/SECURITY.md) for the private
+        > disclosure process.
+        >
+        > This template is for **non-sensitive** security work:
+        > hardening suggestions, questions about how a subsystem handles
+        > malformed input, `cargo-deny` / `cargo-audit` adjustments,
+        > defense-in-depth proposals. Anything you'd be comfortable
+        > discussing in public without giving an attacker a roadmap.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - "Hardening suggestion (reduce attack surface)"
+        - "Defense-in-depth (add a check that isn't strictly required)"
+        - "Dependency concern (cargo-deny / cargo-audit adjustment)"
+        - "Input validation question"
+        - "Documentation (SECURITY.md, disclosure process)"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: concern
+    attributes:
+      label: Concern
+      description: What's the issue or suggestion? Which component is affected?
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggested-fix
+    attributes:
+      label: Suggested fix (optional)
+      description: If you have one in mind, sketch it here.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: acknowledgement
+    attributes:
+      label: Confirmation
+      options:
+        - label: I have confirmed this is NOT an exploitable vulnerability. Exploitable vulnerabilities go through private disclosure per `SECURITY.md`.
+          required: true

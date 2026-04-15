@@ -1,0 +1,96 @@
+name: Bug Report
+description: Something is broken, misbehaving, or doesn't match the spec.
+title: "[bug] "
+labels: ["type:bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Stop.** If this bug is a **security vulnerability** (it allows an
+        attacker to panic the runtime, execute code, leak data, etc.), do
+        **not** file it here. Use private disclosure — see `SECURITY.md`.
+
+        If this bug is a **determinism regression** (replay hashes diverge,
+        same seed produces different output, etc.), use the dedicated
+        **Determinism Regression** template instead — it asks for the
+        specific fields a determinism triage needs.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: One-paragraph description.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should have happened?
+      description: What behaviour does the spec / docs / your reading of the code suggest?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Minimal steps. Prefer a failing test case inline when possible.
+      placeholder: |
+        1. Run `cargo test -p beast-channels composition::tests::…`
+        2. Observe panic in …
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output / logs
+      description: Copy the full error output, stack trace, or panic message.
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      description: "`git rev-parse HEAD` on the branch you hit this on."
+      placeholder: "e.g. 080b2d4"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      multiple: true
+      options:
+        - Linux
+        - macOS
+        - Windows
+    validations:
+      required: true
+
+  - type: input
+    id: rust-version
+    attributes:
+      label: Rust toolchain
+      description: "`rustc --version`"
+      placeholder: "rustc 1.83.0 (90b35a623 2024-11-26)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: Your best guess — triage will confirm.
+      options:
+        - "Low — cosmetic, doesn't affect correctness"
+        - "Medium — wrong behaviour, has a workaround"
+        - "High — wrong behaviour, no workaround, blocks sprint work"
+        - "Critical — data loss, panic on common input, or crash"
+    validations:
+      required: true

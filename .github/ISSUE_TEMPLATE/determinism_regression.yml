@@ -1,0 +1,102 @@
+name: Determinism Regression
+description: Replay hashes diverge, same seed produces different output, or cross-platform results don't match.
+title: "[determinism] "
+labels: ["type:determinism", "priority:high", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Determinism is the load-bearing invariant for this project
+        (`documentation/INVARIANTS.md` §1). A regression here is higher
+        priority than a typical bug — it silently corrupts save/load,
+        replay, and multiplayer guarantees.
+
+        **Triage protocol** (from `INVARIANTS.md`): first suspect the
+        numerical precision / PRNG seeding / iteration order, in that
+        order. Please capture as much of the reproducer below as you can.
+
+  - type: dropdown
+    id: divergence-class
+    attributes:
+      label: Divergence class
+      description: What kind of determinism break did you observe?
+      options:
+        - "Same seed, same platform, same commit → different output across runs"
+        - "Same seed, different platform (linux/windows/macOS) → different output"
+        - "Save → load → replay does not match original (state-hash mismatch)"
+        - "Tick-by-tick hash diverges partway through a run"
+        - "Other (explain)"
+    validations:
+      required: true
+
+  - type: input
+    id: seed
+    attributes:
+      label: PRNG seed
+      description: The master seed that reproduces the divergence.
+      placeholder: "0xDEADBEEFCAFEBABE"
+    validations:
+      required: true
+
+  - type: input
+    id: diverge-tick
+    attributes:
+      label: First divergent tick
+      description: Earliest tick at which the hash differs from the reference.
+      placeholder: "e.g. 437"
+    validations:
+      required: false
+
+  - type: textarea
+    id: platforms
+    attributes:
+      label: Platforms affected
+      description: List the platforms where you reproduced or failed to reproduce.
+      placeholder: |
+        - Reproduces on: Windows 11 + rustc 1.83.0
+        - Does not reproduce on: Ubuntu 22.04 + rustc 1.83.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: suspected-cause
+    attributes:
+      label: Suspected cause
+      description: Your best guess. Triage ordering from INVARIANTS.md is precision → seeding → iteration order.
+      options:
+        - "Numerical precision (float leak into sim state, saturation bug)"
+        - "PRNG seeding (stream split, cross-subsystem contamination)"
+        - "Iteration order (HashMap/HashSet leaking into state)"
+        - "Wall-clock / OS-entropy read (forbidden)"
+        - "Unknown"
+    validations:
+      required: true
+
+  - type: textarea
+    id: diff
+    attributes:
+      label: Binary diff of the first diverging tick
+      description: |
+        If the determinism test produced one (per `INVARIANTS.md` §1
+        "failure protocol"), paste it here. Include the entity / component
+        that diverged and the observed vs expected bytes.
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: ci-run
+    attributes:
+      label: CI run (if applicable)
+      description: Link to the failing GitHub Actions run.
+      placeholder: "https://github.com/BemusedVermin/evolution-simulation/actions/runs/…"
+    validations:
+      required: false
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      description: "`git rev-parse HEAD` on the reproducer."
+    validations:
+      required: true
