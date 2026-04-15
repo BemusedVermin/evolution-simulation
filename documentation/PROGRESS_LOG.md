@@ -63,6 +63,45 @@ This file is the canonical running log of implementation work on the Beast Evolu
 
 ## Session Log (reverse chronological)
 
+### 2026-04-15 — Post-S2 infra: cargo-deny, Dependabot, schema drift, coverage (Claude)
+
+Five small commits on `infra/cargo-deny-and-coverage`, landing the
+non-tracking items from the post-merge recommendations (item #2, the
+GitHub Project board + per-sprint issues, deferred to a separate
+session).
+
+- **`cargo-deny`** (`8e3c170`) — `deny.toml` covers advisories (block
+  on any RUSTSEC), licenses (allow-list of ~12 permissive SPDX
+  expressions + `[licenses.private] ignore = true` so our own
+  `publish = false` "Proprietary" crates are skipped), bans
+  (`multiple-versions = "warn"` for the benign `getrandom` 0.2/0.3
+  duplicate, `wildcards = "deny"` with `allow-wildcard-paths = true`
+  so `{ workspace = true }` is permitted), sources (crates.io only).
+  CI job installs via `taiki-e/install-action` to avoid the 2-minute
+  compile-from-source cost.
+- **Dependabot** (`ca0b5c9`) — weekly Monday 09:00 UTC for cargo +
+  github-actions. Patch+minor bumps grouped into one PR per ecosystem;
+  majors come through individually because the determinism-critical
+  crates (jsonschema, fixed, rand_xoshiro) warrant per-bump review.
+- **Schema-drift guards** (`ac9bece` for channels, `0025505` for
+  primitives) — integration tests that walk
+  `documentation/schemas/examples/` and `primitive_vocabulary/` at
+  test time via `std::fs` from `CARGO_MANIFEST_DIR`. Every `.json`
+  file must parse via the runtime loader. Second test in each crate
+  pins the embedded `include_str!` schema byte-for-byte against the
+  canonical file on disk. The primitive-side test also asserts the
+  starter-vocabulary count is exactly 16 so adding/removing a
+  primitive is a reviewer-visible change.
+- **Coverage reporting** (`37ffa31`) — new `coverage` job runs
+  `cargo-llvm-cov` with `--summary-only` (per-crate numbers in log)
+  and `--lcov --output-path lcov.info` (uploaded as `coverage-lcov`
+  artifact with 14-day retention). Report-only to start; enabling
+  `--fail-under-lines 80` is a one-line follow-up once we have a
+  baseline.
+
+Deferred to its own session: GitHub Project v2 board with per-sprint
+issues and issue templates (Story / Bug / Determinism-regression).
+
 ### 2026-04-15 — Sprint S2 implementation (Claude)
 
 Two new crates, both Layer 1, both depend only on `beast-core`
