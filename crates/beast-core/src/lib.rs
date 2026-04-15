@@ -29,7 +29,7 @@ pub mod math;
 pub mod prng;
 pub mod time;
 
-pub use entity::EntityId;
+pub use entity::{EntityId, EntityIdAllocator};
 pub use error::{Error, Result};
 pub use fixed_point::Q3232;
 pub use math::{clamp01, gaussian_q3232, lerp_q3232};
