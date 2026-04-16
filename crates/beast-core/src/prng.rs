@@ -202,10 +202,6 @@ impl RngCore for Prng {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         self.inner.fill_bytes(dest)
     }
-    #[inline]
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        self.inner.try_fill_bytes(dest)
-    }
 }
 
 // ---------- Tests ----------
