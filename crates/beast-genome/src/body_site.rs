@@ -10,7 +10,7 @@
 use beast_core::Q3232;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{GenomeError, Result};
+use crate::error::{check_unit, Result};
 
 /// Anatomical location and coverage of a trait gene's physical expression.
 ///
@@ -47,6 +47,15 @@ impl BodyVector {
         })
     }
 
+    /// Re-validate all `Q3232` fields against `[0, 1]`. Called by
+    /// [`crate::TraitGene::validate_local`] to catch post-mutation drift.
+    pub fn validate(&self) -> Result<()> {
+        check_unit("surface_vs_internal", self.surface_vs_internal)?;
+        check_unit("body_region", self.body_region)?;
+        check_unit("coverage", self.coverage)?;
+        Ok(())
+    }
+
     /// A default body vector: internal (0), anterior (0), non-mirrored, zero coverage.
     #[inline]
     #[must_use]
@@ -60,19 +69,10 @@ impl BodyVector {
     }
 }
 
-fn check_unit(field: &'static str, v: Q3232) -> Result<()> {
-    if v < Q3232::ZERO || v > Q3232::ONE {
-        return Err(GenomeError::OutOfUnitRange {
-            field,
-            value: format!("{v:?}"),
-        });
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::GenomeError;
 
     #[test]
     fn accepts_valid_body_vector() {

@@ -13,7 +13,7 @@ use beast_core::Q3232;
 use serde::{Deserialize, Serialize};
 
 use crate::body_site::BodyVector;
-use crate::error::{GenomeError, Result};
+use crate::error::{check_unit, GenomeError, Result};
 use crate::lineage::LineageTag;
 use crate::modifier::Modifier;
 
@@ -158,6 +158,7 @@ impl TraitGene {
     pub fn validate_local(&self) -> Result<()> {
         check_unit("magnitude", self.effect.magnitude)?;
         check_unit("radius", self.effect.radius)?;
+        self.body_site.validate()?;
         let neg_one = -Q3232::ONE;
         for m in &self.regulatory {
             if m.strength < neg_one || m.strength > Q3232::ONE {
@@ -168,16 +169,6 @@ impl TraitGene {
         }
         Ok(())
     }
-}
-
-fn check_unit(field: &'static str, v: Q3232) -> Result<()> {
-    if v < Q3232::ZERO || v > Q3232::ONE {
-        return Err(GenomeError::OutOfUnitRange {
-            field,
-            value: format!("{v:?}"),
-        });
-    }
-    Ok(())
 }
 
 #[cfg(test)]
