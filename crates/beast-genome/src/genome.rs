@@ -157,6 +157,7 @@ impl Genome {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::body_site::BodyVector;
     use crate::gene::{EffectVector, Target, Timing};
     use crate::lineage::LineageTag;
     use crate::modifier::{Modifier, ModifierEffect};
@@ -177,6 +178,7 @@ mod tests {
         TraitGene::new(
             "kinetic_force",
             effect(channels),
+            BodyVector::default_internal(),
             regs,
             true,
             LineageTag::from_raw(tag),
