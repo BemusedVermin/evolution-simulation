@@ -56,6 +56,10 @@ pub enum BoundsPolicy {
 }
 
 /// Origin of a channel. Mirrors the schema's `provenance` discriminated regex.
+///
+/// Serializes as the same canonical string form used in channel manifest
+/// JSON (`"core"`, `"mod:foo"`, `"genesis:foo:123"`). This keeps save files
+/// self-describing and round-trippable without needing a separate enum tag.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Provenance {
     /// A canonical channel shipped by the core game.
@@ -72,6 +76,28 @@ pub enum Provenance {
 }
 
 impl Provenance {
+    /// Render back into the canonical schema string form.
+    #[must_use]
+    pub fn to_schema_string(&self) -> String {
+        match self {
+            Self::Core => "core".to_owned(),
+            Self::Mod(id) => format!("mod:{id}"),
+            Self::Genesis { parent, generation } => format!("genesis:{parent}:{generation}"),
+        }
+    }
+
+    /// Parse a provenance string in the canonical schema form.
+    ///
+    /// The schema's regex (`^(core|mod:[a-z_][a-z0-9_]*|genesis:[a-z_][a-z0-9_]*:[0-9]+)$`)
+    /// is enforced by JSON Schema validation inside the manifest loader.
+    /// This entry point is useful for downstream crates (e.g. `beast-genome`)
+    /// that need to construct a provenance from a freshly minted string —
+    /// it performs the same structural split as [`Provenance::parse`] but
+    /// without the manifest-load error context.
+    pub fn from_schema_str(raw: &str) -> Result<Self, ChannelLoadError> {
+        Self::parse(raw)
+    }
+
     /// Parse the JSON `provenance` string.
     ///
     /// The schema's regex (`^(core|mod:[a-z_][a-z0-9_]*|genesis:[a-z_][a-z0-9_]*:[0-9]+)$`)
@@ -102,6 +128,25 @@ impl Provenance {
             });
         }
         Err(ChannelLoadError::InvalidProvenance(raw.to_owned()))
+    }
+}
+
+impl Serialize for Provenance {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_schema_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for Provenance {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
     }
 }
 

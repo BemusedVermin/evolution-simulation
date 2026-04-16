@@ -4,6 +4,7 @@ members = [
     "crates/beast-core",
     "crates/beast-channels",
     "crates/beast-primitives",
+    "crates/beast-genome",
 ]
 
 [workspace.package]
@@ -33,6 +34,7 @@ regex = "1"
 beast-core = { path = "crates/beast-core" }
 beast-channels = { path = "crates/beast-channels" }
 beast-primitives = { path = "crates/beast-primitives" }
+beast-genome = { path = "crates/beast-genome" }
 
 # Dev-only
 proptest = "1.5"
