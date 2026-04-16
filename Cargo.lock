@@ -98,6 +98,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "beast-genome"
+version = "0.1.0"
+dependencies = [
+ "beast-channels",
+ "beast-core",
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "beast-primitives"
 version = "0.1.0"
 dependencies = [
