@@ -1,5 +1,6 @@
-//! Error types for genome construction and validation.
+//! Error types and shared validation helpers for genome construction.
 
+use beast_core::Q3232;
 use thiserror::Error;
 
 /// Errors produced while constructing or validating genome types.
@@ -59,3 +60,16 @@ pub enum GenomeError {
 
 /// Convenience `Result` alias for genome-crate errors.
 pub type Result<T> = core::result::Result<T, GenomeError>;
+
+/// Assert a `Q3232` value is in `[0, 1]`, returning `OutOfUnitRange` on
+/// violation. Used by `EffectVector::new`, `BodyVector::new`, and
+/// `validate_local` to share a single validation path.
+pub(crate) fn check_unit(field: &'static str, v: Q3232) -> Result<()> {
+    if v < Q3232::ZERO || v > Q3232::ONE {
+        return Err(GenomeError::OutOfUnitRange {
+            field,
+            value: format!("{v:?}"),
+        });
+    }
+    Ok(())
+}

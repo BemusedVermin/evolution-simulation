@@ -1,23 +1,19 @@
 //! Trait genes — the unit of mutation and channel contribution.
 //!
 //! A [`TraitGene`] is a compositional record: it declares *what* it produces
-//! (the [`EffectVector`]), *how* it activates ([`Timing`]/[`Target`]), and
-//! (in a follow-up story) *where* on the body it manifests. Ancestry is
-//! tracked via a [`crate::LineageTag`] and a
+//! (the [`EffectVector`]), *where* on the body it manifests (the
+//! [`crate::BodyVector`]), and *how* it activates ([`Timing`]/[`Target`]).
+//! Ancestry is tracked via a [`crate::LineageTag`] and a
 //! [`beast_channels::Provenance`] string so that speciation metrics can
 //! walk back through duplication events without scanning the entire
 //! phylogeny.
-//!
-//! `BodyVector` is introduced in story S3.2; for now every gene carries a
-//! placeholder `body_site` field typed as `Option<BodyVector>` so the shape
-//! is forward-compatible without forcing call sites to supply a default
-//! today.
 
 use beast_channels::Provenance;
 use beast_core::Q3232;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{GenomeError, Result};
+use crate::body_site::BodyVector;
+use crate::error::{check_unit, GenomeError, Result};
 use crate::lineage::LineageTag;
 use crate::modifier::Modifier;
 
@@ -117,8 +113,8 @@ pub struct TraitGene {
     pub channel_id: String,
     /// What the gene produces.
     pub effect: EffectVector,
-    /// Where on the body the effect manifests (introduced in S3.2).
-    pub body_site: Option<BodySitePlaceholder>,
+    /// Where on the body the effect manifests.
+    pub body_site: BodyVector,
     /// Outgoing regulatory edges.
     pub regulatory: Vec<Modifier>,
     /// Whether the gene is currently expressed. Silencing toggles flip
@@ -130,15 +126,6 @@ pub struct TraitGene {
     pub provenance: Provenance,
 }
 
-/// Placeholder for the full body-site vector introduced in story S3.2.
-///
-/// Exists so `TraitGene` already reserves the slot and save-file layout is
-/// forward-compatible. Do not add fields here — extend
-/// `crate::body_site::BodyVector` instead when S3.2 lands and swap the
-/// placeholder out.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct BodySitePlaceholder;
-
 impl TraitGene {
     /// Construct a trait gene. Validates local invariants (unit-range
     /// fields, modifier strengths) and returns `Err` on violation.
@@ -147,6 +134,7 @@ impl TraitGene {
     pub fn new(
         channel_id: impl Into<String>,
         effect: EffectVector,
+        body_site: BodyVector,
         regulatory: Vec<Modifier>,
         enabled: bool,
         lineage_tag: LineageTag,
@@ -155,7 +143,7 @@ impl TraitGene {
         let gene = Self {
             channel_id: channel_id.into(),
             effect,
-            body_site: None,
+            body_site,
             regulatory,
             enabled,
             lineage_tag,
@@ -170,6 +158,7 @@ impl TraitGene {
     pub fn validate_local(&self) -> Result<()> {
         check_unit("magnitude", self.effect.magnitude)?;
         check_unit("radius", self.effect.radius)?;
+        self.body_site.validate()?;
         let neg_one = -Q3232::ONE;
         for m in &self.regulatory {
             if m.strength < neg_one || m.strength > Q3232::ONE {
@@ -180,16 +169,6 @@ impl TraitGene {
         }
         Ok(())
     }
-}
-
-fn check_unit(field: &'static str, v: Q3232) -> Result<()> {
-    if v < Q3232::ZERO || v > Q3232::ONE {
-        return Err(GenomeError::OutOfUnitRange {
-            field,
-            value: format!("{v:?}"),
-        });
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -212,6 +191,7 @@ mod tests {
         TraitGene::new(
             "kinetic_force",
             effect(4),
+            BodyVector::default_internal(),
             vec![],
             true,
             LineageTag::from_raw(0xAAAA),
@@ -268,6 +248,7 @@ mod tests {
         let err = TraitGene::new(
             "kinetic_force",
             effect(4),
+            BodyVector::default_internal(),
             vec![bad],
             true,
             LineageTag::from_raw(0xBBBB),
@@ -293,6 +274,7 @@ mod tests {
         let g = TraitGene::new(
             "kinetic_force",
             effect(2),
+            BodyVector::default_internal(),
             vec![],
             true,
             LineageTag::from_raw(1),

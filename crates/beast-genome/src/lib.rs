@@ -16,14 +16,16 @@
 #![warn(missing_docs)]
 #![warn(rust_2018_idioms)]
 
+pub mod body_site;
 pub mod error;
 pub mod gene;
 pub mod genome;
 pub mod lineage;
 pub mod modifier;
 
+pub use body_site::BodyVector;
 pub use error::{GenomeError, Result};
-pub use gene::{BodySitePlaceholder, EffectVector, Target, Timing, TraitGene};
+pub use gene::{EffectVector, Target, Timing, TraitGene};
 pub use genome::{Genome, GenomeParams};
 pub use lineage::LineageTag;
 pub use modifier::{Modifier, ModifierEffect};
