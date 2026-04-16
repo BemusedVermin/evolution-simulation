@@ -23,7 +23,7 @@
 
 use std::sync::OnceLock;
 
-use jsonschema::JSONSchema;
+use jsonschema::Validator;
 use thiserror::Error;
 
 use crate::composition::CompositionKind;
@@ -116,20 +116,15 @@ fn format_schema_errors(errors: &[SchemaViolation]) -> String {
     out
 }
 
-fn compiled_schema() -> &'static JSONSchema {
-    static SCHEMA: OnceLock<JSONSchema> = OnceLock::new();
+fn compiled_schema() -> &'static Validator {
+    static SCHEMA: OnceLock<Validator> = OnceLock::new();
     SCHEMA.get_or_init(|| {
         let raw: serde_json::Value = serde_json::from_str(CHANNEL_MANIFEST_SCHEMA)
             .expect("embedded channel manifest schema is valid JSON");
-        // `jsonschema` 0.17 pins its default draft at Draft 2019-09, and the
-        // schema files declare `"$schema": ".../draft/2020-12/..."`. The
-        // subset of features we rely on (types, enums, patterns, required,
-        // if/then/else, oneOf) is identical between 2019-09 and 2020-12, so
-        // letting the validator use its default keeps the toolchain pinned to
-        // stable Rust 1.75 while still enforcing every constraint we depend on.
-        JSONSchema::options()
-            .compile(&raw)
-            .expect("embedded channel manifest schema compiles")
+        // `jsonschema::validator_for` auto-selects the draft from the schema's
+        // `$schema` URI — our files declare Draft 2020-12, which this crate
+        // natively supports.
+        jsonschema::validator_for(&raw).expect("embedded channel manifest schema compiles")
     })
 }
 
@@ -142,13 +137,14 @@ pub fn load_channel_manifest(source: &str) -> Result<ChannelManifest, ChannelLoa
         serde_json::from_str(source).map_err(|e| ChannelLoadError::InvalidJson(e.to_string()))?;
 
     let schema = compiled_schema();
-    if let Err(errors) = schema.validate(&value) {
-        let violations = errors
-            .map(|e| SchemaViolation {
-                pointer: e.instance_path.to_string(),
-                message: e.to_string(),
-            })
-            .collect::<Vec<_>>();
+    let violations: Vec<SchemaViolation> = schema
+        .iter_errors(&value)
+        .map(|e| SchemaViolation {
+            pointer: e.instance_path().to_string(),
+            message: e.to_string(),
+        })
+        .collect();
+    if !violations.is_empty() {
         return Err(ChannelLoadError::SchemaViolation(violations));
     }
 

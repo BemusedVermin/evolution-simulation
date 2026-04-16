@@ -11,7 +11,7 @@
 
 use std::sync::OnceLock;
 
-use jsonschema::JSONSchema;
+use jsonschema::Validator;
 use thiserror::Error;
 
 use crate::manifest::PrimitiveManifest;
@@ -96,14 +96,14 @@ fn format_schema_errors(errors: &[SchemaViolation]) -> String {
     out
 }
 
-fn compiled_schema() -> &'static JSONSchema {
-    static SCHEMA: OnceLock<JSONSchema> = OnceLock::new();
+fn compiled_schema() -> &'static Validator {
+    static SCHEMA: OnceLock<Validator> = OnceLock::new();
     SCHEMA.get_or_init(|| {
         let raw: serde_json::Value = serde_json::from_str(PRIMITIVE_MANIFEST_SCHEMA)
             .expect("embedded primitive manifest schema is valid JSON");
-        JSONSchema::options()
-            .compile(&raw)
-            .expect("embedded primitive manifest schema compiles")
+        // `jsonschema::validator_for` auto-selects the draft from the schema's
+        // `$schema` URI. Our file declares Draft 2020-12.
+        jsonschema::validator_for(&raw).expect("embedded primitive manifest schema compiles")
     })
 }
 
@@ -113,13 +113,14 @@ pub fn load_primitive_manifest(source: &str) -> Result<PrimitiveManifest, Primit
         serde_json::from_str(source).map_err(|e| PrimitiveLoadError::InvalidJson(e.to_string()))?;
 
     let schema = compiled_schema();
-    if let Err(errors) = schema.validate(&value) {
-        let violations = errors
-            .map(|e| SchemaViolation {
-                pointer: e.instance_path.to_string(),
-                message: e.to_string(),
-            })
-            .collect::<Vec<_>>();
+    let violations: Vec<SchemaViolation> = schema
+        .iter_errors(&value)
+        .map(|e| SchemaViolation {
+            pointer: e.instance_path().to_string(),
+            message: e.to_string(),
+        })
+        .collect();
+    if !violations.is_empty() {
         return Err(PrimitiveLoadError::SchemaViolation(violations));
     }
 

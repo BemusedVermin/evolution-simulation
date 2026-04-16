@@ -23,9 +23,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 
-# Sprint 2: manifest + registry deps. `jsonschema` is pinned to a minor that
-# works on stable Rust 1.75. `regex` backs the provenance string validator.
-jsonschema = { version = "0.17", default-features = false }
+# Sprint 2: manifest + registry deps. `jsonschema` 0.46 uses the modern
+# `validator_for` API and natively supports Draft 2020-12 (matching the
+# `$schema` URI declared in our canonical schema files). `regex` backs the
+# provenance string validator.
+jsonschema = { version = "0.46", default-features = false }
 regex = "1"
 
 beast-core = { path = "crates/beast-core" }
