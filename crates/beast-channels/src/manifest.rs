@@ -89,21 +89,10 @@ impl Provenance {
     /// Parse a provenance string in the canonical schema form.
     ///
     /// The schema's regex (`^(core|mod:[a-z_][a-z0-9_]*|genesis:[a-z_][a-z0-9_]*:[0-9]+)$`)
-    /// is enforced by JSON Schema validation inside the manifest loader.
-    /// This entry point is useful for downstream crates (e.g. `beast-genome`)
-    /// that need to construct a provenance from a freshly minted string —
-    /// it performs the same structural split as [`Provenance::parse`] but
-    /// without the manifest-load error context.
-    pub fn from_schema_str(raw: &str) -> Result<Self, ChannelLoadError> {
-        Self::parse(raw)
-    }
-
-    /// Parse the JSON `provenance` string.
-    ///
-    /// The schema's regex (`^(core|mod:[a-z_][a-z0-9_]*|genesis:[a-z_][a-z0-9_]*:[0-9]+)$`)
-    /// is enforced by JSON Schema validation, so this parser assumes the
-    /// structural shape is well-formed and only does the split.
-    pub(crate) fn parse(raw: &str) -> Result<Self, ChannelLoadError> {
+    /// is enforced by JSON Schema validation inside the manifest loader,
+    /// so this parser assumes the structural shape is well-formed and only
+    /// does the split.
+    pub fn parse(raw: &str) -> Result<Self, ChannelLoadError> {
         if raw == "core" {
             return Ok(Self::Core);
         }

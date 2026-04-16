@@ -56,8 +56,11 @@ pub enum Target {
 /// What a gene produces when expressed.
 ///
 /// The `channel` vector is indexed by position in the loaded
-/// [`beast_channels::ChannelRegistry`]. All other numeric fields are in the
-/// canonical `[0, 1]` range (see [`Q3232`]).
+/// [`beast_channels::ChannelRegistry`]. Channel contributions are
+/// intentionally **unbounded** — they may be negative (inhibitory) or
+/// exceed 1.0 (synergistic). Clamping happens downstream in the network
+/// resolver and interpreter, not here. `magnitude` and `radius` are the
+/// only unit-range `[0, 1]` fields validated at construction.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EffectVector {
     /// Per-channel contribution, one entry per channel in the registry.
@@ -137,9 +140,10 @@ pub struct TraitGene {
 pub struct BodySitePlaceholder;
 
 impl TraitGene {
-    /// Construct a trait gene. Performs only the validations that are local
-    /// to a single gene; inter-gene checks (modifier index bounds, lineage
-    /// uniqueness) happen in [`crate::Genome::validate`].
+    /// Construct a trait gene. Validates local invariants (unit-range
+    /// fields, modifier strengths) and returns `Err` on violation.
+    /// Inter-gene checks (modifier index bounds, lineage uniqueness)
+    /// happen in [`crate::Genome::validate`].
     pub fn new(
         channel_id: impl Into<String>,
         effect: EffectVector,
@@ -147,8 +151,8 @@ impl TraitGene {
         enabled: bool,
         lineage_tag: LineageTag,
         provenance: Provenance,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        let gene = Self {
             channel_id: channel_id.into(),
             effect,
             body_site: None,
@@ -156,7 +160,9 @@ impl TraitGene {
             enabled,
             lineage_tag,
             provenance,
-        }
+        };
+        gene.validate_local()?;
+        Ok(gene)
     }
 
     /// Validate local ranges (effect magnitudes, modifier strengths). Does
@@ -211,6 +217,7 @@ mod tests {
             LineageTag::from_raw(0xAAAA),
             Provenance::Core,
         )
+        .unwrap()
     }
 
     #[test]
@@ -252,16 +259,23 @@ mod tests {
     }
 
     #[test]
-    fn validate_local_catches_modifier_strength() {
-        let mut g = gene();
-        // Bypass Modifier::new's validation by pushing a raw struct.
-        g.regulatory.push(Modifier {
+    fn new_rejects_bad_modifier_strength() {
+        let bad = Modifier {
             target_gene_index: 0,
             effect_type: ModifierEffect::Activate,
             strength: Q3232::from_num(2_i32),
-        });
+        };
+        let err = TraitGene::new(
+            "kinetic_force",
+            effect(4),
+            vec![bad],
+            true,
+            LineageTag::from_raw(0xBBBB),
+            Provenance::Core,
+        )
+        .unwrap_err();
         assert!(matches!(
-            g.validate_local().unwrap_err(),
+            err,
             GenomeError::ModifierStrengthOutOfRange { .. }
         ));
     }
@@ -286,7 +300,8 @@ mod tests {
                 parent: "kinetic_force".to_owned(),
                 generation: 42,
             },
-        );
+        )
+        .unwrap();
         let json = serde_json::to_string(&g).unwrap();
         assert!(json.contains("\"genesis:kinetic_force:42\""));
         let back: TraitGene = serde_json::from_str(&json).unwrap();
