@@ -61,6 +61,16 @@ pub struct GenomeParams {
     pub regulatory_effect_type_flip_prob: Q3232,
     /// Per-genome probability of a gene duplication. **Default 0** (v0).
     pub duplication_rate: Q3232,
+    /// Gaussian σ applied per-channel-entry to a freshly created paralog.
+    /// Small by default so paralogs start close to their parent and
+    /// diverge through ongoing [`Self::channel_shift_rate`] drift.
+    pub duplication_noise_sigma: Q3232,
+    /// Per-genome probability that the genome's own
+    /// [`Self::duplication_rate`] drifts by a Gaussian step. System 01 §3
+    /// lists this meta-rate as `1e-4`.
+    pub duplication_rate_drift_rate: Q3232,
+    /// Gaussian σ for the [`Self::duplication_rate`] drift.
+    pub duplication_rate_drift_sigma: Q3232,
 }
 
 impl Default for GenomeParams {
@@ -83,6 +93,10 @@ impl Default for GenomeParams {
             regulatory_effect_type_flip_prob: Q3232::from_num(0.05_f64),
             // Disabled for v0 (System 01 §6B).
             duplication_rate: Q3232::ZERO,
+            duplication_noise_sigma: Q3232::from_num(0.05_f64),
+            // System 01 §3 `DUPLICATION_RATE` mutable meta-rate.
+            duplication_rate_drift_rate: Q3232::from_num(1.0e-4_f64),
+            duplication_rate_drift_sigma: Q3232::from_num(1.0e-4_f64),
         }
     }
 }

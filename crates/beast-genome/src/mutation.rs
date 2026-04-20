@@ -248,6 +248,9 @@ mod tests {
             regulatory_mutate_sigma: Q3232::from_num(0.15_f64),
             regulatory_effect_type_flip_prob: Q3232::ZERO,
             duplication_rate: Q3232::ZERO,
+            duplication_noise_sigma: Q3232::from_num(0.05_f64),
+            duplication_rate_drift_rate: Q3232::ZERO,
+            duplication_rate_drift_sigma: Q3232::from_num(1.0e-4_f64),
         }
     }
 
@@ -283,6 +286,9 @@ mod tests {
             regulatory_mutate_sigma: Q3232::from_num(0.15_f64),
             regulatory_effect_type_flip_prob: Q3232::ZERO,
             duplication_rate: Q3232::ZERO,
+            duplication_noise_sigma: Q3232::from_num(0.05_f64),
+            duplication_rate_drift_rate: Q3232::ZERO,
+            duplication_rate_drift_sigma: Q3232::from_num(1.0e-4_f64),
         };
         let original = make_gene(4);
         let mut gene = original.clone();
@@ -336,6 +342,9 @@ mod tests {
             regulatory_mutate_sigma: Q3232::from_num(0.15_f64),
             regulatory_effect_type_flip_prob: Q3232::ZERO,
             duplication_rate: Q3232::ZERO,
+            duplication_noise_sigma: Q3232::from_num(0.05_f64),
+            duplication_rate_drift_rate: Q3232::ZERO,
+            duplication_rate_drift_sigma: Q3232::from_num(1.0e-4_f64),
         };
         let mut gene = make_gene(4);
         let mut rng = Prng::from_seed(99);
@@ -369,6 +378,9 @@ mod tests {
             regulatory_mutate_sigma: Q3232::from_num(0.15_f64),
             regulatory_effect_type_flip_prob: Q3232::ZERO,
             duplication_rate: Q3232::ZERO,
+            duplication_noise_sigma: Q3232::from_num(0.05_f64),
+            duplication_rate_drift_rate: Q3232::ZERO,
+            duplication_rate_drift_sigma: Q3232::from_num(1.0e-4_f64),
         };
         let mut gene = make_gene(2);
         assert!(gene.enabled);
@@ -395,6 +407,9 @@ mod tests {
             regulatory_mutate_sigma: Q3232::from_num(0.15_f64),
             regulatory_effect_type_flip_prob: Q3232::ZERO,
             duplication_rate: Q3232::ZERO,
+            duplication_noise_sigma: Q3232::from_num(0.05_f64),
+            duplication_rate_drift_rate: Q3232::ZERO,
+            duplication_rate_drift_sigma: Q3232::from_num(1.0e-4_f64),
         };
         let n = 10_000_i32;
         let start = Q3232::from_num(0.5_f64);
@@ -456,6 +471,9 @@ mod tests {
             regulatory_mutate_sigma: Q3232::from_num(0.25_f64),
             regulatory_effect_type_flip_prob: Q3232::from_num(0.1_f64),
             duplication_rate: Q3232::ZERO,
+            duplication_noise_sigma: Q3232::from_num(0.05_f64),
+            duplication_rate_drift_rate: Q3232::ZERO,
+            duplication_rate_drift_sigma: Q3232::from_num(1.0e-4_f64),
         }
     }
 
