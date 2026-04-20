@@ -5,10 +5,11 @@
 //! [`mutate_point`] is fixed so that identical `(gene, params, seed)` triples
 //! produce bit-identical results across platforms.
 
-use beast_core::{gaussian_q3232, reflect_clamp01, Prng, Q3232};
+use beast_core::{gaussian_q3232, reflect_clamp01, Prng, TickCounter, Q3232};
 
+use crate::duplication::{mutate_duplicate, mutate_duplication_rate};
 use crate::gene::TraitGene;
-use crate::genome::GenomeParams;
+use crate::genome::{Genome, GenomeParams};
 use crate::modifier::{Modifier, ModifierEffect};
 
 /// Apply all point-level mutations to a single gene.
@@ -96,6 +97,39 @@ pub fn mutate_regulatory(
     try_add_modifier(gene, source_gene_index, genome_len, params, rng);
     try_remove_modifier(gene, params, rng);
     try_mutate_modifier(gene, params, rng);
+}
+
+/// Apply one tick's worth of mutation to `genome`.
+///
+/// Composes every operator implemented in `beast-genome` in a fixed order
+/// so that identical `(genome, tick, seed)` inputs produce bit-identical
+/// results across platforms. Draw order is load-bearing for the S6
+/// determinism gate — do not reorder without updating
+/// `documentation/INVARIANTS.md`.
+///
+/// Order:
+///
+/// 1. For each pre-existing gene, in index order:
+///    a. [`mutate_point`] — magnitude, channel, body-site, silencing
+///    b. [`mutate_regulatory`] — add / remove / mutate modifiers
+/// 2. [`mutate_duplicate`] — genome-level paralog creation
+/// 3. [`mutate_duplication_rate`] — meta-rate drift
+///
+/// Freshly appended paralogs are **not** mutated on the same tick they
+/// are born; they become eligible on subsequent calls. This mirrors the
+/// System 01 §3 pseudocode semantics and keeps the per-tick iteration
+/// count (`original_len`) stable.
+pub fn apply_mutations(genome: &mut Genome, current_tick: TickCounter, rng: &mut Prng) {
+    let original_len = genome.genes.len();
+    let params = genome.params.clone();
+    for i in 0..original_len {
+        mutate_point(&mut genome.genes[i], &params, rng);
+        // Safe cast: `Genome::validate` caps genome length at `u32::MAX`.
+        let source = u32::try_from(i).expect("genome length exceeds u32::MAX");
+        mutate_regulatory(&mut genome.genes[i], source, original_len, &params, rng);
+    }
+    mutate_duplicate(genome, current_tick, rng);
+    mutate_duplication_rate(genome, rng);
 }
 
 fn try_add_modifier(
