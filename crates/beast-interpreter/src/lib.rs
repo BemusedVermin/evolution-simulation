@@ -53,3 +53,4 @@ pub use composition::{CompositionKind, EmitSpec, FiredHook, HookId, InterpreterH
 pub use error::{InterpreterError, Result};
 pub use parameter_map::Expr;
 pub use phenotype::{BodyRegion, BodySite, Environment, LifeStage, ResolvedPhenotype};
+pub use scale_band::apply_scale_band_filter;
