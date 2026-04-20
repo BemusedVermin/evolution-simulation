@@ -22,6 +22,7 @@ pub mod gene;
 pub mod genome;
 pub mod lineage;
 pub mod modifier;
+pub mod mutation;
 
 pub use body_site::BodyVector;
 pub use error::{GenomeError, Result};
@@ -29,3 +30,4 @@ pub use gene::{EffectVector, Target, Timing, TraitGene};
 pub use genome::{Genome, GenomeParams};
 pub use lineage::LineageTag;
 pub use modifier::{Modifier, ModifierEffect};
+pub use mutation::mutate_point;
