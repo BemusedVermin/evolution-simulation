@@ -49,7 +49,9 @@ pub mod parameter_map;
 pub mod phenotype;
 pub mod scale_band;
 
-pub use composition::{CompositionKind, EmitSpec, FiredHook, HookId, InterpreterHook};
+pub use composition::{
+    resolve_hooks, CompositionKind, EmitSpec, FiredHook, HookId, InterpreterHook,
+};
 pub use error::{InterpreterError, Result};
 pub use expression::filter_hooks_by_affordances;
 pub use parameter_map::Expr;
