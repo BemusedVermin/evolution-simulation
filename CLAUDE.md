@@ -74,6 +74,10 @@ Per-tick budget: ~16ms (60 FPS). When adding a system, place it in the correct s
 - Primitives are the 8-category output vocabulary of the phenotype interpreter. See `documentation/schemas/README.md` for the taxonomy and `primitive_vocabulary/` for the 16 starter primitives.
 - When adding a channel or primitive, validate the manifest against the schema before wiring it in.
 
+## Scoping
+
+This repository will go through many iterations. We have many planned features that we have decided to push to a later date. If you encounter ANY scoped features, you must create a GitHub issue to track it in the future.
+
 ## Commands
 
 The checks CI runs on every PR (runnable locally):
