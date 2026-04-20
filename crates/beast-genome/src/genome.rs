@@ -38,8 +38,27 @@ pub struct GenomeParams {
     pub body_site_drift_sigma: Q3232,
     /// Per-gene probability of flipping `enabled`.
     pub silencing_toggle_rate: Q3232,
-    /// Per-gene probability of a regulatory rewire.
-    pub regulatory_rewire_rate: Q3232,
+    /// Per-gene probability of inserting a new regulatory [`crate::Modifier`].
+    ///
+    /// One of the three per-locus rewiring rates whose defaults sum to
+    /// `5e-4` (System 01 §3, `REGULATORY_REWIRING_RATE`).
+    pub regulatory_add_rate: Q3232,
+    /// Per-gene probability of removing an existing regulatory
+    /// [`crate::Modifier`]. See [`Self::regulatory_add_rate`] for the
+    /// three-rate split.
+    pub regulatory_remove_rate: Q3232,
+    /// Per-gene probability of drifting an existing
+    /// [`crate::Modifier`]'s strength (and optionally flipping its
+    /// `effect_type`). See [`Self::regulatory_add_rate`] for the
+    /// three-rate split.
+    pub regulatory_mutate_rate: Q3232,
+    /// Gaussian σ used by the regulatory strength-drift operator.
+    pub regulatory_mutate_sigma: Q3232,
+    /// Conditional probability of flipping a [`crate::Modifier`]'s
+    /// `effect_type` given that the mutate-existing operator fired. Kept
+    /// deliberately small (System 01 §3 lists effect-type flips as "rare"
+    /// within the rewiring budget).
+    pub regulatory_effect_type_flip_prob: Q3232,
     /// Per-genome probability of a gene duplication. **Default 0** (v0).
     pub duplication_rate: Q3232,
 }
@@ -54,7 +73,14 @@ impl Default for GenomeParams {
             body_site_drift_rate: Q3232::from_num(1.0e-3_f64),
             body_site_drift_sigma: Q3232::from_num(0.1_f64),
             silencing_toggle_rate: Q3232::from_num(1.0e-3_f64),
-            regulatory_rewire_rate: Q3232::from_num(5.0e-4_f64),
+            // Three per-locus rewiring rates. System 01 §3 lists the
+            // aggregate `REGULATORY_REWIRING_RATE` as 5e-4; split evenly
+            // (5e-4 / 3 ≈ 1.6666667e-4).
+            regulatory_add_rate: Q3232::from_num(1.6666667e-4_f64),
+            regulatory_remove_rate: Q3232::from_num(1.6666667e-4_f64),
+            regulatory_mutate_rate: Q3232::from_num(1.6666667e-4_f64),
+            regulatory_mutate_sigma: Q3232::from_num(0.15_f64),
+            regulatory_effect_type_flip_prob: Q3232::from_num(0.05_f64),
             // Disabled for v0 (System 01 §6B).
             duplication_rate: Q3232::ZERO,
         }

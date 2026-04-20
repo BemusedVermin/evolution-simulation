@@ -30,4 +30,4 @@ pub use gene::{EffectVector, Target, Timing, TraitGene};
 pub use genome::{Genome, GenomeParams};
 pub use lineage::LineageTag;
 pub use modifier::{Modifier, ModifierEffect};
-pub use mutation::mutate_point;
+pub use mutation::{mutate_point, mutate_regulatory};
