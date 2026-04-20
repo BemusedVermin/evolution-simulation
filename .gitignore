@@ -3,7 +3,7 @@
 Cargo.lock.bak
 
 # Claude Code local state (per-machine)
-.claude/
+.claude/*.local.json
 
 # IDE
 .idea/
