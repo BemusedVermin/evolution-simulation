@@ -1,0 +1,30 @@
+[package]
+name = "beast-interpreter"
+description = "Phenotype interpreter — converts genotypes to deterministic primitive-effect sets for the Beast Evolution Game."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = true
+
+[dependencies]
+beast-core = { workspace = true }
+beast-channels = { workspace = true }
+beast-primitives = { workspace = true }
+beast-genome = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+float_arithmetic = "warn"

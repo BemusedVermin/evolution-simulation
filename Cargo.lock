@@ -111,6 +111,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "beast-interpreter"
+version = "0.1.0"
+dependencies = [
+ "beast-channels",
+ "beast-core",
+ "beast-genome",
+ "beast-primitives",
+ "proptest",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "beast-primitives"
 version = "0.1.0"
 dependencies = [
