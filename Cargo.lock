@@ -104,6 +104,7 @@ dependencies = [
  "beast-channels",
  "beast-core",
  "proptest",
+ "regex",
  "serde",
  "serde_json",
  "thiserror",

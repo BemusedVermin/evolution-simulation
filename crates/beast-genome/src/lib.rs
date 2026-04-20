@@ -17,6 +17,7 @@
 #![warn(rust_2018_idioms)]
 
 pub mod body_site;
+pub mod duplication;
 pub mod error;
 pub mod gene;
 pub mod genome;
@@ -25,6 +26,7 @@ pub mod modifier;
 pub mod mutation;
 
 pub use body_site::BodyVector;
+pub use duplication::{mutate_duplicate, mutate_duplication_rate};
 pub use error::{GenomeError, Result};
 pub use gene::{EffectVector, Target, Timing, TraitGene};
 pub use genome::{Genome, GenomeParams};
