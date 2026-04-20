@@ -39,6 +39,27 @@ pub fn clamp01(v: Q3232) -> Q3232 {
     v.clamp(Q3232::ZERO, Q3232::ONE)
 }
 
+/// Reflect a [`Q3232`] value back into `[0, 1]` off the nearest boundary,
+/// then hard-clamp any residual overshoot.
+///
+/// Reflection preserves the Gaussian distribution shape near boundaries
+/// better than truncation. For a value `v`:
+/// - If `v < 0`: reflect off 0 → `-v`
+/// - If `v > 1`: reflect off 1 → `2 - v`
+///
+/// A final clamp handles pathological outliers (e.g. `v > 2` or `v < -1`)
+/// that overshoot even after one reflection.
+#[inline]
+#[must_use]
+pub fn reflect_clamp01(v: Q3232) -> Q3232 {
+    if v >= Q3232::ZERO && v <= Q3232::ONE {
+        return v;
+    }
+    let two = Q3232::from_num(2_i32);
+    let reflected = if v < Q3232::ZERO { -v } else { two - v };
+    reflected.clamp(Q3232::ZERO, Q3232::ONE)
+}
+
 /// Clamp a [`Q3232`] value to `[lo, hi]`. Debug-asserts `lo <= hi`.
 #[inline]
 #[must_use]
@@ -143,6 +164,46 @@ mod tests {
         assert_eq!(clamp01(Q3232::from_num(-0.1_f64)), Q3232::ZERO);
         assert_eq!(clamp01(Q3232::from_num(1.1_f64)), Q3232::ONE);
         assert_eq!(clamp01(Q3232::from_num(0.5_f64)), Q3232::from_num(0.5_f64));
+    }
+
+    #[test]
+    fn reflect_clamp01_in_range_passthrough() {
+        assert_eq!(reflect_clamp01(Q3232::ZERO), Q3232::ZERO);
+        assert_eq!(reflect_clamp01(Q3232::ONE), Q3232::ONE);
+        assert_eq!(
+            reflect_clamp01(Q3232::from_num(0.5_f64)),
+            Q3232::from_num(0.5_f64)
+        );
+    }
+
+    #[test]
+    fn reflect_clamp01_reflects_above_one() {
+        assert_eq!(
+            reflect_clamp01(Q3232::from_num(1.3_f64)),
+            Q3232::from_num(0.7_f64)
+        );
+        assert_eq!(
+            reflect_clamp01(Q3232::from_num(1.8_f64)),
+            Q3232::from_num(0.2_f64)
+        );
+    }
+
+    #[test]
+    fn reflect_clamp01_reflects_below_zero() {
+        assert_eq!(
+            reflect_clamp01(Q3232::from_num(-0.3_f64)),
+            Q3232::from_num(0.3_f64)
+        );
+        assert_eq!(
+            reflect_clamp01(Q3232::from_num(-0.9_f64)),
+            Q3232::from_num(0.9_f64)
+        );
+    }
+
+    #[test]
+    fn reflect_clamp01_clamps_pathological() {
+        assert_eq!(reflect_clamp01(Q3232::from_num(2.5_f64)), Q3232::ZERO);
+        assert_eq!(reflect_clamp01(Q3232::from_num(-1.5_f64)), Q3232::ONE);
     }
 
     #[test]
