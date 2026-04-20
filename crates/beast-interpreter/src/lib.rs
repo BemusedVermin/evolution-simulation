@@ -51,6 +51,7 @@ pub mod scale_band;
 
 pub use composition::{CompositionKind, EmitSpec, FiredHook, HookId, InterpreterHook};
 pub use error::{InterpreterError, Result};
+pub use expression::filter_hooks_by_affordances;
 pub use parameter_map::Expr;
 pub use phenotype::{BodyRegion, BodySite, Environment, LifeStage, ResolvedPhenotype};
 pub use scale_band::apply_scale_band_filter;
