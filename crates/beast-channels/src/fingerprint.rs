@@ -162,7 +162,8 @@ mod tests {
     fn build(channels: &[(&str, ChannelFamily)]) -> ChannelRegistry {
         let mut reg = ChannelRegistry::new();
         for (id, family) in channels {
-            reg.register(fixture(id, *family, Provenance::Core)).unwrap();
+            reg.register(fixture(id, *family, Provenance::Core))
+                .unwrap();
         }
         reg
     }
@@ -172,7 +173,9 @@ mod tests {
         let reg = build(&[("alpha", ChannelFamily::Sensory)]);
         let hex = reg.fingerprint().to_hex();
         assert_eq!(hex.len(), 64);
-        assert!(hex.chars().all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
+        assert!(hex
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
     }
 
     #[test]
@@ -248,8 +251,14 @@ mod tests {
     #[test]
     fn length_prefixing_avoids_concatenation_collisions() {
         // "ab"+"c" vs "a"+"bc" — length prefixes keep these separate.
-        let a = build(&[("ab", ChannelFamily::Sensory), ("c", ChannelFamily::Sensory)]);
-        let b = build(&[("a", ChannelFamily::Sensory), ("bc", ChannelFamily::Sensory)]);
+        let a = build(&[
+            ("ab", ChannelFamily::Sensory),
+            ("c", ChannelFamily::Sensory),
+        ]);
+        let b = build(&[
+            ("a", ChannelFamily::Sensory),
+            ("bc", ChannelFamily::Sensory),
+        ]);
         assert_ne!(a.fingerprint(), b.fingerprint());
     }
 }

@@ -162,7 +162,7 @@ mod tests {
     fn iter_mut_permits_in_place_updates() {
         let mut cv = sample();
         for v in &mut cv {
-            *v = *v + Q3232::from_num(1_i32);
+            *v += Q3232::from_num(1_i32);
         }
         assert_eq!(
             cv.as_slice(),
