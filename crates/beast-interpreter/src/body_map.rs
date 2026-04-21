@@ -90,12 +90,10 @@ pub fn aggregate_to_global(
     match strategy {
         AggregationStrategy::Max => {
             let mut values = per_site_values.values().copied();
-            // `unwrap` is not used: we already returned early on empty.
-            let first = match values.next() {
-                Some(v) => v,
-                None => return Q3232::ZERO,
-            };
-            let mut acc = first;
+            // Safe to unwrap-via-expect — we returned early on empty above.
+            let mut acc = values
+                .next()
+                .expect("non-empty values guaranteed by early-return above");
             for value in values {
                 if value > acc {
                     acc = value;
@@ -193,6 +191,25 @@ fn merge_two(a: Q3232, b: Q3232, strategy: AggregationStrategy) -> Q3232 {
 /// &`[`per_site_channel_values`]`(phenotype, channel_id, strategy))`
 /// — the same strategy is used both to merge regions that share a
 /// [`BodySite`] variant and to collapse sites into the global scalar.
+///
+/// # Mean semantics caveat
+///
+/// For [`AggregationStrategy::Mean`], the two stages behave differently:
+/// the inner [`per_site_channel_values`] pair-wise folds regions that
+/// share a [`BodySite`] (non-associative for three or more co-located
+/// regions — see its docs), while the outer [`aggregate_to_global`]
+/// computes a true arithmetic mean across sites. The composition is
+/// still deterministic (body-map iteration order is fixed), but the
+/// final value for a body plan with three or more same-site regions is
+/// not the sum-of-values divided by total-region-count. If that
+/// behaviour is required, collect per-region values yourself and pass
+/// a flat slice to a mean helper.
+///
+/// A `BodyRegion` tagged [`BodySite::Global`] is currently passed
+/// through unchanged — the spec (§6.0B) only anticipates per-anatomical
+/// sites in `body_map`, so callers should treat a `Global`-tagged
+/// region as a body-plan construction bug rather than a meaningful
+/// input.
 #[must_use]
 pub fn aggregate_channel_globally(
     phenotype: &ResolvedPhenotype,
