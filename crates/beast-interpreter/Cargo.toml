@@ -19,6 +19,7 @@ beast-primitives = { workspace = true }
 beast-genome = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+winnow = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
