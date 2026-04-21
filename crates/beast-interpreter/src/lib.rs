@@ -49,6 +49,9 @@ pub mod parameter_map;
 pub mod phenotype;
 pub mod scale_band;
 
+pub use body_map::{
+    aggregate_channel_globally, aggregate_to_global, per_site_channel_values, AggregationStrategy,
+};
 pub use composition::{
     resolve_hooks, CompositionKind, EmitSpec, FiredHook, HookId, InterpreterHook,
 };
