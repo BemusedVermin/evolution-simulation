@@ -9,22 +9,29 @@
 //!
 //! See `documentation/systems/11_phenotype_interpreter.md` §6.2 and §6.2B.
 //!
-//! # Scope note — body-site fanout deferred to #67
+//! # Known follow-ups (deliberately deferred past S4.4)
 //!
-//! Per §6.2B the design calls for dedup by `(primitive_id, body_site)`, but
-//! [`beast_primitives::PrimitiveEffect`] does not yet carry a `body_site`
-//! field. Adding one (plus the accompanying schema entry) is tracked in
-//! issue #67. S4.4 therefore dedups flat by `primitive_id` only; extending
-//! to per-site keys is a follow-up once the effect shape lands.
+//! * **Body-site fanout — [issue #67]**. §6.2B dedups by
+//!   `(primitive_id, body_site)`, but [`beast_primitives::PrimitiveEffect`]
+//!   does not yet carry a `body_site` field. S4.4 therefore dedups flat by
+//!   `primitive_id` only.
+//! * **Typed manifest merge_strategy — [issue #71]**. §6.2B allows per-parameter
+//!   `sum`/`max`/`mean`/`union` strategies declared on `PrimitiveManifest`;
+//!   that field doesn't exist yet. Until then every user parameter merges
+//!   via `max` (the doc's conservative default at line 802), and the cost
+//!   sentinel below merges via `sum`.
+//! * **Source-channel provenance — [issue #70]**. §6.2 line 746 records the
+//!   hook's firing channels in `source_channels`. Without `channel_ids` on
+//!   [`crate::FiredHook`] we currently reconstruct from expression refs only;
+//!   gate-only channels are missed.
+//! * **First-class activation cost — [issue #67]**. Until
+//!   [`beast_primitives::PrimitiveEffect`] gains a dedicated `activation_cost`
+//!   field we surface the evaluated cost via the [`ACTIVATION_COST_PARAM`]
+//!   sentinel parameter below.
 //!
-//! # Merge strategy — default to "max"
-//!
-//! The design doc's pseudocode defaults unknown `merge_strategy` entries to
-//! `"max"` (line 802 of §6.2B). [`beast_primitives::PrimitiveManifest`] does
-//! not yet surface a typed `merge_strategy` field — adding one requires a
-//! manifest-schema extension (tracked alongside #67). Until then every
-//! parameter merges via `max`, which is the doc's conservative fallback and
-//! is correct for every intensity-like parameter in the starter vocabulary.
+//! [issue #67]: https://github.com/BemusedVermin/evolution-simulation/issues/67
+//! [issue #70]: https://github.com/BemusedVermin/evolution-simulation/issues/70
+//! [issue #71]: https://github.com/BemusedVermin/evolution-simulation/issues/71
 
 use std::collections::BTreeMap;
 
