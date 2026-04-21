@@ -1,12 +1,27 @@
-//! Recursive-descent parser for the S4.4 parameter-mapping language.
+//! Winnow-based parser for the S4.4 parameter-mapping language.
 //!
-//! Byte-at-a-time over ASCII source. Channel symbols are resolved against
-//! the [`ChannelRegistry`] during `ch[<ident>]` parsing — unknown symbols
-//! surface as [`InterpreterError::UnknownChannelSymbol`], every other
-//! failure as [`InterpreterError::ParseError`]. See the
-//! [`super`][super] module doc for the full grammar.
+//! The grammar is expressed declaratively as composed
+//! [`winnow::Parser`]s; adding a new binary operator is a local edit to
+//! the corresponding precedence-level function plus a new variant on
+//! [`ExprNode`] (see issue #89 / #61).
+//!
+//! Channel-symbol resolution happens as a single post-parse pass in
+//! [`validate_channels`] — the parser itself is pure syntactic. This
+//! keeps the grammar free of registry state and lets resolution errors
+//! surface with their own [`InterpreterError::UnknownChannelSymbol`]
+//! variant rather than being tangled with parse failures.
+//!
+//! The `self.pos + 3` hazard that was tracked as #87 is retired here:
+//! byte arithmetic is done exclusively by winnow's combinators, which
+//! operate over `&str` slices and cannot wrap.
 
 use beast_channels::ChannelRegistry;
+
+use winnow::ascii::multispace0;
+use winnow::combinator::{alt, cut_err, delimited, opt, preceded, repeat};
+use winnow::error::{ContextError, ErrMode, ParseError, StrContext, StrContextValue};
+use winnow::token::{one_of, take_while};
+use winnow::{ModalResult, Parser};
 
 use crate::error::{InterpreterError, Result};
 
@@ -26,9 +41,9 @@ use super::literal::{parse_q3232_literal, strip_underscores};
 /// ident   ::= [a-z_][a-z0-9_]*
 /// ```
 ///
-/// Whitespace (spaces, tabs, newlines) is skipped between tokens. Channel
-/// symbols are resolved to ids at parse time (sprint plan Q4): the symbol
-/// must be registered in `registry` or the parser returns
+/// Whitespace (spaces, tabs, newlines) is skipped between tokens.
+/// Channel symbols are resolved to ids at parse time (sprint plan Q4):
+/// the symbol must be registered in `registry` or the parser returns
 /// [`InterpreterError::UnknownChannelSymbol`]. Any other parse failure
 /// returns [`InterpreterError::ParseError`].
 ///
@@ -65,235 +80,176 @@ use super::literal::{parse_q3232_literal, strip_underscores};
 /// let _expr = parse_expression("ch[vocal_modulation] * 8", &registry).unwrap();
 /// ```
 pub fn parse_expression(src: &str, registry: &ChannelRegistry) -> Result<CompiledExpr> {
-    let mut parser = Parser::new(src, registry);
-    let node = parser.parse_expr()?;
-    parser.skip_whitespace();
-    if !parser.at_end() {
-        return Err(InterpreterError::ParseError {
-            message: format!(
-                "unexpected trailing input at byte {}: `{}`",
-                parser.pos,
-                parser.remaining()
-            ),
-        });
-    }
+    let node = delimited(multispace0, expr, multispace0)
+        .parse(src)
+        .map_err(|e| translate_parse_error(src, &e))?;
+    validate_channels(&node, registry)?;
     Ok(CompiledExpr::from_node(node))
 }
 
 // ---------------------------------------------------------------------------
-// Parser (recursive descent, byte-at-a-time over ASCII source).
+// Grammar — one function per precedence level. Adding `-` / `/` (issue
+// #61) means extending the `one_of([...])` set and the fold's match in
+// the corresponding level; no new function required.
 // ---------------------------------------------------------------------------
 
-struct Parser<'src, 'reg> {
-    src: &'src [u8],
-    pos: usize,
-    registry: &'reg ChannelRegistry,
+fn expr(input: &mut &str) -> ModalResult<ExprNode> {
+    let init = term.parse_next(input)?;
+    repeat(0.., (preceded(multispace0, one_of(['+'])), term))
+        .fold(
+            move || init.clone(),
+            |acc, (op, rhs): (char, ExprNode)| match op {
+                '+' => ExprNode::Add(Box::new(acc), Box::new(rhs)),
+                _ => unreachable!("one_of restricts the set"),
+            },
+        )
+        .parse_next(input)
 }
 
-impl<'src, 'reg> Parser<'src, 'reg> {
-    fn new(src: &'src str, registry: &'reg ChannelRegistry) -> Self {
-        Self {
-            src: src.as_bytes(),
-            pos: 0,
-            registry,
-        }
-    }
+fn term(input: &mut &str) -> ModalResult<ExprNode> {
+    let init = factor.parse_next(input)?;
+    repeat(0.., (preceded(multispace0, one_of(['*'])), factor))
+        .fold(
+            move || init.clone(),
+            |acc, (op, rhs): (char, ExprNode)| match op {
+                '*' => ExprNode::Mul(Box::new(acc), Box::new(rhs)),
+                _ => unreachable!("one_of restricts the set"),
+            },
+        )
+        .parse_next(input)
+}
 
-    fn at_end(&self) -> bool {
-        self.pos >= self.src.len()
-    }
+fn factor(input: &mut &str) -> ModalResult<ExprNode> {
+    delimited(
+        multispace0,
+        alt((literal, channel_ref, parens)),
+        multispace0,
+    )
+    .context(StrContext::Label("factor"))
+    .parse_next(input)
+}
 
-    fn peek(&self) -> Option<u8> {
-        self.src.get(self.pos).copied()
-    }
+fn parens(input: &mut &str) -> ModalResult<ExprNode> {
+    delimited(
+        '(',
+        cut_err(expr),
+        cut_err(')'.context(StrContext::Expected(StrContextValue::CharLiteral(')')))),
+    )
+    .parse_next(input)
+}
 
-    fn bump(&mut self) -> Option<u8> {
-        let b = self.peek()?;
-        self.pos += 1;
-        Some(b)
-    }
-
-    fn remaining(&self) -> String {
-        String::from_utf8_lossy(&self.src[self.pos..]).into_owned()
-    }
-
-    fn skip_whitespace(&mut self) {
-        while let Some(b) = self.peek() {
-            if b.is_ascii_whitespace() {
-                self.pos += 1;
-            } else {
-                break;
-            }
-        }
-    }
-
-    /// Consume `expected` if it matches the next bytes after whitespace;
-    /// return `true` on success, `false` otherwise (without advancing on
-    /// failure).
-    fn eat(&mut self, expected: u8) -> bool {
-        self.skip_whitespace();
-        if self.peek() == Some(expected) {
-            self.pos += 1;
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Parse an `expr` (addition-level).
-    fn parse_expr(&mut self) -> Result<ExprNode> {
-        let mut lhs = self.parse_term()?;
-        loop {
-            self.skip_whitespace();
-            if self.peek() == Some(b'+') {
-                self.pos += 1;
-                let rhs = self.parse_term()?;
-                lhs = ExprNode::Add(Box::new(lhs), Box::new(rhs));
-            } else {
-                return Ok(lhs);
-            }
-        }
-    }
-
-    /// Parse a `term` (multiplication-level).
-    fn parse_term(&mut self) -> Result<ExprNode> {
-        let mut lhs = self.parse_factor()?;
-        loop {
-            self.skip_whitespace();
-            if self.peek() == Some(b'*') {
-                self.pos += 1;
-                let rhs = self.parse_factor()?;
-                lhs = ExprNode::Mul(Box::new(lhs), Box::new(rhs));
-            } else {
-                return Ok(lhs);
-            }
-        }
-    }
-
-    /// Parse a `factor` — literal, channel reference, or parenthesised `expr`.
-    fn parse_factor(&mut self) -> Result<ExprNode> {
-        self.skip_whitespace();
-        match self.peek() {
-            None => Err(InterpreterError::ParseError {
-                message: "unexpected end of input while parsing factor".into(),
-            }),
-            Some(b'(') => {
-                self.pos += 1;
-                let inner = self.parse_expr()?;
-                if !self.eat(b')') {
-                    return Err(InterpreterError::ParseError {
-                        message: format!(
-                            "expected `)` at byte {}, found `{}`",
-                            self.pos,
-                            self.remaining()
-                        ),
-                    });
-                }
-                Ok(inner)
-            }
-            Some(b) if b.is_ascii_digit() => self.parse_literal(),
-            Some(b'c') if self.src.get(self.pos..self.pos + 3) == Some(b"ch[") => {
-                self.parse_channel_ref()
-            }
-            Some(b) => Err(InterpreterError::ParseError {
-                message: format!(
-                    "unexpected character `{}` (0x{:02x}) at byte {}",
-                    b as char, b, self.pos
+fn literal(input: &mut &str) -> ModalResult<ExprNode> {
+    let raw = (
+        one_of(|c: char| c.is_ascii_digit()),
+        take_while(0.., |c: char| c.is_ascii_digit() || c == '_'),
+        opt((
+            '.',
+            // Committed: a `.` after the integer part demands fractional
+            // digits. `cut_err` prevents the surrounding `opt` from
+            // silently swallowing the failure.
+            cut_err(
+                take_while(1.., |c: char| c.is_ascii_digit() || c == '_').context(
+                    StrContext::Expected(StrContextValue::Description(
+                        "fractional digits after `.`",
+                    )),
                 ),
+            ),
+        )),
+    )
+        .take()
+        .parse_next(input)?;
+    let cleaned = strip_underscores(raw.as_bytes());
+    // winnow already validated the byte shape (digits / `_` / `.`); if
+    // `parse_q3232_literal` still refuses, the Q32.32 range is the
+    // problem, not syntax. `Cut` short-circuits alternatives so callers
+    // see a literal-specific failure.
+    let value = parse_q3232_literal(&cleaned).ok_or_else(|| ErrMode::Cut(ContextError::new()))?;
+    Ok(ExprNode::Literal(value))
+}
+
+fn channel_ref(input: &mut &str) -> ModalResult<ExprNode> {
+    let _ = "ch[".parse_next(input)?;
+    // Committed: after `ch[` the grammar demands an identifier and a
+    // closing `]`. `cut_err` prevents `alt` from backtracking past this
+    // point, so failures surface with channel-specific context instead
+    // of the generic "expected factor".
+    let symbol = cut_err(
+        (
+            one_of(|c: char| c.is_ascii_lowercase() || c == '_').context(StrContext::Expected(
+                StrContextValue::Description("channel identifier"),
+            )),
+            take_while(0.., |c: char| {
+                c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'
             }),
-        }
-    }
+        )
+            .take(),
+    )
+    .parse_next(input)?;
+    let _ = cut_err(']'.context(StrContext::Expected(StrContextValue::Description(
+        "`]` closing channel reference",
+    ))))
+    .parse_next(input)?;
+    Ok(ExprNode::ChannelRef(symbol.to_owned()))
+}
 
-    /// Parse a numeric literal with optional underscore digit separators and
-    /// an optional fractional part.
-    fn parse_literal(&mut self) -> Result<ExprNode> {
-        let start = self.pos;
-        // Integer part (required).
-        let mut saw_digit = false;
-        while let Some(b) = self.peek() {
-            if b.is_ascii_digit() {
-                saw_digit = true;
-                self.pos += 1;
-            } else if b == b'_' {
-                self.pos += 1;
-            } else {
-                break;
-            }
-        }
-        if !saw_digit {
-            return Err(InterpreterError::ParseError {
-                message: format!("expected digit at byte {}", start),
-            });
-        }
-        // Optional fractional part.
-        if self.peek() == Some(b'.') {
-            self.pos += 1;
-            let mut frac_digit = false;
-            while let Some(b) = self.peek() {
-                if b.is_ascii_digit() {
-                    frac_digit = true;
-                    self.pos += 1;
-                } else if b == b'_' {
-                    self.pos += 1;
-                } else {
-                    break;
-                }
-            }
-            if !frac_digit {
-                return Err(InterpreterError::ParseError {
-                    message: format!("expected fractional digits after `.` at byte {}", self.pos),
-                });
-            }
-        }
-        let raw = &self.src[start..self.pos];
-        // Integer and fractional parsers treat `_` as a separator only —
-        // `fixed`'s FromStr rejects underscores, so [`strip_underscores`]
-        // normalises first.
-        let cleaned = strip_underscores(raw);
-        let value = parse_q3232_literal(&cleaned).ok_or_else(|| InterpreterError::ParseError {
-            message: format!("invalid numeric literal `{}`", cleaned),
-        })?;
-        Ok(ExprNode::Literal(value))
-    }
+// ---------------------------------------------------------------------------
+// Semantic pass: channel-symbol resolution.
+// ---------------------------------------------------------------------------
 
-    /// Parse a channel reference `ch[<ident>]` and resolve the symbol via
-    /// the registry.
-    fn parse_channel_ref(&mut self) -> Result<ExprNode> {
-        // We already know the next three bytes are `ch[`.
-        self.pos += 3;
-        let ident_start = self.pos;
-        while let Some(b) = self.peek() {
-            let valid_first = ident_start == self.pos && (b.is_ascii_lowercase() || b == b'_');
-            let valid_rest = ident_start != self.pos
-                && (b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
-            if valid_first || valid_rest {
-                self.pos += 1;
+fn validate_channels(node: &ExprNode, registry: &ChannelRegistry) -> Result<()> {
+    match node {
+        ExprNode::Literal(_) => Ok(()),
+        ExprNode::ChannelRef(symbol) => {
+            if registry.contains(symbol) {
+                Ok(())
             } else {
-                break;
+                Err(InterpreterError::UnknownChannelSymbol {
+                    symbol: symbol.clone(),
+                })
             }
         }
-        if ident_start == self.pos {
-            return Err(InterpreterError::ParseError {
-                message: format!("expected channel identifier at byte {}", self.pos),
-            });
+        ExprNode::Add(lhs, rhs) | ExprNode::Mul(lhs, rhs) => {
+            validate_channels(lhs, registry)?;
+            validate_channels(rhs, registry)
         }
-        let symbol = std::str::from_utf8(&self.src[ident_start..self.pos]).map_err(|_| {
-            InterpreterError::ParseError {
-                message: "channel identifier is not valid UTF-8".into(),
-            }
-        })?;
-        if self.bump() != Some(b']') {
-            return Err(InterpreterError::ParseError {
-                message: format!("expected `]` closing `ch[{}`", symbol),
-            });
-        }
-        if !self.registry.contains(symbol) {
-            return Err(InterpreterError::UnknownChannelSymbol {
-                symbol: symbol.to_owned(),
-            });
-        }
-        Ok(ExprNode::ChannelRef(symbol.to_owned()))
     }
+}
+
+// ---------------------------------------------------------------------------
+// Error translation
+// ---------------------------------------------------------------------------
+
+fn translate_parse_error(src: &str, err: &ParseError<&str, ContextError>) -> InterpreterError {
+    let offset = err.offset();
+    let bytes = src.as_bytes();
+
+    // Describe what was expected, if the parser left context breadcrumbs.
+    let expected = err
+        .inner()
+        .context()
+        .filter_map(|ctx| match ctx {
+            StrContext::Expected(v) => Some(format!("{v}")),
+            _ => None,
+        })
+        .next();
+
+    let message = if offset >= bytes.len() {
+        match expected {
+            Some(desc) => format!("unexpected end of input at byte {offset}, expected {desc}"),
+            None => format!("unexpected end of input while parsing factor at byte {offset}"),
+        }
+    } else {
+        let bad = bytes[offset];
+        let ch = bad as char;
+        match expected {
+            Some(desc) => format!(
+                "unexpected character `{ch}` (0x{bad:02x}) at byte {offset}, expected {desc}"
+            ),
+            None => format!("unexpected character `{ch}` (0x{bad:02x}) at byte {offset}"),
+        }
+    };
+
+    InterpreterError::ParseError { message }
 }
 
 #[cfg(test)]
@@ -455,5 +411,54 @@ mod tests {
             parse_expression("ch[a", &reg),
             Err(InterpreterError::ParseError { .. })
         ));
+    }
+
+    // ------- error-message regression (issue #89) -------------------------
+
+    /// Pin the shape of key parse-error messages so future grammar tweaks
+    /// are a deliberate choice, not a silent drift. Each row is
+    /// `(source, expected_substring)` — substring match keeps the test
+    /// resilient to incidental wording changes while still asserting the
+    /// essential bits (byte position, anchor keyword).
+    #[test]
+    fn error_messages_carry_useful_context() {
+        let reg = registry_with(&["a"]);
+        let table: &[(&str, &str)] = &[
+            ("8 xyz", "at byte 2"),
+            ("   ", "at byte 3"),
+            ("(8 + 1", "`)`"),
+            ("ch[a", "`]` closing channel reference"),
+            ("ch[", "channel identifier"),
+            ("1.", "fractional digits after `.`"),
+        ];
+        for (src, needle) in table {
+            let err = parse_expression(src, &reg).unwrap_err();
+            let InterpreterError::ParseError { message } = &err else {
+                panic!("expected ParseError for `{src}`, got {err:?}");
+            };
+            assert!(
+                message.contains(needle),
+                "parse_expression({src:?}) → `{message}`, expected to contain `{needle}`"
+            );
+        }
+    }
+
+    // ------- #87 regression: ch[ probe must not wrap usize ---------------
+
+    /// Before #89, `parse_factor` used a bare `self.pos + 3` to probe for
+    /// `ch[`. That add could wrap on pathological inputs. The winnow
+    /// rewrite uses slice combinators throughout, which are wrap-free by
+    /// construction. This test exercises the boundary path where the
+    /// input is shorter than three bytes starting with `c`.
+    #[test]
+    fn short_c_prefixed_input_does_not_overflow() {
+        let reg = ChannelRegistry::new();
+        for src in ["c", "ch"] {
+            let err = parse_expression(src, &reg).unwrap_err();
+            assert!(
+                matches!(err, InterpreterError::ParseError { .. }),
+                "expected ParseError for {src:?}, got {err:?}"
+            );
+        }
     }
 }

@@ -33,6 +33,15 @@ thiserror = "2"
 jsonschema = { version = "0.46", default-features = false }
 regex = "1"
 
+# S4.6 parser rewrite (#89). Declarative combinator library for the
+# parameter-mapping expression grammar. `default-features = false` turns
+# off `std`-specific helpers we don't need; we still get the core parser
+# combinators via the `alloc` feature (enabled by default via
+# `default-features`, which we keep because this runs in a std environment
+# and `winnow`'s `std` feature is what's needed for `impl std::error::Error`
+# on error types).
+winnow = "0.7"
+
 beast-core = { path = "crates/beast-core" }
 beast-channels = { path = "crates/beast-channels" }
 beast-primitives = { path = "crates/beast-primitives" }
