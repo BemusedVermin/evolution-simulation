@@ -163,20 +163,20 @@ jobs:
         run: |
           set +e
           python -m lizard -l rust -C"${QUALITY_MAX_CCN}" -L"${QUALITY_MAX_LENGTH}" \
-            -x "./crates/*/tests/*" \
-            -x "./crates/*/benches/*" \
+            -x "*/tests/*" \
+            -x "*/benches/*" \
             -W ".github/qa/whitelizard.txt" \
             crates > quality-lizard.txt
           complexity_status=$?
           python -m lizard --csv -l rust -C"${QUALITY_MAX_CCN}" -L"${QUALITY_MAX_LENGTH}" \
-            -x "./crates/*/tests/*" \
-            -x "./crates/*/benches/*" \
+            -x "*/tests/*" \
+            -x "*/benches/*" \
             -W ".github/qa/whitelizard.txt" \
             crates > quality-functions.csv
           functions_status=$?
           python -m lizard -l rust -Eduplicate \
-            -x "./crates/*/tests/*" \
-            -x "./crates/*/benches/*" \
+            -x "*/tests/*" \
+            -x "*/benches/*" \
             crates > quality-duplicates.txt
           duplicates_status=$?
           python .github/scripts/quality_metrics.py \
