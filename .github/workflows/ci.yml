@@ -55,7 +55,7 @@ jobs:
   # main — cheaper to detect here than when a replay hash diverges in S6.
   cross-platform-test:
     name: test (${{ matrix.os }})
-    needs: lint-and-test
+    needs: [lint-and-test, quality-metrics, coverage]
     strategy:
       fail-fast: false
       matrix:
@@ -101,7 +101,7 @@ jobs:
   # `--no-fail-fast` so a single flaky test doesn't mask the coverage report.
   coverage:
     name: coverage (ubuntu)
-    needs: lint-and-test
+    needs: [lint-and-test, quality-metrics]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -209,7 +209,7 @@ jobs:
   # Release build ensures nothing regressed under opt-level=3 + LTO.
   release-build:
     name: release-build (ubuntu)
-    needs: lint-and-test
+    needs: [lint-and-test, quality-metrics, coverage, cross-platform-test]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
