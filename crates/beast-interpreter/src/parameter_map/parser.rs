@@ -185,9 +185,11 @@ fn channel_ref(input: &mut &str) -> ModalResult<ExprNode> {
             .take(),
     )
     .parse_next(input)?;
-    let _ = cut_err(']'.context(StrContext::Expected(StrContextValue::Description(
-        "`]` closing channel reference",
-    ))))
+    let _ = cut_err(
+        ']'.context(StrContext::Expected(StrContextValue::Description(
+            "`]` closing channel reference",
+        ))),
+    )
     .parse_next(input)?;
     Ok(ExprNode::ChannelRef(symbol.to_owned()))
 }
