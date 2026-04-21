@@ -31,12 +31,14 @@
 
 pub mod composition;
 pub mod expression;
+pub mod fingerprint;
 pub mod manifest;
 pub mod registry;
 pub mod schema;
 
 pub use composition::{evaluate_hook, CompositionHook, CompositionKind, HookOutcome};
 pub use expression::{evaluate_expression_conditions, ExpressionCondition, ExpressionContext};
+pub use fingerprint::RegistryFingerprint;
 pub use manifest::{
     BoundsPolicy, ChannelFamily, ChannelManifest, CorrelationEntry, MutationKernel, Provenance,
     Range, ScaleBand,

@@ -13,6 +13,7 @@ use beast_core::Q3232;
 use serde::{Deserialize, Serialize};
 
 use crate::body_site::BodyVector;
+use crate::channel_vector::ChannelVector;
 use crate::error::{check_unit, GenomeError, Result};
 use crate::lineage::LineageTag;
 use crate::modifier::Modifier;
@@ -57,10 +58,17 @@ pub enum Target {
 /// exceed 1.0 (synergistic). Clamping happens downstream in the network
 /// resolver and interpreter, not here. `magnitude` and `radius` are the
 /// only unit-range `[0, 1]` fields validated at construction.
+///
+/// `channel` is a [`ChannelVector`] newtype (a transparent wrapper around
+/// `Vec<Q3232>`); the positional binding to channel ids is enforced at save
+/// load time by comparing the current registry's
+/// [`beast_channels::RegistryFingerprint`] against the one stored in the
+/// save envelope. On-disk JSON remains a bare array, unchanged from earlier
+/// versions.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EffectVector {
     /// Per-channel contribution, one entry per channel in the registry.
-    pub channel: Vec<Q3232>,
+    pub channel: ChannelVector,
     /// Overall expression strength in `[0, 1]`.
     pub magnitude: Q3232,
     /// Spatial reach in `[0, 1]` (0 = self-only, 1 = wide AoE).
@@ -73,8 +81,11 @@ pub struct EffectVector {
 
 impl EffectVector {
     /// Construct a new effect vector, validating unit-range fields.
+    ///
+    /// Accepts anything convertible into a [`ChannelVector`] so existing call
+    /// sites that pass a `Vec<Q3232>` literal keep working unchanged.
     pub fn new(
-        channel: Vec<Q3232>,
+        channel: impl Into<ChannelVector>,
         magnitude: Q3232,
         radius: Q3232,
         timing: Timing,
@@ -83,7 +94,7 @@ impl EffectVector {
         check_unit("magnitude", magnitude)?;
         check_unit("radius", radius)?;
         Ok(Self {
-            channel,
+            channel: channel.into(),
             magnitude,
             radius,
             timing,

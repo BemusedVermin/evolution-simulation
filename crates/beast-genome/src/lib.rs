@@ -17,6 +17,7 @@
 #![warn(rust_2018_idioms)]
 
 pub mod body_site;
+pub mod channel_vector;
 pub mod duplication;
 pub mod error;
 pub mod gene;
@@ -24,8 +25,10 @@ pub mod genome;
 pub mod lineage;
 pub mod modifier;
 pub mod mutation;
+pub mod save;
 
 pub use body_site::BodyVector;
+pub use channel_vector::ChannelVector;
 pub use duplication::{mutate_duplicate, mutate_duplication_rate};
 pub use error::{GenomeError, Result};
 pub use gene::{EffectVector, Target, Timing, TraitGene};
@@ -33,3 +36,6 @@ pub use genome::{Genome, GenomeParams};
 pub use lineage::LineageTag;
 pub use modifier::{Modifier, ModifierEffect};
 pub use mutation::{apply_mutations, mutate_point, mutate_regulatory};
+pub use save::{
+    load_genome_from_json, save_genome_to_json, GenomeSave, SaveLoadError, SAVE_FORMAT_VERSION,
+};
