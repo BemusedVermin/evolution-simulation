@@ -133,12 +133,14 @@ pub fn aggregate_to_global(
 /// [`BodySite::LimbLeft`]), their amplitudes are merged using
 /// `multi_region_strategy`:
 ///
-/// * [`AggregationStrategy::Max`] — keep the larger of the two values.
+/// * [`AggregationStrategy::Max`] — keep the largest value across all
+///   co-located regions.
 /// * [`AggregationStrategy::Sum`] — add the values (saturating).
-/// * [`AggregationStrategy::Mean`] — arithmetic mean of the pair. Note
-///   that this pair-wise fold is not fully associative for three or
-///   more regions, but it stays deterministic because
-///   [`ResolvedPhenotype::body_map`] has a fixed iteration order.
+/// * [`AggregationStrategy::Mean`] — true arithmetic mean across all
+///   co-located regions: `(v1 + v2 + ... + vn) / n`. Implemented by
+///   accumulating `(sum, count)` per site in one pass, then finalising
+///   the mean in a second pass so the result is independent of
+///   grouping and iteration order.
 ///
 /// If the channel is absent from every region's amplitudes, the
 /// returned map is empty.
@@ -148,24 +150,58 @@ pub fn per_site_channel_values(
     channel_id: &str,
     multi_region_strategy: AggregationStrategy,
 ) -> BTreeMap<BodySite, Q3232> {
-    let mut out: BTreeMap<BodySite, Q3232> = BTreeMap::new();
-    for region in &phenotype.body_map {
-        let Some(&amplitude) = region.channel_amplitudes.get(channel_id) else {
-            continue;
-        };
-        out.entry(region.body_site)
-            .and_modify(|existing| {
-                *existing = merge_two(*existing, amplitude, multi_region_strategy);
-            })
-            .or_insert(amplitude);
+    match multi_region_strategy {
+        AggregationStrategy::Max | AggregationStrategy::Sum => {
+            let mut out: BTreeMap<BodySite, Q3232> = BTreeMap::new();
+            for region in &phenotype.body_map {
+                let Some(&amplitude) = region.channel_amplitudes.get(channel_id) else {
+                    continue;
+                };
+                out.entry(region.body_site)
+                    .and_modify(|existing| {
+                        *existing = merge_two(*existing, amplitude, multi_region_strategy);
+                    })
+                    .or_insert(amplitude);
+            }
+            out
+        }
+        AggregationStrategy::Mean => {
+            // Accumulate (sum, count) per site in a first pass, then
+            // finalise the arithmetic mean in a second pass. This makes
+            // `Mean` a true `(v1 + v2 + ... + vn) / n`, independent of
+            // the pair-wise grouping order — see issue #81.
+            let mut accum: BTreeMap<BodySite, (Q3232, u32)> = BTreeMap::new();
+            for region in &phenotype.body_map {
+                let Some(&amplitude) = region.channel_amplitudes.get(channel_id) else {
+                    continue;
+                };
+                accum
+                    .entry(region.body_site)
+                    .and_modify(|(sum, count)| {
+                        *sum = sum.saturating_add(amplitude);
+                        *count = count.saturating_add(1);
+                    })
+                    .or_insert((amplitude, 1));
+            }
+            accum
+                .into_iter()
+                .map(|(site, (sum, count))| {
+                    let divisor = Q3232::from_num(i64::from(count));
+                    (site, sum.saturating_div(divisor))
+                })
+                .collect()
+        }
     }
-    out
 }
 
-/// Merge two per-site amplitudes under the given strategy.
+/// Merge two per-site amplitudes under a non-averaging strategy.
 ///
-/// Factored out to keep [`per_site_channel_values`] readable and to
-/// avoid allocating a temporary collection for each body-site slot.
+/// Used only for [`AggregationStrategy::Max`] and
+/// [`AggregationStrategy::Sum`], which are associative and therefore
+/// safe to fold pair-wise. [`AggregationStrategy::Mean`] must not use
+/// this helper: pair-wise averaging is non-associative for three or
+/// more values (see issue #81); [`per_site_channel_values`] handles
+/// `Mean` via a two-pass `(sum, count)` accumulator instead.
 fn merge_two(a: Q3232, b: Q3232, strategy: AggregationStrategy) -> Q3232 {
     match strategy {
         AggregationStrategy::Max => {
@@ -177,6 +213,13 @@ fn merge_two(a: Q3232, b: Q3232, strategy: AggregationStrategy) -> Q3232 {
         }
         AggregationStrategy::Sum => a.saturating_add(b),
         AggregationStrategy::Mean => {
+            debug_assert!(
+                false,
+                "merge_two must not be called with AggregationStrategy::Mean; \
+                 per_site_channel_values handles Mean via a two-pass accumulator"
+            );
+            // Defensive fallback for release builds: preserve the
+            // earlier pair-wise behaviour rather than panicking.
             let sum = a.saturating_add(b);
             let two = Q3232::from_num(2_i64);
             sum.saturating_div(two)
@@ -192,18 +235,14 @@ fn merge_two(a: Q3232, b: Q3232, strategy: AggregationStrategy) -> Q3232 {
 /// — the same strategy is used both to merge regions that share a
 /// [`BodySite`] variant and to collapse sites into the global scalar.
 ///
-/// # Mean semantics caveat
-///
-/// For [`AggregationStrategy::Mean`], the two stages behave differently:
-/// the inner [`per_site_channel_values`] pair-wise folds regions that
-/// share a [`BodySite`] (non-associative for three or more co-located
-/// regions — see its docs), while the outer [`aggregate_to_global`]
-/// computes a true arithmetic mean across sites. The composition is
-/// still deterministic (body-map iteration order is fixed), but the
-/// final value for a body plan with three or more same-site regions is
-/// not the sum-of-values divided by total-region-count. If that
-/// behaviour is required, collect per-region values yourself and pass
-/// a flat slice to a mean helper.
+/// For [`AggregationStrategy::Mean`], both stages compute a true
+/// arithmetic mean: the inner [`per_site_channel_values`] averages
+/// co-located regions as `(v1 + ... + vn) / n` via a two-pass
+/// accumulator, and the outer [`aggregate_to_global`] averages the
+/// resulting per-site values. Note this remains a mean-of-means when
+/// different sites have different numbers of contributing regions —
+/// callers who need a single flat mean across every region should
+/// collect per-region values themselves.
 ///
 /// A `BodyRegion` tagged [`BodySite::Global`] is currently passed
 /// through unchanged — the spec (§6.0B) only anticipates per-anatomical
@@ -389,6 +428,44 @@ mod tests {
         assert_eq!(got.len(), 1);
         // (4 + 8) / 2 = 6
         assert_eq!(got.get(&BodySite::LimbLeft), Some(&q(6)));
+    }
+
+    // Regression test for issue #81.
+    #[test]
+    fn per_site_channel_values_three_same_site_mean_is_true_arithmetic_mean() {
+        // Regression guard for issue #81: with three co-located regions
+        // `[a, b, c]`, the `Mean` strategy must yield `(a + b + c) / 3`,
+        // not the pair-wise fold `((a + b) / 2 + c) / 2` that the
+        // previous `merge_two`-based implementation produced.
+        let a: i64 = 2;
+        let b: i64 = 4;
+        let c: i64 = 12;
+
+        let p = phenotype_with_regions(vec![
+            region(0, BodySite::LimbLeft, &[("force", a)]),
+            region(1, BodySite::LimbLeft, &[("force", b)]),
+            region(2, BodySite::LimbLeft, &[("force", c)]),
+        ]);
+        let got = per_site_channel_values(&p, "force", AggregationStrategy::Mean);
+
+        // True arithmetic mean: (2 + 4 + 12) / 3 = 6.
+        let expected = q(a + b + c).saturating_div(q(3));
+        // Pair-wise fold (the old, wrong behaviour):
+        //   step1 = (2 + 4) / 2 = 3
+        //   step2 = (3 + 12) / 2 = 7.5
+        // so we also assert we are *not* producing 7.5.
+        let pair_wise_wrong = q(a + b)
+            .saturating_div(q(2))
+            .saturating_add(q(c))
+            .saturating_div(q(2));
+
+        assert_eq!(got.len(), 1);
+        assert_eq!(got.get(&BodySite::LimbLeft), Some(&expected));
+        assert_ne!(
+            got.get(&BodySite::LimbLeft),
+            Some(&pair_wise_wrong),
+            "mean regressed to pair-wise fold"
+        );
     }
 
     // ---- aggregate_channel_globally -------------------------------------------
