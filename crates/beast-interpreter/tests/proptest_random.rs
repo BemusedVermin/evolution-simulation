@@ -20,7 +20,7 @@ use beast_core::{EntityId, Q3232};
 use beast_interpreter::{interpret_phenotype, phenotype::LifeStage};
 use proptest::prelude::*;
 
-use crate::common::{phenotype, standard_world};
+use crate::common::{phenotype_q, standard_world};
 use beast_interpreter::phenotype::Environment;
 
 /// Sample each channel value as `Q3232::from_bits(n)` for `n` in a bounded
@@ -76,21 +76,24 @@ proptest! {
     ) {
         let world = standard_world();
 
-        // Mass: use integers (then cast through `from_num`) to stay inside
-        // every channel's universal scale band. The standard_world() fixture
-        // uses 0..1e9 kg bands so any positive mass is in-band.
-        let mass_kg = Q3232::from_bits(mass_bits).to_num::<f64>().abs();
-        // Pad to at least 1e-6 kg so we stay well away from zero mass edge
-        // cases on hooks that consult ScaleBand expression conditions.
-        let mass_kg = if mass_kg < 1e-6 { 1e-6 } else { mass_kg };
+        // Mass and channel values flow as Q3232 end-to-end. No `f64`
+        // round-trip, so there's no platform-specific rounding to worry about;
+        // the generator is bit-stable across any target.
+        //
+        // The standard_world() fixture uses [0, 1e9] kg bands, so any positive
+        // mass is in-band. We pad to at least ~2^12 bits above zero to stay
+        // clear of zero-mass edge cases on hooks that consult ScaleBand.
+        let min_mass = Q3232::from_bits(1_i64 << 12);
+        let mass_q = Q3232::from_bits(mass_bits).saturating_abs();
+        let mass_q = if mass_q < min_mass { min_mass } else { mass_q };
 
-        let globals: Vec<(&str, f64)> = ["alpha", "beta", "gamma", "delta", "epsilon"]
+        let globals: Vec<(&str, Q3232)> = ["alpha", "beta", "gamma", "delta", "epsilon"]
             .iter()
             .zip(bits.iter())
-            .map(|(id, b)| (*id, Q3232::from_bits(*b).to_num::<f64>()))
+            .map(|(id, b)| (*id, Q3232::from_bits(*b)))
             .collect();
 
-        let p = phenotype(mass_kg, stage, &globals, env);
+        let p = phenotype_q(mass_q, stage, &globals, env);
 
         // --- Invariant 1: no panic, always `Ok`. ---
         let first = interpret_phenotype(

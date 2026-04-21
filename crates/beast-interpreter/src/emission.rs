@@ -87,6 +87,7 @@ pub const ACTIVATION_COST_PARAM: &str = "_activation_cost";
 ///   into [`InterpreterError::ParseError`] (chosen over adding a new enum
 ///   variant; the cost evaluator's own errors contain the detail in the
 ///   message).
+#[must_use = "emitted primitive effects must feed the next stage — dropping silences this tick's emission"]
 pub fn emit_primitives(
     fired_hooks: &[FiredHook],
     phenotype: &ResolvedPhenotype,

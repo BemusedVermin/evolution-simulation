@@ -13,7 +13,7 @@
 mod common;
 
 use beast_core::{EntityId, Q3232};
-use beast_interpreter::{composition::HookId, interpret_phenotype};
+use beast_interpreter::interpret_phenotype;
 
 use crate::common::{
     additive_hook, build_channel_registry, build_primitive_registry, expr, phenotype,
@@ -246,7 +246,4 @@ fn macro_and_micro_creatures_get_different_effect_sets() {
         .collect();
     assert_eq!(macro_ids, vec!["p_macro"]);
     assert_eq!(micro_ids, vec!["p_micro"]);
-
-    // `HookId` imports are unused here — keep the module tidy.
-    let _ = HookId(0);
 }

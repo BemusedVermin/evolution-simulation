@@ -86,6 +86,7 @@ use crate::Result;
 /// call, across runs, and across platforms — a precondition for the
 /// 1000-tick replay gate (INVARIANTS §1). Covered by integration tests in
 /// `tests/determinism.rs`.
+#[must_use = "primitive effects must be consumed — dropping silences the whole tick"]
 pub fn interpret_phenotype(
     phenotype: &ResolvedPhenotype,
     hooks: &[InterpreterHook],
