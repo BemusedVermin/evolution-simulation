@@ -66,6 +66,36 @@ pub enum AggregationStrategy {
     Sum,
 }
 
+impl AggregationStrategy {
+    /// Return the pair-wise subset of this strategy, if any.
+    ///
+    /// `Max` and `Sum` are associative and can be folded incrementally
+    /// via [`merge_two`]. `Mean` is non-associative for three or more
+    /// values (issue #81) and returns `None`; callers must accumulate
+    /// all samples and finalise in a single pass.
+    fn as_pairwise(self) -> Option<PairwiseStrategy> {
+        match self {
+            Self::Max => Some(PairwiseStrategy::Max),
+            Self::Sum => Some(PairwiseStrategy::Sum),
+            Self::Mean => None,
+        }
+    }
+}
+
+/// Associative subset of [`AggregationStrategy`] — the strategies that
+/// can be folded pair-wise without loss of precision.
+///
+/// `Mean` is deliberately absent: pair-wise averaging of three or more
+/// values is non-associative (see issue #81). Any helper that folds
+/// samples incrementally takes `PairwiseStrategy` rather than
+/// [`AggregationStrategy`], so `Mean` is unrepresentable at call sites
+/// that would produce a wrong answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum PairwiseStrategy {
+    Max,
+    Sum,
+}
+
 /// Collapse a per-body-site value map to a single global [`Q3232`].
 ///
 /// Empty input returns [`Q3232::ZERO`]: it is the neutral element for
@@ -150,8 +180,8 @@ pub fn per_site_channel_values(
     channel_id: &str,
     multi_region_strategy: AggregationStrategy,
 ) -> BTreeMap<BodySite, Q3232> {
-    match multi_region_strategy {
-        AggregationStrategy::Max | AggregationStrategy::Sum => {
+    match multi_region_strategy.as_pairwise() {
+        Some(pairwise) => {
             let mut out: BTreeMap<BodySite, Q3232> = BTreeMap::new();
             for region in &phenotype.body_map {
                 let Some(&amplitude) = region.channel_amplitudes.get(channel_id) else {
@@ -159,17 +189,17 @@ pub fn per_site_channel_values(
                 };
                 out.entry(region.body_site)
                     .and_modify(|existing| {
-                        *existing = merge_two(*existing, amplitude, multi_region_strategy);
+                        *existing = merge_two(*existing, amplitude, pairwise);
                     })
                     .or_insert(amplitude);
             }
             out
         }
-        AggregationStrategy::Mean => {
-            // Accumulate (sum, count) per site in a first pass, then
-            // finalise the arithmetic mean in a second pass. This makes
-            // `Mean` a true `(v1 + v2 + ... + vn) / n`, independent of
-            // the pair-wise grouping order — see issue #81.
+        None => {
+            // `Mean`: accumulate (sum, count) per site in a first pass,
+            // then finalise the arithmetic mean in a second pass so the
+            // result is `(v1 + v2 + ... + vn) / n`, independent of
+            // grouping and iteration order — see issue #81.
             let mut accum: BTreeMap<BodySite, (Q3232, u32)> = BTreeMap::new();
             for region in &phenotype.body_map {
                 let Some(&amplitude) = region.channel_amplitudes.get(channel_id) else {
@@ -194,36 +224,22 @@ pub fn per_site_channel_values(
     }
 }
 
-/// Merge two per-site amplitudes under a non-averaging strategy.
+/// Merge two per-site amplitudes under an associative strategy.
 ///
-/// Used only for [`AggregationStrategy::Max`] and
-/// [`AggregationStrategy::Sum`], which are associative and therefore
-/// safe to fold pair-wise. [`AggregationStrategy::Mean`] must not use
-/// this helper: pair-wise averaging is non-associative for three or
-/// more values (see issue #81); [`per_site_channel_values`] handles
-/// `Mean` via a two-pass `(sum, count)` accumulator instead.
-fn merge_two(a: Q3232, b: Q3232, strategy: AggregationStrategy) -> Q3232 {
+/// `PairwiseStrategy`'s variants are exactly the strategies for which
+/// incremental folding produces the same result as a one-pass fold
+/// over all values, so this function is total — there is no `Mean`
+/// arm to defend against (issue #88).
+fn merge_two(a: Q3232, b: Q3232, strategy: PairwiseStrategy) -> Q3232 {
     match strategy {
-        AggregationStrategy::Max => {
+        PairwiseStrategy::Max => {
             if a >= b {
                 a
             } else {
                 b
             }
         }
-        AggregationStrategy::Sum => a.saturating_add(b),
-        AggregationStrategy::Mean => {
-            debug_assert!(
-                false,
-                "merge_two must not be called with AggregationStrategy::Mean; \
-                 per_site_channel_values handles Mean via a two-pass accumulator"
-            );
-            // Defensive fallback for release builds: preserve the
-            // earlier pair-wise behaviour rather than panicking.
-            let sum = a.saturating_add(b);
-            let two = Q3232::from_num(2_i64);
-            sum.saturating_div(two)
-        }
+        PairwiseStrategy::Sum => a.saturating_add(b),
     }
 }
 
