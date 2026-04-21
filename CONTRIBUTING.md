@@ -29,6 +29,7 @@ The markdown docs under `documentation/planning/` (`SPRINTS.md`, `EPICS.md`, `RI
 - CI (`.github/workflows/ci.yml`) must be green before merging. The gating jobs are:
   - `lint-and-test (ubuntu)` — `cargo fmt --check`, `clippy -D warnings`, full test suite, doctests.
   - `test (windows-latest)` / `test (macos-latest)` — cross-platform determinism sanity.
+  - `quality-metrics (ubuntu)` — metric-based maintainability checks on production Rust code; blocks new complexity/length regressions, enforces a public API Rustdoc floor, and reports crate/module coupling with fan-in/fan-out.
   - `release-build (ubuntu)` — `cargo build --release`.
 
 ## Push protection
@@ -49,6 +50,14 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-targets
 cargo test --workspace --doc
+python -m pip install lizard
+python -m lizard -l rust -C10 -L80 -x "./crates/*/tests/*" -x "./crates/*/benches/*" -W ".github/qa/whitelizard.txt" crates
+python -m lizard --csv -l rust -C10 -L80 -x "./crates/*/tests/*" -x "./crates/*/benches/*" -W ".github/qa/whitelizard.txt" crates > quality-functions.csv
+python -m lizard -l rust -Eduplicate -x "./crates/*/tests/*" -x "./crates/*/benches/*" crates > quality-duplicates.txt
+python .github/scripts/quality_metrics.py --functions quality-functions.csv --duplicates quality-duplicates.txt --summary quality-summary.md --workspace-root . --max-duplicate-rate 5.0 --max-ccn 10 --max-length 80 --min-public-doc-coverage 80.0
 ```
 
-All four are run by CI on every PR, but running them locally first saves a round trip.
+The Rust commands are the core local loop; the `lizard` lines reproduce the
+metric-based maintainability gate if you want to preflight CI locally. The
+summary script also reports crate coupling, source-module fan-in/fan-out, and
+Rustdoc coverage on production code.

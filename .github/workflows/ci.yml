@@ -125,14 +125,85 @@ jobs:
       - name: cargo llvm-cov (summary)
         run: cargo llvm-cov --workspace --all-targets --locked --summary-only --no-fail-fast
 
+      - name: cargo llvm-cov (JSON summary artifact)
+        run: cargo llvm-cov report --json --summary-only --output-path coverage-summary.json
+
       - name: cargo llvm-cov (LCOV for upload)
-        run: cargo llvm-cov --workspace --all-targets --locked --lcov --output-path lcov.info --no-fail-fast
+        run: cargo llvm-cov report --lcov --output-path lcov.info
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v7
         with:
-          name: coverage-lcov
-          path: lcov.info
+          name: coverage-reports
+          path: |
+            coverage-summary.json
+            lcov.info
+          retention-days: 14
+
+  # Metric-driven maintainability checks complement the debt audit better than
+  # subjective review alone: we track complexity, function length, and
+  # duplicate rate together instead of relying on a single smell proxy.
+  quality-metrics:
+    name: quality-metrics (ubuntu)
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      QUALITY_MAX_CCN: 10
+      QUALITY_MAX_LENGTH: 80
+      QUALITY_MAX_DUPLICATE_RATE: 5.0
+      QUALITY_MIN_PUBLIC_DOC_COVERAGE: 80.0
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install lizard
+        run: python -m pip install --disable-pip-version-check lizard
+
+      - name: Measure maintainability metrics
+        run: |
+          set +e
+          python -m lizard -l rust -C"${QUALITY_MAX_CCN}" -L"${QUALITY_MAX_LENGTH}" \
+            -x "./crates/*/tests/*" \
+            -x "./crates/*/benches/*" \
+            -W ".github/qa/whitelizard.txt" \
+            crates > quality-lizard.txt
+          complexity_status=$?
+          python -m lizard --csv -l rust -C"${QUALITY_MAX_CCN}" -L"${QUALITY_MAX_LENGTH}" \
+            -x "./crates/*/tests/*" \
+            -x "./crates/*/benches/*" \
+            -W ".github/qa/whitelizard.txt" \
+            crates > quality-functions.csv
+          functions_status=$?
+          python -m lizard -l rust -Eduplicate \
+            -x "./crates/*/tests/*" \
+            -x "./crates/*/benches/*" \
+            crates > quality-duplicates.txt
+          duplicates_status=$?
+          python .github/scripts/quality_metrics.py \
+            --functions quality-functions.csv \
+            --duplicates quality-duplicates.txt \
+            --summary quality-summary.md \
+            --workspace-root . \
+            --max-duplicate-rate "${QUALITY_MAX_DUPLICATE_RATE}" \
+            --max-ccn "${QUALITY_MAX_CCN}" \
+            --max-length "${QUALITY_MAX_LENGTH}" \
+            --min-public-doc-coverage "${QUALITY_MIN_PUBLIC_DOC_COVERAGE}"
+          summary_status=$?
+          set -e
+          cat quality-summary.md >> "${GITHUB_STEP_SUMMARY}"
+          if [ "${complexity_status}" -ne 0 ] || [ "${functions_status}" -ne 0 ] || [ "${duplicates_status}" -ne 0 ] || [ "${summary_status}" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Upload quality artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: quality-metrics
+          path: |
+            quality-functions.csv
+            quality-lizard.txt
+            quality-duplicates.txt
+            quality-summary.md
           retention-days: 14
 
   # Release build ensures nothing regressed under opt-level=3 + LTO.

@@ -1,0 +1,3 @@
+# Existing production-code hotspots tracked in the 2026-04-20 tech-debt audit.
+# Keep this list intentionally short so new debt stays visible in CI.
+into_manifest, q_pow

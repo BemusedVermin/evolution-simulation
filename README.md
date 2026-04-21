@@ -99,6 +99,7 @@ cargo build --workspace --release --locked
 ```
 
 CI also runs `cargo test` on `windows-latest` and `macos-latest` as a cross-platform determinism sanity check.
+It also runs `quality-metrics (ubuntu)`, a metric-based maintainability pass on production Rust code that tracks per-function complexity, duplicate-rate budget, crate/module fan-in-fan-out coupling, and Rustdoc coverage.
 
 ### Benchmarks
 
