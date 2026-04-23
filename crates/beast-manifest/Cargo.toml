@@ -1,6 +1,6 @@
 [package]
-name = "beast-channels"
-description = "Channel registry, manifest loading, composition hooks, and expression conditions for the Beast Evolution Game."
+name = "beast-manifest"
+description = "Shared manifest-loading infrastructure (JSON Schema validation, provenance parsing, deterministic registries) for the Beast Evolution Game."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,9 +13,7 @@ publish.workspace = true
 doctest = true
 
 [dependencies]
-beast-core = { workspace = true }
-beast-manifest = { workspace = true }
-blake3 = { workspace = true }
+jsonschema = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -25,6 +23,3 @@ proptest = { workspace = true }
 
 [lints.rust]
 unsafe_code = "forbid"
-
-[lints.clippy]
-float_arithmetic = "warn"

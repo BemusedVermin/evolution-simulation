@@ -87,10 +87,9 @@ name = "beast-channels"
 version = "0.1.0"
 dependencies = [
  "beast-core",
+ "beast-manifest",
  "blake3",
- "jsonschema",
  "proptest",
- "regex",
  "serde",
  "serde_json",
  "thiserror",
@@ -138,15 +137,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "beast-manifest"
+version = "0.1.0"
+dependencies = [
+ "jsonschema",
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "beast-primitives"
 version = "0.1.0"
 dependencies = [
  "beast-channels",
  "beast-core",
+ "beast-manifest",
  "fixed",
- "jsonschema",
  "proptest",
- "regex",
  "serde",
  "serde_json",
  "thiserror",

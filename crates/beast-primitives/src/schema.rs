@@ -8,13 +8,21 @@
 //!    semantic checks (range ordering, defaults matching declared types,
 //!    scaling parameters referring to known input parameters, provenance
 //!    parsing).
+//!
+//! The schema compilation + pointer-flattened validator lives in
+//! [`beast_manifest::CompiledSchema`]; primitive-specific semantic errors
+//! are encoded in [`PrimitiveLoadError`] below.
 
 use std::sync::OnceLock;
 
-use jsonschema::Validator;
+use beast_manifest::{CompiledSchema, ProvenanceParseError, SchemaLoadError};
 use thiserror::Error;
 
 use crate::manifest::PrimitiveManifest;
+
+/// Re-export of the shared violation record — kept here so downstream
+/// callers can continue to `use beast_primitives::SchemaViolation`.
+pub use beast_manifest::SchemaViolation;
 
 /// Raw JSON text of the primitive manifest schema. Embedded at compile time.
 pub const PRIMITIVE_MANIFEST_SCHEMA: &str =
@@ -28,7 +36,7 @@ pub enum PrimitiveLoadError {
     InvalidJson(String),
 
     /// JSON Schema validation produced one or more errors.
-    #[error("manifest failed schema validation:\n{}", format_schema_errors(.0))]
+    #[error("manifest failed schema validation:\n{}", beast_manifest::format_schema_errors(.0))]
     SchemaViolation(Vec<SchemaViolation>),
 
     /// Deserialization into the typed manifest struct failed after schema
@@ -71,59 +79,29 @@ pub enum PrimitiveLoadError {
     },
 }
 
-/// A single JSON Schema validation error, flattened.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SchemaViolation {
-    /// JSON Pointer path to the failing node.
-    pub pointer: String,
-    /// Human-readable message from the validator.
-    pub message: String,
-}
-
-fn format_schema_errors(errors: &[SchemaViolation]) -> String {
-    let mut out = String::new();
-    for e in errors {
-        out.push_str("  at ");
-        out.push_str(if e.pointer.is_empty() {
-            "<root>"
-        } else {
-            e.pointer.as_str()
-        });
-        out.push_str(": ");
-        out.push_str(&e.message);
-        out.push('\n');
+impl From<SchemaLoadError> for PrimitiveLoadError {
+    fn from(e: SchemaLoadError) -> Self {
+        match e {
+            SchemaLoadError::InvalidJson(s) => Self::InvalidJson(s),
+            SchemaLoadError::SchemaViolation(v) => Self::SchemaViolation(v),
+        }
     }
-    out
 }
 
-fn compiled_schema() -> &'static Validator {
-    static SCHEMA: OnceLock<Validator> = OnceLock::new();
-    SCHEMA.get_or_init(|| {
-        let raw: serde_json::Value = serde_json::from_str(PRIMITIVE_MANIFEST_SCHEMA)
-            .expect("embedded primitive manifest schema is valid JSON");
-        // `jsonschema::validator_for` auto-selects the draft from the schema's
-        // `$schema` URI. Our file declares Draft 2020-12.
-        jsonschema::validator_for(&raw).expect("embedded primitive manifest schema compiles")
-    })
+impl From<ProvenanceParseError> for PrimitiveLoadError {
+    fn from(e: ProvenanceParseError) -> Self {
+        Self::InvalidProvenance(e.0)
+    }
+}
+
+fn compiled_schema() -> &'static CompiledSchema {
+    static SCHEMA: OnceLock<CompiledSchema> = OnceLock::new();
+    SCHEMA.get_or_init(|| CompiledSchema::compile(PRIMITIVE_MANIFEST_SCHEMA))
 }
 
 /// Load and fully validate a primitive manifest from its JSON source.
 pub fn load_primitive_manifest(source: &str) -> Result<PrimitiveManifest, PrimitiveLoadError> {
-    let value: serde_json::Value =
-        serde_json::from_str(source).map_err(|e| PrimitiveLoadError::InvalidJson(e.to_string()))?;
-
-    let schema = compiled_schema();
-    let violations: Vec<SchemaViolation> = schema
-        .iter_errors(&value)
-        .map(|e| SchemaViolation {
-            pointer: e.instance_path().to_string(),
-            message: e.to_string(),
-        })
-        .collect();
-    if !violations.is_empty() {
-        return Err(PrimitiveLoadError::SchemaViolation(violations));
-    }
-
+    let value = compiled_schema().load(source)?;
     PrimitiveManifest::from_validated_value(&value)
 }
 

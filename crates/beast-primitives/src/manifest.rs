@@ -13,50 +13,9 @@ use serde::{Deserialize, Serialize};
 use crate::category::{Modality, PrimitiveCategory};
 use crate::schema::PrimitiveLoadError;
 
-/// Origin of a primitive manifest. Same shape as
-/// [`beast_channels::Provenance`] to keep mod registration symmetric.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Provenance {
-    /// Canonical core primitive.
-    Core,
-    /// Registered by a mod with the given snake_case id.
-    Mod(String),
-    /// Evolved from a parent primitive at generation `n`.
-    Genesis {
-        /// Parent primitive id.
-        parent: String,
-        /// Generation at which the derivation occurred.
-        generation: u64,
-    },
-}
-
-impl Provenance {
-    pub(crate) fn parse(raw: &str) -> Result<Self, PrimitiveLoadError> {
-        if raw == "core" {
-            return Ok(Self::Core);
-        }
-        if let Some(rest) = raw.strip_prefix("mod:") {
-            return Ok(Self::Mod(rest.to_owned()));
-        }
-        if let Some(rest) = raw.strip_prefix("genesis:") {
-            let mut parts = rest.rsplitn(2, ':');
-            let gen_str = parts
-                .next()
-                .ok_or_else(|| PrimitiveLoadError::InvalidProvenance(raw.to_owned()))?;
-            let parent = parts
-                .next()
-                .ok_or_else(|| PrimitiveLoadError::InvalidProvenance(raw.to_owned()))?;
-            let generation: u64 = gen_str
-                .parse()
-                .map_err(|_| PrimitiveLoadError::InvalidProvenance(raw.to_owned()))?;
-            return Ok(Self::Genesis {
-                parent: parent.to_owned(),
-                generation,
-            });
-        }
-        Err(PrimitiveLoadError::InvalidProvenance(raw.to_owned()))
-    }
-}
+/// Canonical provenance enum, re-exported from `beast-manifest` to keep
+/// mod registration symmetric with [`beast_channels::Provenance`].
+pub use beast_manifest::Provenance;
 
 /// Parameter value type in a primitive's input schema.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

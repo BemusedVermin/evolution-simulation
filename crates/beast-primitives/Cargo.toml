@@ -15,12 +15,11 @@ doctest = true
 [dependencies]
 beast-core = { workspace = true }
 beast-channels = { workspace = true }
+beast-manifest = { workspace = true }
 fixed = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-jsonschema = { workspace = true }
-regex = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

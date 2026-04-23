@@ -68,6 +68,36 @@ pub mod math;              // Gaussian sampling, saturating ops
 
 ## Layer 1: Data Definitions & Genetics
 
+### beast-manifest
+
+**Purpose**: Shared manifest-loading infrastructure reused by every L1 crate
+that loads JSON manifests (channels, primitives, future mod manifest kinds).
+Extracted from `beast-channels` and `beast-primitives` to keep the two-stage
+(schema → semantic) loader in one place.
+
+**Key Types**:
+- `CompiledSchema` (wraps `jsonschema::Validator`, runs the parse+validate
+  stage and returns `serde_json::Value` for semantic parsing)
+- `SchemaViolation` (flattened `{pointer, message}` pair, keeps `jsonschema`
+  types out of downstream public APIs)
+- `SchemaLoadError` (`InvalidJson` / `SchemaViolation`)
+- `Provenance` (canonical `core | mod:<id> | genesis:<parent>:<n>` enum
+  matching the schema regex; re-exported by `beast-channels` and
+  `beast-primitives`)
+- `SortedRegistry<M>` + `Manifest` trait (BTreeMap-backed deterministic
+  registry with `id` and `group` indices)
+
+**Dependencies**: `jsonschema`, `serde`, `serde_json`, `thiserror`
+
+**Modules**:
+```rust
+pub mod schema;            // CompiledSchema, SchemaViolation, SchemaLoadError
+pub mod provenance;        // Provenance, ProvenanceParseError
+pub mod registry;          // SortedRegistry, Manifest, DuplicateId
+```
+
+---
+
 ### beast-channels
 
 **Purpose**: Channel registry, manifest loading, schema validation.
@@ -79,7 +109,7 @@ pub mod math;              // Gaussian sampling, saturating ops
 - `CompositionHook` (rule for multi-channel interaction)
 - `ExpressionConditions` (biome, scale_band, season gates)
 
-**Dependencies**: `beast-core`, `serde_json`, `jsonschema`
+**Dependencies**: `beast-core`, `beast-manifest`, `serde_json`
 
 **Modules**:
 ```rust
@@ -108,7 +138,7 @@ pub fn validate_manifest(manifest: &ChannelManifest, schema: &JsonSchema) -> Res
 - `PrimitiveEffect` (runtime emission: primitive_id, parameters, source_channels)
 - `PrimitiveCategory` (enum: signal_emission, force_application, etc.)
 
-**Dependencies**: `beast-core`, `serde_json`
+**Dependencies**: `beast-core`, `beast-channels`, `beast-manifest`, `serde_json`
 
 **Modules**:
 ```rust
