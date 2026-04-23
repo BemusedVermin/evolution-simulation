@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/beast-core",
+    "crates/beast-manifest",
     "crates/beast-channels",
     "crates/beast-primitives",
     "crates/beast-genome",
@@ -43,6 +44,7 @@ regex = "1"
 winnow = "0.7"
 
 beast-core = { path = "crates/beast-core" }
+beast-manifest = { path = "crates/beast-manifest" }
 beast-channels = { path = "crates/beast-channels" }
 beast-primitives = { path = "crates/beast-primitives" }
 beast-genome = { path = "crates/beast-genome" }

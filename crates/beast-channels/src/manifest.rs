@@ -16,6 +16,11 @@ use crate::composition::{CompositionHook, CompositionKind};
 use crate::expression::ExpressionCondition;
 use crate::schema::ChannelLoadError;
 
+/// Canonical provenance enum, re-exported from `beast-manifest` so
+/// downstream callers see the same type whether they came in via channels,
+/// primitives, or any future manifest kind.
+pub use beast_manifest::Provenance;
+
 /// Biological family of a channel.
 ///
 /// Determines typical mutation breadth, composition patterns, and expression
@@ -53,90 +58,6 @@ pub enum BoundsPolicy {
     Reflect,
     /// Wrap around the range (periodic).
     Wrap,
-}
-
-/// Origin of a channel. Mirrors the schema's `provenance` discriminated regex.
-///
-/// Serializes as the same canonical string form used in channel manifest
-/// JSON (`"core"`, `"mod:foo"`, `"genesis:foo:123"`). This keeps save files
-/// self-describing and round-trippable without needing a separate enum tag.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Provenance {
-    /// A canonical channel shipped by the core game.
-    Core,
-    /// Registered by a mod with the given snake_case id.
-    Mod(String),
-    /// Duplicated from a parent channel at generation `n`.
-    Genesis {
-        /// Parent channel id.
-        parent: String,
-        /// Generation at which the duplication occurred.
-        generation: u64,
-    },
-}
-
-impl Provenance {
-    /// Render back into the canonical schema string form.
-    #[must_use]
-    pub fn to_schema_string(&self) -> String {
-        match self {
-            Self::Core => "core".to_owned(),
-            Self::Mod(id) => format!("mod:{id}"),
-            Self::Genesis { parent, generation } => format!("genesis:{parent}:{generation}"),
-        }
-    }
-
-    /// Parse a provenance string in the canonical schema form.
-    ///
-    /// The schema's regex (`^(core|mod:[a-z_][a-z0-9_]*|genesis:[a-z_][a-z0-9_]*:[0-9]+)$`)
-    /// is enforced by JSON Schema validation inside the manifest loader,
-    /// so this parser assumes the structural shape is well-formed and only
-    /// does the split.
-    pub fn parse(raw: &str) -> Result<Self, ChannelLoadError> {
-        if raw == "core" {
-            return Ok(Self::Core);
-        }
-        if let Some(rest) = raw.strip_prefix("mod:") {
-            return Ok(Self::Mod(rest.to_owned()));
-        }
-        if let Some(rest) = raw.strip_prefix("genesis:") {
-            // rest is `parent_id:generation`.
-            let mut parts = rest.rsplitn(2, ':');
-            let gen_str = parts
-                .next()
-                .ok_or_else(|| ChannelLoadError::InvalidProvenance(raw.to_owned()))?;
-            let parent = parts
-                .next()
-                .ok_or_else(|| ChannelLoadError::InvalidProvenance(raw.to_owned()))?;
-            let generation: u64 = gen_str
-                .parse()
-                .map_err(|_| ChannelLoadError::InvalidProvenance(raw.to_owned()))?;
-            return Ok(Self::Genesis {
-                parent: parent.to_owned(),
-                generation,
-            });
-        }
-        Err(ChannelLoadError::InvalidProvenance(raw.to_owned()))
-    }
-}
-
-impl Serialize for Provenance {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.to_schema_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for Provenance {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let raw = String::deserialize(deserializer)?;
-        Self::parse(&raw).map_err(serde::de::Error::custom)
-    }
 }
 
 /// Numeric range with physical units.

@@ -9,10 +9,11 @@
 //! Validation is **two-stage**:
 //!
 //! 1. Parse the input as `serde_json::Value` and run the JSON Schema
-//!    validator. This catches shape errors (missing fields, wrong types,
-//!    pattern failures, conditional `if/then` requirements like
-//!    `threshold` being required for `kind ∈ {threshold, gating}`, etc.)
-//!    with well-formed pointer-style paths.
+//!    validator via [`beast_manifest::CompiledSchema`]. This catches shape
+//!    errors (missing fields, wrong types, pattern failures, conditional
+//!    `if/then` requirements like `threshold` being required for
+//!    `kind ∈ {threshold, gating}`, etc.) with well-formed pointer-style
+//!    paths.
 //! 2. Deserialize into [`crate::manifest::ChannelManifest`] and run
 //!    cross-field semantic checks (`range.min <= range.max`, unique
 //!    composition targets, provenance string decomposition).
@@ -23,11 +24,15 @@
 
 use std::sync::OnceLock;
 
-use jsonschema::Validator;
+use beast_manifest::{CompiledSchema, ProvenanceParseError, SchemaLoadError};
 use thiserror::Error;
 
 use crate::composition::CompositionKind;
 use crate::manifest::ChannelManifest;
+
+/// Re-export of the shared violation record — kept here so downstream
+/// callers can continue to `use beast_channels::SchemaViolation`.
+pub use beast_manifest::SchemaViolation;
 
 /// Raw JSON text of the channel manifest schema. Embedded at compile time so
 /// downstream crates need no runtime filesystem access to validate.
@@ -44,7 +49,7 @@ pub enum ChannelLoadError {
     /// JSON Schema validation produced one or more errors. Each entry carries
     /// the failing JSON Pointer path plus a human-readable message, which is
     /// enough to point a mod author at the exact field.
-    #[error("manifest failed schema validation:\n{}", format_schema_errors(.0))]
+    #[error("manifest failed schema validation:\n{}", beast_manifest::format_schema_errors(.0))]
     SchemaViolation(Vec<SchemaViolation>),
 
     /// Deserialization into the typed manifest struct failed after schema
@@ -90,42 +95,24 @@ pub enum ChannelLoadError {
     },
 }
 
-/// A single JSON Schema validation error, flattened to a simple path+message
-/// pair so callers don't need to depend on `jsonschema` types.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SchemaViolation {
-    /// JSON Pointer path to the failing node (e.g. `/composition_hooks/0/threshold`).
-    pub pointer: String,
-    /// Human-readable message from the validator.
-    pub message: String,
-}
-
-fn format_schema_errors(errors: &[SchemaViolation]) -> String {
-    let mut out = String::new();
-    for e in errors {
-        out.push_str("  at ");
-        out.push_str(if e.pointer.is_empty() {
-            "<root>"
-        } else {
-            e.pointer.as_str()
-        });
-        out.push_str(": ");
-        out.push_str(&e.message);
-        out.push('\n');
+impl From<SchemaLoadError> for ChannelLoadError {
+    fn from(e: SchemaLoadError) -> Self {
+        match e {
+            SchemaLoadError::InvalidJson(s) => Self::InvalidJson(s),
+            SchemaLoadError::SchemaViolation(v) => Self::SchemaViolation(v),
+        }
     }
-    out
 }
 
-fn compiled_schema() -> &'static Validator {
-    static SCHEMA: OnceLock<Validator> = OnceLock::new();
-    SCHEMA.get_or_init(|| {
-        let raw: serde_json::Value = serde_json::from_str(CHANNEL_MANIFEST_SCHEMA)
-            .expect("embedded channel manifest schema is valid JSON");
-        // `jsonschema::validator_for` auto-selects the draft from the schema's
-        // `$schema` URI — our files declare Draft 2020-12, which this crate
-        // natively supports.
-        jsonschema::validator_for(&raw).expect("embedded channel manifest schema compiles")
-    })
+impl From<ProvenanceParseError> for ChannelLoadError {
+    fn from(e: ProvenanceParseError) -> Self {
+        Self::InvalidProvenance(e.0)
+    }
+}
+
+fn compiled_schema() -> &'static CompiledSchema {
+    static SCHEMA: OnceLock<CompiledSchema> = OnceLock::new();
+    SCHEMA.get_or_init(|| CompiledSchema::compile(CHANNEL_MANIFEST_SCHEMA))
 }
 
 /// Load and fully validate a channel manifest from its JSON source.
@@ -133,21 +120,7 @@ fn compiled_schema() -> &'static Validator {
 /// See [`crate::manifest::ChannelManifest::from_json_str`] for the public
 /// entry point — it forwards here.
 pub fn load_channel_manifest(source: &str) -> Result<ChannelManifest, ChannelLoadError> {
-    let value: serde_json::Value =
-        serde_json::from_str(source).map_err(|e| ChannelLoadError::InvalidJson(e.to_string()))?;
-
-    let schema = compiled_schema();
-    let violations: Vec<SchemaViolation> = schema
-        .iter_errors(&value)
-        .map(|e| SchemaViolation {
-            pointer: e.instance_path().to_string(),
-            message: e.to_string(),
-        })
-        .collect();
-    if !violations.is_empty() {
-        return Err(ChannelLoadError::SchemaViolation(violations));
-    }
-
+    let value = compiled_schema().load(source)?;
     ChannelManifest::from_validated_value(&value)
 }
 

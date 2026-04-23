@@ -3,9 +3,14 @@
 //! Like [`beast_channels::ChannelRegistry`], the primitive registry is
 //! [`BTreeMap`]-backed so iteration order is stable across runs. Primitives
 //! are indexed primarily by id and secondarily by [`PrimitiveCategory`].
+//!
+//! The deterministic index structure itself lives in
+//! [`beast_manifest::SortedRegistry`]; this type wraps it and layers on the
+//! primitive-specific cross-registry validation against channels.
+//!
+//! [`BTreeMap`]: std::collections::BTreeMap
 
-use std::collections::{BTreeMap, BTreeSet};
-
+use beast_manifest::{DuplicateId, SortedRegistry};
 use thiserror::Error;
 
 use crate::category::PrimitiveCategory;
@@ -31,72 +36,77 @@ pub enum RegistryError {
     },
 }
 
+impl From<DuplicateId> for RegistryError {
+    fn from(e: DuplicateId) -> Self {
+        Self::DuplicateId(e.0)
+    }
+}
+
+impl beast_manifest::Manifest for PrimitiveManifest {
+    type Group = PrimitiveCategory;
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn group(&self) -> PrimitiveCategory {
+        self.category
+    }
+}
+
 /// Deterministic in-memory index of primitive manifests.
 #[derive(Debug, Clone, Default)]
 pub struct PrimitiveRegistry {
-    by_id: BTreeMap<String, PrimitiveManifest>,
-    by_category: BTreeMap<PrimitiveCategory, BTreeSet<String>>,
+    inner: SortedRegistry<PrimitiveManifest>,
 }
 
 impl PrimitiveRegistry {
     /// Empty registry.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Register a manifest; fail if the id is already present.
     pub fn register(&mut self, manifest: PrimitiveManifest) -> Result<(), RegistryError> {
-        if self.by_id.contains_key(&manifest.id) {
-            return Err(RegistryError::DuplicateId(manifest.id));
-        }
-        self.by_category
-            .entry(manifest.category)
-            .or_default()
-            .insert(manifest.id.clone());
-        self.by_id.insert(manifest.id.clone(), manifest);
-        Ok(())
+        Ok(self.inner.insert(manifest)?)
     }
 
     /// Number of registered primitives.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.by_id.len()
+        self.inner.len()
     }
 
     /// Whether no primitives are registered.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.by_id.is_empty()
+        self.inner.is_empty()
     }
 
     /// Whether the given id is registered.
     #[must_use]
     pub fn contains(&self, id: &str) -> bool {
-        self.by_id.contains_key(id)
+        self.inner.contains(id)
     }
 
     /// Look up a manifest by id.
     #[must_use]
     pub fn get(&self, id: &str) -> Option<&PrimitiveManifest> {
-        self.by_id.get(id)
+        self.inner.get(id)
     }
 
     /// Iterate `(id, manifest)` pairs in sorted id order.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &PrimitiveManifest)> {
-        self.by_id.iter().map(|(k, v)| (k.as_str(), v))
+        self.inner.iter()
     }
 
     /// Iterate primitive ids in sorted order.
     pub fn ids(&self) -> impl Iterator<Item = &str> {
-        self.by_id.keys().map(String::as_str)
+        self.inner.ids()
     }
 
     /// All primitive ids in the given category, in sorted order.
     pub fn ids_by_category(&self, category: PrimitiveCategory) -> impl Iterator<Item = &str> {
-        self.by_category
-            .get(&category)
-            .into_iter()
-            .flat_map(|set| set.iter().map(String::as_str))
+        self.inner.ids_by_group(category)
     }
 
     /// All primitives in the given category, in sorted id order.
@@ -104,8 +114,7 @@ impl PrimitiveRegistry {
         &self,
         category: PrimitiveCategory,
     ) -> impl Iterator<Item = &PrimitiveManifest> {
-        self.ids_by_category(category)
-            .filter_map(move |id| self.by_id.get(id))
+        self.inner.by_group(category)
     }
 
     /// Verify that every `composition_compatibility.channel_id` refers to a
@@ -116,12 +125,12 @@ impl PrimitiveRegistry {
         &self,
         channels: &beast_channels::ChannelRegistry,
     ) -> Result<(), RegistryError> {
-        for (id, manifest) in &self.by_id {
+        for (id, manifest) in self.inner.iter() {
             for entry in &manifest.composition_compatibility {
                 if let crate::manifest::CompatibilityEntry::ChannelId(target) = entry {
                     if !channels.contains(target) {
                         return Err(RegistryError::UnknownChannel {
-                            source_id: id.clone(),
+                            source_id: id.to_owned(),
                             target: target.clone(),
                         });
                     }

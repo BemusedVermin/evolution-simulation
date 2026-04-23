@@ -6,9 +6,14 @@
 //! surface; nothing downstream hardcodes channel ids. The registry is backed
 //! by [`BTreeMap`] so iteration order is deterministic and independent of
 //! hash randomization — a requirement for deterministic replay.
+//!
+//! The deterministic index structure itself lives in
+//! [`beast_manifest::SortedRegistry`]; this type wraps it and layers on the
+//! channel-specific cross-reference validation.
+//!
+//! [`BTreeMap`]: std::collections::BTreeMap
 
-use std::collections::{BTreeMap, BTreeSet};
-
+use beast_manifest::{DuplicateId, SortedRegistry};
 use thiserror::Error;
 
 use crate::manifest::{ChannelFamily, ChannelManifest};
@@ -31,6 +36,22 @@ pub enum RegistryError {
     },
 }
 
+impl From<DuplicateId> for RegistryError {
+    fn from(e: DuplicateId) -> Self {
+        Self::DuplicateId(e.0)
+    }
+}
+
+impl beast_manifest::Manifest for ChannelManifest {
+    type Group = ChannelFamily;
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn group(&self) -> ChannelFamily {
+        self.family
+    }
+}
+
 /// An authoritative in-memory index of channel manifests.
 ///
 /// Clone is cheap-ish (shallow: `BTreeMap` clones are linear in key+value
@@ -40,12 +61,12 @@ pub enum RegistryError {
 /// stay consistent.
 #[derive(Debug, Clone, Default)]
 pub struct ChannelRegistry {
-    by_id: BTreeMap<String, ChannelManifest>,
-    by_family: BTreeMap<ChannelFamily, BTreeSet<String>>,
+    inner: SortedRegistry<ChannelManifest>,
 }
 
 impl ChannelRegistry {
     /// An empty registry.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -55,64 +76,54 @@ impl ChannelRegistry {
     /// Returns an error *before* inserting, so on error the registry is
     /// unchanged (strong exception safety).
     pub fn register(&mut self, manifest: ChannelManifest) -> Result<(), RegistryError> {
-        if self.by_id.contains_key(&manifest.id) {
-            return Err(RegistryError::DuplicateId(manifest.id));
-        }
-        self.by_family
-            .entry(manifest.family)
-            .or_default()
-            .insert(manifest.id.clone());
-        self.by_id.insert(manifest.id.clone(), manifest);
-        Ok(())
+        Ok(self.inner.insert(manifest)?)
     }
 
     /// Number of registered channels.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.by_id.len()
+        self.inner.len()
     }
 
     /// Whether no channels are registered.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.by_id.is_empty()
+        self.inner.is_empty()
     }
 
     /// Check whether the given id is registered.
     #[must_use]
     pub fn contains(&self, id: &str) -> bool {
-        self.by_id.contains_key(id)
+        self.inner.contains(id)
     }
 
     /// Look up a manifest by id.
     #[must_use]
     pub fn get(&self, id: &str) -> Option<&ChannelManifest> {
-        self.by_id.get(id)
+        self.inner.get(id)
     }
 
     /// Iterate manifests in `(id, manifest)` order. Iteration is deterministic
     /// because the backing storage is a [`BTreeMap`].
+    ///
+    /// [`BTreeMap`]: std::collections::BTreeMap
     pub fn iter(&self) -> impl Iterator<Item = (&str, &ChannelManifest)> {
-        self.by_id.iter().map(|(k, v)| (k.as_str(), v))
+        self.inner.iter()
     }
 
     /// Iterate channel ids in sorted order.
     pub fn ids(&self) -> impl Iterator<Item = &str> {
-        self.by_id.keys().map(String::as_str)
+        self.inner.ids()
     }
 
     /// All channel ids belonging to `family`, in sorted order.
     pub fn ids_by_family(&self, family: ChannelFamily) -> impl Iterator<Item = &str> {
-        self.by_family
-            .get(&family)
-            .into_iter()
-            .flat_map(|set| set.iter().map(String::as_str))
+        self.inner.ids_by_group(family)
     }
 
     /// All manifests belonging to `family`, in sorted id order.
     pub fn by_family(&self, family: ChannelFamily) -> impl Iterator<Item = &ChannelManifest> {
-        self.ids_by_family(family)
-            .filter_map(move |id| self.by_id.get(id))
+        self.inner.by_group(family)
     }
 
     /// Verify that every composition hook `with` reference and every
@@ -123,22 +134,22 @@ impl ChannelRegistry {
     /// channel ahead of its children — call this after all core/mod/genesis
     /// manifests are loaded.
     pub fn validate_cross_references(&self) -> Result<(), RegistryError> {
-        for (id, manifest) in &self.by_id {
+        for (id, manifest) in self.inner.iter() {
             for hook in &manifest.composition_hooks {
                 if hook.with == "self" {
                     continue;
                 }
-                if !self.by_id.contains_key(&hook.with) {
+                if !self.inner.contains(&hook.with) {
                     return Err(RegistryError::UnknownReference {
-                        source_id: id.clone(),
+                        source_id: id.to_owned(),
                         target: hook.with.clone(),
                     });
                 }
             }
             for corr in &manifest.mutation_kernel.correlation_with {
-                if !self.by_id.contains_key(&corr.channel) {
+                if !self.inner.contains(&corr.channel) {
                     return Err(RegistryError::UnknownReference {
-                        source_id: id.clone(),
+                        source_id: id.to_owned(),
                         target: corr.channel.clone(),
                     });
                 }
