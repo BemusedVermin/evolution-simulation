@@ -20,17 +20,12 @@
 //!   that field doesn't exist yet. Until then every user parameter merges
 //!   via `max` (the doc's conservative default at line 802), and the cost
 //!   sentinel below merges via `sum`.
-//! * **Source-channel provenance — [issue #70]**. §6.2 line 746 records the
-//!   hook's firing channels in `source_channels`. Without `channel_ids` on
-//!   [`crate::FiredHook`] we currently reconstruct from expression refs only;
-//!   gate-only channels are missed.
 //! * **First-class activation cost — [issue #67]**. Until
 //!   [`beast_primitives::PrimitiveEffect`] gains a dedicated `activation_cost`
 //!   field we surface the evaluated cost via the [`ACTIVATION_COST_PARAM`]
 //!   sentinel parameter below.
 //!
 //! [issue #67]: https://github.com/BemusedVermin/evolution-simulation/issues/67
-//! [issue #70]: https://github.com/BemusedVermin/evolution-simulation/issues/70
 //! [issue #71]: https://github.com/BemusedVermin/evolution-simulation/issues/71
 
 use std::collections::BTreeMap;
@@ -174,14 +169,21 @@ fn build_effect(
 /// Compose the sorted, deduplicated list of channel ids that contributed to
 /// an effect.
 ///
-/// The hook's own `channel_ids` list isn't stored on [`FiredHook`] (only the
-/// per-channel *values* are), so the context is inferred from the union of
-/// every channel the emit spec's expressions read. The resolver filters out
-/// hooks whose context channels are missing from the phenotype, so the
-/// per-expression refs are a superset-safe way to reconstruct the provenance
-/// list without an extra round-trip to the original `InterpreterHook`.
-fn collect_source_channels(_fired: &FiredHook, emit: &EmitSpec) -> Vec<String> {
+/// Per §6.2 (pseudocode line 746) the provenance is the union of:
+///
+/// * the firing hook's own [`FiredHook::channel_ids`] — which includes
+///   "gate-only" channels that decide whether the hook fires but never
+///   appear in any `parameter_mapping` expression, and
+/// * every channel id referenced by an expression in `emit.parameter_mapping`.
+///
+/// Taking the union ensures a hook whose trigger set differs from its
+/// expression refs (e.g. `[auditory, vocal, spatial]` thresholded but only
+/// `vocal` read downstream) still reports all three as sources.
+fn collect_source_channels(fired: &FiredHook, emit: &EmitSpec) -> Vec<String> {
     let mut seen = std::collections::BTreeSet::new();
+    for channel_id in &fired.channel_ids {
+        seen.insert(channel_id.clone());
+    }
     for (_name, expr) in &emit.parameter_mapping {
         for id in collect_channel_refs(expr) {
             seen.insert(id);
@@ -354,6 +356,7 @@ mod tests {
 
     fn fired_hook(
         id: u32,
+        channel_ids: &[&str],
         channel_values: Vec<Q3232>,
         emits: Vec<EmitSpec>,
         coefficient: Q3232,
@@ -361,6 +364,7 @@ mod tests {
         FiredHook {
             hook_id: HookId(id),
             kind: CompositionKind::Additive,
+            channel_ids: channel_ids.iter().map(|s| (*s).to_string()).collect(),
             channel_values,
             coefficient,
             emits,
@@ -388,6 +392,7 @@ mod tests {
         let expr = parse_expression("ch[auditory] * 8", &creg).unwrap();
         let fired = fired_hook(
             1,
+            &["auditory"],
             vec![Q3232::from_num(0.5_f64)],
             vec![emit("emit_pulse", vec![("intensity", expr)])],
             Q3232::ONE,
@@ -414,6 +419,7 @@ mod tests {
 
         let fired = fired_hook(
             1,
+            &[],
             Vec::new(),
             vec![emit("does_not_exist", Vec::new())],
             Q3232::ONE,
@@ -440,6 +446,7 @@ mod tests {
         let expr = parse_expression("ch[force_src]", &creg).unwrap();
         let fired = fired_hook(
             1,
+            &["force_src"],
             vec![Q3232::from_num(4_i32)],
             vec![emit("strike", vec![("force", expr)])],
             Q3232::ONE,
@@ -475,6 +482,7 @@ mod tests {
         let expr_a = parse_expression("ch[a]", &creg).unwrap();
         let fired1 = fired_hook(
             1,
+            &["a"],
             vec![Q3232::from_num(0.3_f64)],
             vec![emit("emit_pulse", vec![("intensity", expr_a)])],
             Q3232::ONE,
@@ -483,6 +491,7 @@ mod tests {
         let expr_b = parse_expression("ch[b]", &creg).unwrap();
         let fired2 = fired_hook(
             2,
+            &["b"],
             vec![Q3232::from_num(0.8_f64)],
             vec![emit("emit_pulse", vec![("intensity", expr_b)])],
             Q3232::ONE,
@@ -514,6 +523,7 @@ mod tests {
         // sorted by primitive_id, not by input order.
         let fired = fired_hook(
             1,
+            &["a"],
             vec![Q3232::from_num(0.5_f64)],
             vec![
                 emit("zulu", vec![("intensity", expr.clone())]),
@@ -542,6 +552,7 @@ mod tests {
         let expr2 = parse_expression("ch[beta] * 2", &creg).unwrap();
         let fired = fired_hook(
             1,
+            &["alpha", "beta"],
             vec![Q3232::from_num(1_i32), Q3232::from_num(2_i32)],
             vec![emit(
                 "emit_pulse",
@@ -568,6 +579,7 @@ mod tests {
         let expr = parse_expression("ch[present] + ch[dormant]", &creg).unwrap();
         let fired = fired_hook(
             1,
+            &["present"],
             vec![Q3232::from_num(1_i32)],
             vec![emit("emit_pulse", vec![("intensity", expr)])],
             Q3232::ONE,
@@ -604,6 +616,7 @@ mod tests {
         let expr2 = parse_expression("ch[b] * ch[a]", &creg).unwrap();
         let fired = fired_hook(
             1,
+            &["a", "b"],
             vec![Q3232::from_num(0.25_f64), Q3232::from_num(0.75_f64)],
             vec![
                 emit("first", vec![("magnitude", expr1)]),
@@ -622,5 +635,112 @@ mod tests {
         let second = emit_primitives(&[fired], &phenotype, &preg, EntityId::new(7)).unwrap();
 
         assert_eq!(first, second);
+    }
+
+    // ----- regression tests for #70: gate-only source-channel provenance -----
+
+    #[test]
+    fn gate_only_channels_appear_in_source_channels() {
+        // §6.2 (line 746) records the hook's firing channels in
+        // `source_channels`. A threshold hook gated on `[auditory, vocal,
+        // spatial]` whose only parameter expression reads `vocal` must still
+        // report all three — `auditory` and `spatial` are gate-only and
+        // otherwise silently dropped from provenance.
+        let creg = channel_registry_with(&["auditory", "vocal", "spatial"]);
+        let preg = primitive_registry_with(vec![primitive_manifest("emit_pulse", false)]);
+        let phenotype = phenotype_with(&[
+            ("auditory", Q3232::from_num(0.8_f64)),
+            ("vocal", Q3232::from_num(0.9_f64)),
+            ("spatial", Q3232::from_num(0.7_f64)),
+        ]);
+
+        let expr = parse_expression("ch[vocal]", &creg).unwrap();
+        let fired = fired_hook(
+            1,
+            &["auditory", "vocal", "spatial"],
+            vec![
+                Q3232::from_num(0.8_f64),
+                Q3232::from_num(0.9_f64),
+                Q3232::from_num(0.7_f64),
+            ],
+            vec![emit("emit_pulse", vec![("intensity", expr)])],
+            Q3232::ONE,
+        );
+
+        let effects = emit_primitives(&[fired], &phenotype, &preg, EntityId::new(1)).unwrap();
+        assert_eq!(effects.len(), 1);
+        assert_eq!(
+            effects[0].source_channels,
+            vec![
+                "auditory".to_string(),
+                "spatial".to_string(),
+                "vocal".to_string(),
+            ],
+        );
+    }
+
+    #[test]
+    fn literal_parameter_additive_hook_still_records_firing_channel() {
+        // Additive hook on `metabolism` with a purely literal parameter
+        // (`"delta": "8"`). No ChannelRef in the expression — before the fix
+        // `source_channels` came back empty, dropping provenance entirely.
+        let creg = channel_registry_with(&["metabolism"]);
+        let preg = primitive_registry_with(vec![primitive_manifest("emit_pulse", false)]);
+        let phenotype = phenotype_with(&[("metabolism", Q3232::from_num(0.5_f64))]);
+
+        let expr = parse_expression("8", &creg).unwrap();
+        let fired = fired_hook(
+            1,
+            &["metabolism"],
+            vec![Q3232::from_num(0.5_f64)],
+            vec![emit("emit_pulse", vec![("delta", expr)])],
+            Q3232::ONE,
+        );
+
+        let effects = emit_primitives(&[fired], &phenotype, &preg, EntityId::new(1)).unwrap();
+        assert_eq!(effects.len(), 1);
+        assert_eq!(effects[0].source_channels, vec!["metabolism".to_string()],);
+    }
+
+    #[test]
+    fn gate_only_channels_survive_merge_across_hooks() {
+        // Two hooks emit the same primitive but have disjoint firing-channel
+        // sets. Hook A fires on [x, y] with expression `ch[y]`; hook B fires
+        // on [y, z] with expression `ch[y]`. The merged effect's
+        // `source_channels` must be the full union [x, y, z] — proving that
+        // `x` and `z` (each a gate-only channel on one hook and entirely
+        // absent from the other's expression) survive the group merge step.
+        let creg = channel_registry_with(&["x", "y", "z"]);
+        let preg = primitive_registry_with(vec![primitive_manifest("emit_pulse", false)]);
+        let phenotype = phenotype_with(&[
+            ("x", Q3232::from_num(0.5_f64)),
+            ("y", Q3232::from_num(0.5_f64)),
+            ("z", Q3232::from_num(0.5_f64)),
+        ]);
+
+        let expr_a = parse_expression("ch[y]", &creg).unwrap();
+        let fired_a = fired_hook(
+            1,
+            &["x", "y"],
+            vec![Q3232::from_num(0.5_f64), Q3232::from_num(0.5_f64)],
+            vec![emit("emit_pulse", vec![("intensity", expr_a)])],
+            Q3232::ONE,
+        );
+        let expr_b = parse_expression("ch[y]", &creg).unwrap();
+        let fired_b = fired_hook(
+            2,
+            &["y", "z"],
+            vec![Q3232::from_num(0.5_f64), Q3232::from_num(0.5_f64)],
+            vec![emit("emit_pulse", vec![("intensity", expr_b)])],
+            Q3232::ONE,
+        );
+
+        let effects =
+            emit_primitives(&[fired_a, fired_b], &phenotype, &preg, EntityId::new(1)).unwrap();
+        assert_eq!(effects.len(), 1);
+        assert_eq!(
+            effects[0].source_channels,
+            vec!["x".to_string(), "y".to_string(), "z".to_string()],
+        );
     }
 }
