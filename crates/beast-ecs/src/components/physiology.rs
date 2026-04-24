@@ -84,8 +84,21 @@ impl HealthState {
     }
 
     /// Convenience constructor with explicit values.
+    ///
+    /// Debug-asserts that both `health` and `energy` fall in the
+    /// documented `[0, 1]` unit interval. Release builds skip the
+    /// check (zero cost); production callers that update via saturating
+    /// arithmetic stay in range by construction.
     #[must_use]
     pub fn new(health: Q3232, energy: Q3232) -> Self {
+        debug_assert!(
+            Q3232::ZERO <= health && health <= Q3232::ONE,
+            "HealthState::new: health out of [0, 1]: {health:?}"
+        );
+        debug_assert!(
+            Q3232::ZERO <= energy && energy <= Q3232::ONE,
+            "HealthState::new: energy out of [0, 1]: {energy:?}"
+        );
         Self { health, energy }
     }
 }
