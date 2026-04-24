@@ -1,0 +1,30 @@
+[package]
+name = "beast-ecs"
+description = "ECS foundation for the Beast Evolution Game — wraps specs::World with a deterministic, L3-layer facade used by beast-sim and higher crates."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = true
+
+[dependencies]
+beast-core = { workspace = true }
+beast-channels = { workspace = true }
+beast-primitives = { workspace = true }
+specs = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+float_arithmetic = "warn"
