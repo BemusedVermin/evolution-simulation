@@ -18,6 +18,7 @@ use std::collections::BTreeMap;
 
 use beast_ecs::{EcsWorld, Resources, System, SystemStage};
 
+use crate::budget::Stopwatch;
 use crate::error::Result;
 
 /// Ordered collection of systems keyed by [`SystemStage`].
@@ -64,13 +65,25 @@ impl SystemSchedule {
     /// (aborted mid-way by an error) is still observable via
     /// `resources.tick_counter` being unchanged from the pre-tick
     /// value.
-    pub fn run_tick(&mut self, world: &mut EcsWorld, resources: &mut Resources) -> Result<()> {
-        for systems in self.systems.values_mut() {
+    ///
+    /// Returns the per-stage wall-clock-microsecond breakdown (S6.4).
+    /// Only stages that actually ran (≥ 1 registered system) appear in
+    /// the map. Timing is observation only; it must never influence
+    /// sim-state control flow (INVARIANTS §1).
+    pub fn run_tick(
+        &mut self,
+        world: &mut EcsWorld,
+        resources: &mut Resources,
+    ) -> Result<BTreeMap<SystemStage, u64>> {
+        let mut stage_durations: BTreeMap<SystemStage, u64> = BTreeMap::new();
+        for (stage, systems) in self.systems.iter_mut() {
+            let watch = Stopwatch::start();
             for system in systems.iter_mut() {
                 system.run(world, resources)?;
             }
+            stage_durations.insert(*stage, watch.elapsed_us());
         }
-        Ok(())
+        Ok(stage_durations)
     }
 
     /// Number of systems registered across every stage. Useful for
