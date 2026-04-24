@@ -16,13 +16,9 @@ use beast_core::Q3232;
 use beast_ecs::components::{Age, HealthState, Position};
 use beast_ecs::storage::for_each_entity_of;
 use beast_ecs::{
-    components, Builder, EcsWorld, MarkerKind, Resources, System, SystemStage, WorldExt,
+    components, Builder, EcsWorld, Entity, MarkerKind, Resources, System, SystemStage, WorldExt,
 };
 use beast_primitives::PrimitiveRegistry;
-use specs::Entity;
-
-// Use WorldExt via the re-export for create_entity under-the-hood.
-use beast_ecs as _;
 
 /// Toy system: advance every creature's `Age.ticks` by one. Uses the
 /// safe-sequential iteration pattern (Pattern A from `storage`).
@@ -86,9 +82,16 @@ fn state_hash(world: &EcsWorld, resources: &Resources) -> u64 {
     let ages = world.world().read_storage::<Age>();
     let positions = world.world().read_storage::<Position>();
     let mut hash: u64 = 0xCBF2_9CE4_8422_2325; // FNV-1a offset basis
+                                               // Note: `to_le_bytes` is platform-independent in Rust — always
+                                               // returns little-endian regardless of host endianness — so this
+                                               // hash reproduces bit-for-bit across architectures.
     for entity in resources.entity_index.entities_of(MarkerKind::Creature) {
-        let age = ages.get(entity).copied().unwrap_or_default();
-        let pos = positions.get(entity).copied().unwrap_or_default();
+        let age = ages
+            .get(entity)
+            .expect("creature must have Age in state_hash fixture");
+        let pos = positions
+            .get(entity)
+            .expect("creature must have Position in state_hash fixture");
         for byte in age.ticks.to_le_bytes() {
             hash ^= u64::from(byte);
             hash = hash.wrapping_mul(0x0000_0100_0000_01B3);
@@ -143,7 +146,10 @@ fn final_ages_are_equal_to_tick_count() {
     }
     let ages = world.world().read_storage::<Age>();
     for entity in resources.entity_index.entities_of(MarkerKind::Creature) {
-        assert_eq!(ages.get(entity).copied().unwrap_or_default().ticks, TICKS);
+        let age = ages
+            .get(entity)
+            .expect("creature must have Age in final_ages test");
+        assert_eq!(age.ticks, TICKS);
     }
 }
 
