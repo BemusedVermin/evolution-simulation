@@ -48,7 +48,9 @@ pub mod storage;
 pub mod system;
 pub mod world;
 
+pub use entity_id::{MarkerKind, SortedEntityIndex};
 pub use error::{EcsError, Result};
+pub use storage::{for_each_entity_of, Join, ParJoin};
 pub use system::{Resources, System, SystemStage};
 pub use world::EcsWorld;
 
@@ -58,5 +60,5 @@ pub use world::EcsWorld;
 // private to this crate.
 pub use specs::{
     Builder, Component, DenseVecStorage, Entity, EntityBuilder, NullStorage, ReadStorage,
-    VecStorage, WriteStorage,
+    VecStorage, WorldExt, WriteStorage,
 };

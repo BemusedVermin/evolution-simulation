@@ -21,6 +21,8 @@ use beast_core::prng::{Prng, Stream};
 use beast_core::TickCounter;
 use beast_primitives::PrimitiveRegistry;
 
+use crate::entity_id::SortedEntityIndex;
+
 /// Global per-tick state held outside the ECS world: registries, PRNG
 /// streams, and the tick counter.
 ///
@@ -63,6 +65,11 @@ pub struct Resources {
     pub rng_worldgen: Prng,
     /// Chronicler pattern clustering and sampling.
     pub rng_chronicler: Prng,
+
+    /// Deterministic per-marker entity index (S5.5). Systems iterate
+    /// through this rather than `specs::Join` so entity order is a
+    /// documented contract, not a `specs` implementation detail.
+    pub entity_index: SortedEntityIndex,
 }
 
 impl Resources {
@@ -105,6 +112,7 @@ impl Resources {
             rng_ecology: master.split_stream(Stream::Ecology),
             rng_worldgen: master.split_stream(Stream::Worldgen),
             rng_chronicler: master.split_stream(Stream::Chronicler),
+            entity_index: SortedEntityIndex::new(),
         }
     }
 
