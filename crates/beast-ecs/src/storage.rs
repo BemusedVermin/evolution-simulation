@@ -20,8 +20,15 @@
 //! (rule of thumb: the work is a pure function of the entity's own
 //! components and produces a result that is aggregated serially after
 //! the parallel region). Use `specs::ParJoin` on the relevant storages.
-//! The scheduler will never put two systems with overlapping writes in
-//! the same stage.
+//!
+//! **Safety is a convention, not enforced by the type system today.**
+//! The S6 scheduler (epic #18) is the component that will eventually
+//! guarantee two systems with overlapping writes never land in the
+//! same stage; until it ships, Pattern B callers must self-audit.
+//! Treat any write during a `ParJoin` iteration as a correctness bug —
+//! if you need to write, switch to Pattern A. See
+//! `documentation/architecture/ECS_SCHEDULE.md` §"Parallelism &
+//! Determinism Rules" for the full rule set the scheduler will enforce.
 //!
 //! The iteration order of `ParJoin` is non-deterministic; aggregation
 //! must therefore use an associative+commutative reduction (e.g., sum,
