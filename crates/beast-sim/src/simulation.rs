@@ -15,10 +15,6 @@ use beast_core::TickCounter;
 use beast_ecs::{components, EcsWorld, Resources};
 use beast_primitives::PrimitiveRegistry;
 
-use crate::budget::{Stopwatch, TickResult};
-use crate::error::Result;
-use crate::schedule::SystemSchedule;
-
 /// Inputs required to construct a [`Simulation`]. Kept as its own struct
 /// so later stories can add optional fields (e.g., a replay journal, a
 /// mod list) without breaking every call site.
@@ -56,7 +52,6 @@ impl SimulationConfig {
 pub struct Simulation {
     world: EcsWorld,
     resources: Resources,
-    schedule: SystemSchedule,
 }
 
 impl Simulation {
@@ -86,63 +81,7 @@ impl Simulation {
         let mut world = EcsWorld::new();
         components::register_all(&mut world);
         let resources = Resources::new(config.world_seed, config.channels, config.primitives);
-        Self {
-            world,
-            resources,
-            schedule: SystemSchedule::new(),
-        }
-    }
-
-    /// Register a system on the schedule. Thin pass-through to
-    /// [`SystemSchedule::register`] so callers who hold a
-    /// `&mut Simulation` don't need to reach into `.schedule_mut()`
-    /// explicitly.
-    pub fn register_system<S>(&mut self, system: S)
-    where
-        S: beast_ecs::System + Send + 'static,
-    {
-        self.schedule.register(system);
-    }
-
-    /// Immutable view of the registered schedule. Useful for tests and
-    /// diagnostics that want to count systems without mutating state.
-    #[must_use]
-    pub fn schedule(&self) -> &SystemSchedule {
-        &self.schedule
-    }
-
-    /// Mutable view of the registered schedule — register systems
-    /// directly when the pass-through is insufficient.
-    pub fn schedule_mut(&mut self) -> &mut SystemSchedule {
-        &mut self.schedule
-    }
-
-    /// Advance the simulation by one tick.
-    ///
-    /// Runs every registered system in declared [`beast_ecs::SystemStage`]
-    /// order, then increments the tick counter. Returns a
-    /// [`TickResult`] with the total + per-stage wall-clock durations
-    /// in microseconds — observation only, never fed back into sim
-    /// state.
-    ///
-    /// # Errors
-    ///
-    /// Returns the first error any system reports. The counter is
-    /// **not** advanced on error, but systems that ran before the
-    /// failure retain their mutations — the world is in a partial
-    /// state. Callers that need rollback semantics must snapshot
-    /// before calling `tick()`.
-    pub fn tick(&mut self) -> Result<TickResult> {
-        let watch = Stopwatch::start();
-        let stage_durations = self
-            .schedule
-            .run_tick(&mut self.world, &mut self.resources)?;
-        self.resources.advance_tick();
-        Ok(TickResult {
-            tick: self.resources.tick_counter,
-            duration_us: watch.elapsed_us(),
-            stage_durations,
-        })
+        Self { world, resources }
     }
 
     /// Immutable view of the ECS world.
@@ -168,11 +107,9 @@ impl Simulation {
         &mut self.resources
     }
 
-    /// Convenience: current tick counter value. Renamed from `tick`
-    /// when S6.2 gave [`Self::tick`] its new meaning (advance one
-    /// step).
+    /// Convenience: current tick.
     #[must_use]
-    pub fn current_tick(&self) -> TickCounter {
+    pub fn tick(&self) -> TickCounter {
         self.resources.tick_counter
     }
 }
@@ -184,7 +121,7 @@ mod tests {
     #[test]
     fn new_starts_at_tick_zero_with_given_seed() {
         let sim = Simulation::new(SimulationConfig::empty(0xABCD));
-        assert_eq!(sim.current_tick().raw(), 0);
+        assert_eq!(sim.tick().raw(), 0);
         assert_eq!(sim.resources().world_seed, 0xABCD);
     }
 
@@ -198,68 +135,6 @@ mod tests {
 
         let sim = Simulation::new(SimulationConfig::empty(1));
         let _storage = sim.world().world().read_storage::<Position>();
-    }
-
-    #[test]
-    fn tick_advances_the_counter_exactly_once() {
-        let mut sim = Simulation::new(SimulationConfig::empty(5));
-        for expected in 1..=20 {
-            let result = sim.tick().expect("tick");
-            assert_eq!(sim.current_tick().raw(), expected);
-            assert_eq!(result.tick.raw(), expected);
-        }
-    }
-
-    #[test]
-    fn tick_with_no_systems_succeeds_and_advances() {
-        let mut sim = Simulation::new(SimulationConfig::empty(5));
-        assert!(sim.schedule().is_empty());
-        let result = sim.tick().expect("empty tick ok");
-        assert_eq!(sim.current_tick().raw(), 1);
-        assert_eq!(result.tick.raw(), 1);
-        // No systems ran → no stage entries.
-        assert!(result.stage_durations.is_empty());
-    }
-
-    #[test]
-    fn tick_result_reports_stage_and_tick_metadata() {
-        use beast_ecs::{EcsWorld, Resources, System, SystemStage};
-
-        struct Noop(SystemStage);
-        impl System for Noop {
-            fn name(&self) -> &'static str {
-                "noop"
-            }
-            fn stage(&self) -> SystemStage {
-                self.0
-            }
-            fn run(
-                &mut self,
-                _world: &mut EcsWorld,
-                _resources: &mut Resources,
-            ) -> beast_ecs::Result<()> {
-                Ok(())
-            }
-        }
-
-        let mut sim = Simulation::new(SimulationConfig::empty(11));
-        sim.register_system(Noop(SystemStage::Genetics));
-        sim.register_system(Noop(SystemStage::Ecology));
-
-        let r = sim.tick().expect("tick");
-        assert_eq!(r.tick.raw(), 1);
-        // Both stages ran exactly once — each appears in the map.
-        assert!(r.stage_durations.contains_key(&SystemStage::Genetics));
-        assert!(r.stage_durations.contains_key(&SystemStage::Ecology));
-        assert_eq!(r.stage_durations.len(), 2);
-        // Per-stage + total are monotonically consistent (total ≥ sum).
-        let sum: u64 = r.stage_durations.values().sum();
-        assert!(
-            r.duration_us >= sum,
-            "total ({}) must be ≥ sum of stages ({})",
-            r.duration_us,
-            sum
-        );
     }
 
     #[test]
