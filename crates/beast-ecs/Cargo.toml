@@ -16,6 +16,7 @@ doctest = true
 beast-core = { workspace = true }
 beast-channels = { workspace = true }
 beast-primitives = { workspace = true }
+beast-genome = { workspace = true }
 specs = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
