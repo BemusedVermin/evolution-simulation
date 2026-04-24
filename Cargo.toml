@@ -7,6 +7,7 @@ members = [
     "crates/beast-primitives",
     "crates/beast-genome",
     "crates/beast-interpreter",
+    "crates/beast-ecs",
 ]
 
 [workspace.package]
@@ -43,12 +44,19 @@ regex = "1"
 # on error types).
 winnow = "0.7"
 
+# S5 scaffold (#17) — specs-based ECS. Pinned at 0.20 (latest stable at
+# time of writing) which supports our 2021 edition + rust 1.75 MSRV. `specs`
+# brings in `shred` as a transitive for resource storage; we wrap its World
+# with our own facade so downstream crates never import specs directly.
+specs = { version = "0.20", default-features = false }
+
 beast-core = { path = "crates/beast-core" }
 beast-manifest = { path = "crates/beast-manifest" }
 beast-channels = { path = "crates/beast-channels" }
 beast-primitives = { path = "crates/beast-primitives" }
 beast-genome = { path = "crates/beast-genome" }
 beast-interpreter = { path = "crates/beast-interpreter" }
+beast-ecs = { path = "crates/beast-ecs" }
 
 # Dev-only
 proptest = "1.5"

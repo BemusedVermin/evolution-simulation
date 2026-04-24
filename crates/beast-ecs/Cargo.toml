@@ -1,0 +1,36 @@
+[package]
+name = "beast-ecs"
+description = "ECS foundation for the Beast Evolution Game — wraps specs::World with a deterministic, L3-layer facade used by beast-sim and higher crates."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = true
+
+[dependencies]
+beast-core = { workspace = true }
+# `beast-channels` and `beast-primitives` are listed here even though
+# S5.1 does not use them yet. S5.4 introduces the `Resources` struct
+# that holds `ChannelRegistry` + `PrimitiveRegistry` and is the first
+# real use; declaring the deps at scaffold time avoids a later churn
+# that would touch the whole stacked-PR chain. Flagged as dead-dep
+# noise by the S5.1 reviewer — it disappears once S5.4 merges.
+beast-channels = { workspace = true }
+beast-primitives = { workspace = true }
+specs = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+float_arithmetic = "warn"
