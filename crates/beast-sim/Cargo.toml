@@ -19,6 +19,7 @@ beast-primitives = { workspace = true }
 beast-genome = { workspace = true }
 beast-interpreter = { workspace = true }
 beast-ecs = { workspace = true }
+blake3 = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 
