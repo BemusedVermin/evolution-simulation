@@ -50,6 +50,7 @@ pub mod world;
 
 pub use entity_id::{MarkerKind, SortedEntityIndex};
 pub use error::{EcsError, Result};
+pub use storage::{for_each_entity_of, Join, ParJoin};
 pub use system::{Resources, System, SystemStage};
 pub use world::EcsWorld;
 
