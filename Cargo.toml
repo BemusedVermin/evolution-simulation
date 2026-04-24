@@ -48,7 +48,12 @@ winnow = "0.7"
 # time of writing) which supports our 2021 edition + rust 1.75 MSRV. `specs`
 # brings in `shred` as a transitive for resource storage; we wrap its World
 # with our own facade so downstream crates never import specs directly.
-specs = { version = "0.20", default-features = false }
+#
+# The `parallel` feature is enabled here (S5.6) so `specs::ParJoin` is
+# available for embarrassingly-parallel per-entity reads. The scheduler
+# (S6) will still serialise stages — parallelism only happens within a
+# stage, and only for read-only access paths.
+specs = { version = "0.20", default-features = false, features = ["parallel"] }
 
 beast-core = { path = "crates/beast-core" }
 beast-manifest = { path = "crates/beast-manifest" }
