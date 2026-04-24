@@ -15,23 +15,24 @@
 //!   `(primitive_id, body_site)`, but [`beast_primitives::PrimitiveEffect`]
 //!   does not yet carry a `body_site` field. S4.4 therefore dedups flat by
 //!   `primitive_id` only.
-//! * **Typed manifest merge_strategy — [issue #71]**. §6.2B allows per-parameter
-//!   `sum`/`max`/`mean`/`union` strategies declared on `PrimitiveManifest`;
-//!   that field doesn't exist yet. Until then every user parameter merges
-//!   via `max` (the doc's conservative default at line 802), and the cost
-//!   sentinel below merges via `sum`.
 //! * **First-class activation cost — [issue #67]**. Until
 //!   [`beast_primitives::PrimitiveEffect`] gains a dedicated `activation_cost`
 //!   field we surface the evaluated cost via the [`ACTIVATION_COST_PARAM`]
 //!   sentinel parameter below.
+//! * **Set-valued Union merge — [issue #95]**. `MergeStrategy::Union`
+//!   currently collapses to `Max` because parameter values are scalar
+//!   `Q3232`. When set-valued parameters land, `Union` can implement true
+//!   set-union semantics.
 //!
 //! [issue #67]: https://github.com/BemusedVermin/evolution-simulation/issues/67
-//! [issue #71]: https://github.com/BemusedVermin/evolution-simulation/issues/71
+//! [issue #95]: https://github.com/BemusedVermin/evolution-simulation/issues/95
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use beast_core::{EntityId, Q3232};
-use beast_primitives::{evaluate_cost, PrimitiveEffect, PrimitiveRegistry};
+use beast_primitives::{
+    evaluate_cost, MergeStrategy, PrimitiveEffect, PrimitiveManifest, PrimitiveRegistry,
+};
 
 use crate::composition::{EmitSpec, FiredHook};
 use crate::error::{InterpreterError, Result};
@@ -112,8 +113,16 @@ pub fn emit_primitives(
     }
 
     let mut out: Vec<PrimitiveEffect> = Vec::with_capacity(groups.len());
-    for (_id, group) in groups {
-        out.push(merge_group(group));
+    for (id, group) in groups {
+        // Every id here was already looked up by `build_effect` above —
+        // `UnknownPrimitive` would have short-circuited the whole call. The
+        // lookup is therefore infallible on this path; `unreachable!` is a
+        // tighter contract than re-emitting the error, since no test or
+        // caller can observe the branch.
+        let manifest = registry.get(&id).unwrap_or_else(|| {
+            unreachable!("build_effect admitted primitive id `{id}` but registry lookup failed")
+        });
+        out.push(merge_group(group, manifest));
     }
     Ok(out)
 }
@@ -180,7 +189,7 @@ fn build_effect(
 /// expression refs (e.g. `[auditory, vocal, spatial]` thresholded but only
 /// `vocal` read downstream) still reports all three as sources.
 fn collect_source_channels(fired: &FiredHook, emit: &EmitSpec) -> Vec<String> {
-    let mut seen = std::collections::BTreeSet::new();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
     for channel_id in &fired.channel_ids {
         seen.insert(channel_id.clone());
     }
@@ -195,57 +204,71 @@ fn collect_source_channels(fired: &FiredHook, emit: &EmitSpec) -> Vec<String> {
 /// Merge a group of [`PrimitiveEffect`]s sharing a `primitive_id`.
 ///
 /// Single-effect groups return the single effect unchanged. Multi-effect
-/// groups merge parameters per §6.2B:
+/// groups collect every parameter's values across the group, then apply
+/// the per-parameter strategy declared on `manifest.merge_strategy` — with
+/// two fixed rules that do not come from the manifest:
 ///
-/// * [`ACTIVATION_COST_PARAM`] — summed across the group (each source hook
-///   incurs its own cost).
-/// * Every other parameter — merged via `max`, the doc's default strategy.
+/// * [`ACTIVATION_COST_PARAM`] always sums (each source hook incurs its
+///   own cost; the sentinel parameter is not declared in
+///   `parameter_schema`, so manifests can't override it).
+/// * Parameters absent from `manifest.merge_strategy` default to
+///   [`MergeStrategy::Max`], the spec's conservative fallback per §6.2B
+///   (line 802).
 ///
 /// `source_channels` is re-unioned across the group. `emitter` and
 /// `provenance` are copied from the first effect (all group members share
 /// the same emitting entity and the same primitive manifest, hence the same
 /// provenance).
-fn merge_group(mut group: Vec<PrimitiveEffect>) -> PrimitiveEffect {
+///
+/// # Determinism
+///
+/// The collect-then-apply-once shape avoids the pairwise rolling-mean
+/// artefact (`((a+b)/2 + c)/2 != (a+b+c)/3`). Per-parameter values are
+/// inserted into a [`BTreeMap`] keyed by name, preserving the
+/// lexicographic iteration order required by INVARIANTS §1. Within a
+/// parameter's value list, order is `group` order — stable with respect
+/// to the caller's input since `emit_primitives` pushes into each group
+/// in the order `fired_hooks` appears.
+fn merge_group(mut group: Vec<PrimitiveEffect>, manifest: &PrimitiveManifest) -> PrimitiveEffect {
+    debug_assert!(
+        !group.is_empty(),
+        "merge_group invoked on an empty group — grouping contract violated"
+    );
+
+    // Single-effect groups are the common case; short-circuit before the
+    // collect/apply pipeline to avoid an allocation per parameter.
     if group.len() == 1 {
         return group.remove(0);
     }
 
-    // All members share the same primitive_id, emitter, provenance — take
-    // the first as the template and merge into it.
-    let first = group.remove(0);
-    let primitive_id = first.primitive_id.clone();
-    let emitter = first.emitter;
-    let provenance = first.provenance.clone();
+    // Carry identity fields from the first effect; group members share
+    // them by construction.
+    let primitive_id = group[0].primitive_id.clone();
+    let emitter = group[0].emitter;
+    let provenance = group[0].provenance.clone();
 
-    let mut merged_params: BTreeMap<String, Q3232> = first.parameters;
-    let mut source_set: std::collections::BTreeSet<String> =
-        first.source_channels.into_iter().collect();
-
+    // Collect every parameter value across the group before applying any
+    // strategy. Using a `BTreeMap<String, Vec<Q3232>>` keeps both the
+    // outer key iteration and the inner per-key order deterministic
+    // (lexicographic over keys, input-order within each key).
+    let mut per_param: BTreeMap<String, Vec<Q3232>> = BTreeMap::new();
+    let mut source_set: BTreeSet<String> = BTreeSet::new();
     for effect in group {
         for ch in effect.source_channels {
             source_set.insert(ch);
         }
         for (name, value) in effect.parameters {
-            match merged_params.get(&name).copied() {
-                Some(existing) => {
-                    let merged = if name == ACTIVATION_COST_PARAM {
-                        existing.saturating_add(value)
-                    } else {
-                        // Default merge strategy per §6.2B: `max`.
-                        if value > existing {
-                            value
-                        } else {
-                            existing
-                        }
-                    };
-                    merged_params.insert(name, merged);
-                }
-                None => {
-                    merged_params.insert(name, value);
-                }
-            }
+            per_param.entry(name).or_default().push(value);
         }
     }
+
+    let merged_params: BTreeMap<String, Q3232> = per_param
+        .into_iter()
+        .map(|(name, values)| {
+            let strategy = strategy_for(&name, manifest);
+            (name, apply_strategy(strategy, &values))
+        })
+        .collect();
 
     PrimitiveEffect {
         primitive_id,
@@ -253,6 +276,65 @@ fn merge_group(mut group: Vec<PrimitiveEffect>) -> PrimitiveEffect {
         parameters: merged_params,
         emitter,
         provenance,
+    }
+}
+
+/// Resolve the merge strategy for a single parameter.
+///
+/// * The sentinel [`ACTIVATION_COST_PARAM`] always sums — it is not
+///   declarable via `manifest.merge_strategy` because it is not part of
+///   `parameter_schema`. Callers (mod authors) cannot override this until
+///   activation cost is promoted to a first-class field per issue #67.
+/// * Other parameters consult `manifest.merge_strategy`; an absent key
+///   resolves to [`MergeStrategy::Max`] per §6.2B line 802.
+fn strategy_for(param_name: &str, manifest: &PrimitiveManifest) -> MergeStrategy {
+    if param_name == ACTIVATION_COST_PARAM {
+        return MergeStrategy::Sum;
+    }
+    manifest
+        .merge_strategy
+        .get(param_name)
+        .copied()
+        .unwrap_or(MergeStrategy::Max)
+}
+
+/// Collapse a list of values for one parameter using the declared strategy.
+///
+/// `values` is guaranteed non-empty by the caller — `merge_group` only
+/// populates a parameter's vec when at least one effect in the group
+/// emitted it.
+fn apply_strategy(strategy: MergeStrategy, values: &[Q3232]) -> Q3232 {
+    debug_assert!(
+        !values.is_empty(),
+        "apply_strategy received an empty value list — merge_group invariant violated"
+    );
+    match strategy {
+        MergeStrategy::Sum => values
+            .iter()
+            .copied()
+            .fold(Q3232::ZERO, Q3232::saturating_add),
+        // Deterministic tie-break: `Q3232::max` uses the `Ord` impl, which
+        // compares via the underlying `I32F32` — lexicographic on the
+        // fixed-point bit pattern. Equal values pass through unchanged.
+        MergeStrategy::Max => values.iter().copied().max().unwrap_or(Q3232::ZERO),
+        MergeStrategy::Mean => {
+            // NOTE: saturation is intentional — Q3232 sim math never raises,
+            // and the ECS tick budget bounds group size so realistic sums
+            // stay well under `I32F32::MAX`. A saturating fold here
+            // silently clips an out-of-range sum to the max, which would
+            // under-report the mean. Balance tuning work that drives
+            // parameter magnitudes toward that ceiling should consider
+            // per-primitive range clamps at manifest load rather than
+            // raising the sentinel here.
+            let sum = values
+                .iter()
+                .copied()
+                .fold(Q3232::ZERO, Q3232::saturating_add);
+            sum.saturating_div(Q3232::from_num(values.len() as i64))
+        }
+        // See `MergeStrategy::Union` docs and issue #95 — falls through to
+        // Max until `PrimitiveEffect.parameters` can represent sets.
+        MergeStrategy::Union => values.iter().copied().max().unwrap_or(Q3232::ZERO),
     }
 }
 
@@ -755,6 +837,255 @@ mod tests {
         assert_eq!(
             effect.source_channels,
             vec!["x".to_string(), "y".to_string(), "z".to_string()],
+        );
+    }
+
+    // ----- regression tests for #71: typed merge_strategy per parameter -----
+
+    /// Build a primitive manifest whose `parameter_schema` declares one
+    /// `number`-typed parameter per name in `params`, and whose
+    /// `merge_strategy` entries come from `strategies` (must be a subset of
+    /// `params`). No cost scaling so every test's `_activation_cost` stays
+    /// at base = 1.0 and therefore sums to `hook_count` across the group.
+    fn manifest_with_strategies(
+        id: &str,
+        params: &[&str],
+        strategies: &[(&str, &str)],
+    ) -> PrimitiveManifest {
+        let schema = params
+            .iter()
+            .map(|p| format!(r#""{p}": {{ "type": "number" }}"#))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let strategy = if strategies.is_empty() {
+            String::new()
+        } else {
+            let entries = strategies
+                .iter()
+                .map(|(k, v)| format!(r#""{k}": "{v}""#))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(r#","merge_strategy": {{ {entries} }}"#)
+        };
+        let json = format!(
+            r#"{{
+                "id": "{id}",
+                "category": "force_application",
+                "description": "merge-strategy fixture",
+                "parameter_schema": {{ {schema} }},
+                "composition_compatibility": [{{ "channel_family": "motor" }}],
+                "cost_function": {{ "base_metabolic_cost": 1.0 }},
+                "observable_signature": {{
+                    "modality": "mechanical",
+                    "detection_range_m": 1,
+                    "pattern_key": "strategy_v1"
+                }}{strategy},
+                "provenance": "core"
+            }}"#
+        );
+        PrimitiveManifest::from_json_str(&json).expect("fixture manifest must be valid")
+    }
+
+    /// Fire two hooks emitting the same primitive with one parameter each,
+    /// evaluating `literal_a` for hook 1 and `literal_b` for hook 2.
+    fn run_two_hook_merge(
+        manifest: PrimitiveManifest,
+        param: &str,
+        literal_a: &str,
+        literal_b: &str,
+    ) -> PrimitiveEffect {
+        let primitive_id = manifest.id.clone();
+        let creg = channel_registry_with(&["src"]);
+        let preg = primitive_registry_with(vec![manifest]);
+        let phenotype = phenotype_with(&[("src", Q3232::ONE)]);
+
+        let expr_a = parse_expression(literal_a, &creg).unwrap();
+        let fired_a = fired_hook(
+            1,
+            &["src"],
+            vec![Q3232::ONE],
+            vec![emit(&primitive_id, vec![(param, expr_a)])],
+            Q3232::ONE,
+        );
+        let expr_b = parse_expression(literal_b, &creg).unwrap();
+        let fired_b = fired_hook(
+            2,
+            &["src"],
+            vec![Q3232::ONE],
+            vec![emit(&primitive_id, vec![(param, expr_b)])],
+            Q3232::ONE,
+        );
+
+        run_expecting_single_effect(vec![fired_a, fired_b], &phenotype, &preg)
+    }
+
+    #[test]
+    fn sum_strategy_merges_two_hooks_by_saturating_addition() {
+        // 3 + 5 = 8 — Sum is the distinguishing behaviour vs. Max (which
+        // would return 5) and Mean (which would return 4).
+        let manifest = manifest_with_strategies("with_sum", &["delta"], &[("delta", "sum")]);
+        let effect = run_two_hook_merge(manifest, "delta", "3", "5");
+        assert_eq!(effect.parameters["delta"], Q3232::from_num(8_i32));
+    }
+
+    #[test]
+    fn max_strategy_is_explicit_opt_in_behaviour() {
+        // Explicitly declaring `max` matches the pre-#71 default so this
+        // also guards against accidentally inverting the implementation.
+        let manifest = manifest_with_strategies("with_max", &["peak"], &[("peak", "max")]);
+        let effect = run_two_hook_merge(manifest, "peak", "3", "5");
+        assert_eq!(effect.parameters["peak"], Q3232::from_num(5_i32));
+    }
+
+    #[test]
+    fn mean_strategy_is_true_average_not_pairwise_rolling() {
+        // 3 + 5 = 8, 8 / 2 = 4. With three hooks we also need to confirm
+        // that mean is computed over the full group, not a left-folded
+        // running average: (2 + 4 + 9) / 3 = 5, but ((2+4)/2 + 9)/2 = 6.
+        let manifest = manifest_with_strategies("with_mean", &["avg"], &[("avg", "mean")]);
+        let effect = run_two_hook_merge(manifest.clone(), "avg", "3", "5");
+        assert_eq!(effect.parameters["avg"], Q3232::from_num(4_i32));
+
+        // Three-hook variant.
+        let creg = channel_registry_with(&["src"]);
+        let preg = primitive_registry_with(vec![manifest]);
+        let phenotype = phenotype_with(&[("src", Q3232::ONE)]);
+        let fired: Vec<_> = ["2", "4", "9"]
+            .iter()
+            .enumerate()
+            .map(|(i, literal)| {
+                let expr = parse_expression(literal, &creg).unwrap();
+                fired_hook(
+                    i as u32,
+                    &["src"],
+                    vec![Q3232::ONE],
+                    vec![emit("with_mean", vec![("avg", expr)])],
+                    Q3232::ONE,
+                )
+            })
+            .collect();
+        let effect = run_expecting_single_effect(fired, &phenotype, &preg);
+        assert_eq!(effect.parameters["avg"], Q3232::from_num(5_i32));
+    }
+
+    #[test]
+    fn union_strategy_collapses_to_max_until_set_valued_params_land() {
+        // Placeholder behaviour tracked by issue #95: Q3232 parameters are
+        // scalar, so Union falls through to Max. Test guards against a
+        // future regression where Union accidentally diverges (e.g. starts
+        // summing) before the data-model upgrade lands.
+        let manifest = manifest_with_strategies("with_union", &["tags"], &[("tags", "union")]);
+        let effect = run_two_hook_merge(manifest, "tags", "3", "5");
+        assert_eq!(effect.parameters["tags"], Q3232::from_num(5_i32));
+    }
+
+    #[test]
+    fn absent_strategy_falls_back_to_max() {
+        // Manifest declares no merge_strategy at all — every parameter
+        // takes the `max` default per §6.2B line 802.
+        let manifest = manifest_with_strategies("no_strategy", &["intensity"], &[]);
+        let effect = run_two_hook_merge(manifest, "intensity", "3", "5");
+        assert_eq!(effect.parameters["intensity"], Q3232::from_num(5_i32));
+    }
+
+    #[test]
+    fn mixed_strategies_apply_per_parameter() {
+        // Same primitive, three parameters, three strategies. The merge
+        // must route each parameter to its declared strategy rather than
+        // applying one blanket rule.
+        let manifest = manifest_with_strategies(
+            "mixed",
+            &["s", "m", "a"],
+            &[("s", "sum"), ("m", "max"), ("a", "mean")],
+        );
+        let creg = channel_registry_with(&["src"]);
+        let preg = primitive_registry_with(vec![manifest]);
+        let phenotype = phenotype_with(&[("src", Q3232::ONE)]);
+
+        let mk_fired = |id: u32, s: &str, m: &str, a: &str| {
+            fired_hook(
+                id,
+                &["src"],
+                vec![Q3232::ONE],
+                vec![emit(
+                    "mixed",
+                    vec![
+                        ("a", parse_expression(a, &creg).unwrap()),
+                        ("m", parse_expression(m, &creg).unwrap()),
+                        ("s", parse_expression(s, &creg).unwrap()),
+                    ],
+                )],
+                Q3232::ONE,
+            )
+        };
+
+        let effect = run_expecting_single_effect(
+            vec![mk_fired(1, "2", "3", "4"), mk_fired(2, "5", "7", "8")],
+            &phenotype,
+            &preg,
+        );
+        assert_eq!(effect.parameters["s"], Q3232::from_num(7_i32)); // 2+5
+        assert_eq!(effect.parameters["m"], Q3232::from_num(7_i32)); // max(3,7)
+        assert_eq!(effect.parameters["a"], Q3232::from_num(6_i32)); // (4+8)/2
+    }
+
+    #[test]
+    fn sparse_parameter_present_in_only_one_effect_passes_through() {
+        // Hook A emits `{intensity: 3}`; hook B emits
+        // `{intensity: 5, falloff: 2}`. `falloff` only exists on hook B's
+        // effect, so the merged group's `per_param["falloff"]` is a
+        // single-element vec. The strategy still runs; for any strategy,
+        // the one-value result must equal that value.
+        let manifest = manifest_with_strategies(
+            "sparse",
+            &["intensity", "falloff"],
+            &[("intensity", "sum"), ("falloff", "sum")],
+        );
+        let creg = channel_registry_with(&["src"]);
+        let preg = primitive_registry_with(vec![manifest]);
+        let phenotype = phenotype_with(&[("src", Q3232::ONE)]);
+
+        let expr_i_a = parse_expression("3", &creg).unwrap();
+        let fired_a = fired_hook(
+            1,
+            &["src"],
+            vec![Q3232::ONE],
+            vec![emit("sparse", vec![("intensity", expr_i_a)])],
+            Q3232::ONE,
+        );
+        let expr_i_b = parse_expression("5", &creg).unwrap();
+        let expr_f_b = parse_expression("2", &creg).unwrap();
+        let fired_b = fired_hook(
+            2,
+            &["src"],
+            vec![Q3232::ONE],
+            vec![emit(
+                "sparse",
+                vec![("falloff", expr_f_b), ("intensity", expr_i_b)],
+            )],
+            Q3232::ONE,
+        );
+
+        let effect = run_expecting_single_effect(vec![fired_a, fired_b], &phenotype, &preg);
+        // `intensity` is in both; sum = 8. `falloff` is only in B; passes
+        // through as 2 (single-element sum).
+        assert_eq!(effect.parameters["intensity"], Q3232::from_num(8_i32));
+        assert_eq!(effect.parameters["falloff"], Q3232::from_num(2_i32));
+    }
+
+    #[test]
+    fn activation_cost_still_sums_regardless_of_declared_strategy() {
+        // `_activation_cost` is a sentinel parameter inserted by
+        // `build_effect` — not something manifests declare in
+        // `parameter_schema`, and not something they can override via
+        // `merge_strategy`. It must continue to sum across the group so
+        // each source hook's cost is accounted for.
+        let manifest = manifest_with_strategies("cost_fixture", &["delta"], &[("delta", "sum")]);
+        let effect = run_two_hook_merge(manifest, "delta", "3", "5");
+        // Base cost 1.0 per hook × 2 hooks = 2.0.
+        assert_eq!(
+            effect.parameters[ACTIVATION_COST_PARAM],
+            Q3232::from_num(2_i32)
         );
     }
 }
