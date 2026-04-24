@@ -1466,7 +1466,7 @@ fn is_channel_expressed(
     
     // Scale-band check (CRITICAL for disease)
     let creature_mass_kg = creature.compute_mass_kg();
-    let (min_kg, max_kg) = channel.expression_conditions.scale_band;
+    let (min_kg, max_kg) = channel.scale_band;
     if creature_mass_kg < min_kg || creature_mass_kg > max_kg {
         return false;
     }

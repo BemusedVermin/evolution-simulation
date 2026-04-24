@@ -125,9 +125,13 @@ impl Simulation {
     /// in microseconds — observation only, never fed back into sim
     /// state.
     ///
-    /// If any system returns an error the tick aborts — the counter is
-    /// **not** advanced, so `sim.tick()` returning `Err` leaves
-    /// `resources.tick_counter` unchanged.
+    /// # Errors
+    ///
+    /// Returns the first error any system reports. The counter is
+    /// **not** advanced on error, but systems that ran before the
+    /// failure retain their mutations — the world is in a partial
+    /// state. Callers that need rollback semantics must snapshot
+    /// before calling `tick()`.
     pub fn tick(&mut self) -> Result<TickResult> {
         let watch = Stopwatch::start();
         let stage_durations = self

@@ -49,8 +49,9 @@ impl Stopwatch {
         }
     }
 
-    /// Elapsed microseconds since `start`. Saturates on overflow — any
-    /// tick longer than ~584,000 years wraps, which is fine.
+    /// Elapsed microseconds since `start`. Saturates at `u64::MAX` on
+    /// overflow (via `u64::try_from(u128)`) — any tick longer than
+    /// ~584,000 years saturates rather than wrapping, which is fine.
     pub(crate) fn elapsed_us(&self) -> u64 {
         let elapsed = self.started_at.elapsed();
         let micros: u128 = elapsed.as_micros();
@@ -66,11 +67,13 @@ mod tests {
     fn stopwatch_elapsed_is_monotonic_non_negative() {
         let w = Stopwatch::start();
         let a = w.elapsed_us();
-        // Busy spin a tiny bit to guarantee > 0 elapsed. 10 µs is
-        // conservative on every platform we target.
-        while w.elapsed_us() < a + 10 {
-            std::hint::spin_loop();
-        }
+        // Sleep rather than busy-spin. Busy-spinning made the test
+        // unreliable on loaded CI runners where scheduler yield times
+        // could exceed the 10 µs comparison window, and on platforms
+        // with coarser `Instant` resolution it would run longer than
+        // intended. 50 µs sleep is enough to advance every clock we
+        // target, without load-sensitivity.
+        std::thread::sleep(std::time::Duration::from_micros(50));
         let b = w.elapsed_us();
         assert!(b >= a, "elapsed went backwards: {a} -> {b}");
     }
