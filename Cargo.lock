@@ -193,6 +193,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "beast-sim"
+version = "0.1.0"
+dependencies = [
+ "beast-channels",
+ "beast-core",
+ "beast-ecs",
+ "beast-genome",
+ "beast-interpreter",
+ "beast-primitives",
+ "proptest",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
