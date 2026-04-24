@@ -10,7 +10,7 @@
 
 use std::collections::BTreeMap;
 
-use beast_core::{EntityId, Q3232};
+use beast_core::{BodySite, EntityId, Q3232};
 
 use crate::manifest::Provenance;
 
@@ -25,10 +25,27 @@ use crate::manifest::Provenance;
 pub struct PrimitiveEffect {
     /// Primitive manifest id.
     pub primitive_id: String,
+    /// Body site this emission applies to, when the firing hook uses
+    /// `body_site_applicable` channels. `None` means the emission is
+    /// global — it applies to the creature as a whole, not to any single
+    /// anatomical region.
+    ///
+    /// Per the phenotype-interpreter spec (§6.0B / §6.2B) the dedup key
+    /// is `(primitive_id, body_site)`, so the same primitive can be
+    /// emitted concurrently for different sites without collapsing.
+    pub body_site: Option<BodySite>,
     /// Channel ids that composed to produce this emission.
     pub source_channels: Vec<String>,
     /// Parameter values, keyed by parameter name.
     pub parameters: BTreeMap<String, Q3232>,
+    /// Activation cost for this emission, evaluated from the manifest's
+    /// [`crate::CostFunction`] against `parameters` at emission time.
+    ///
+    /// First-class field rather than a `_activation_cost` sentinel key in
+    /// `parameters` — manifests therefore cannot override the merge
+    /// strategy for activation cost, which always sums across hooks that
+    /// emit the same primitive in one tick.
+    pub activation_cost: Q3232,
     /// Entity emitting the effect.
     pub emitter: EntityId,
     /// Origin of the primitive (propagated from the manifest so downstream

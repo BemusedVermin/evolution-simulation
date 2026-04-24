@@ -10,8 +10,8 @@
 
 mod common;
 
-use beast_core::EntityId;
-use beast_interpreter::{interpret_phenotype, ACTIVATION_COST_PARAM};
+use beast_core::{EntityId, Q3232};
+use beast_interpreter::interpret_phenotype;
 
 use crate::common::{standard_phenotypes, standard_world};
 
@@ -117,15 +117,22 @@ fn every_effect_has_registered_primitive_id() {
 
 #[test]
 fn activation_cost_is_present_on_every_effect() {
-    // The emitter stores the evaluated cost under the sentinel parameter
-    // (§6.2B workaround until PrimitiveEffect grows a dedicated field — issue
-    // #67). Every emitted effect must carry it.
+    // Activation cost is now a first-class field on `PrimitiveEffect` (#67);
+    // the emitter must populate it non-zero for every emission against the
+    // fixture world.
+    //
+    // The `> Q3232::ZERO` assertion is fixture-specific: every primitive in
+    // `common::standard_world()` declares a positive `base_metabolic_cost`,
+    // so any emission must carry a strictly positive cost. A zero-cost
+    // primitive (none exist in the fixture today) would trip this check
+    // even on a correct emission — add it to the fixture first, or relax
+    // the assertion to `>= Q3232::ZERO`, before introducing one.
     let effects = run_once();
     for per_phenotype in &effects {
         for effect in per_phenotype {
             assert!(
-                effect.parameters.contains_key(ACTIVATION_COST_PARAM),
-                "effect `{}` missing activation cost parameter",
+                effect.activation_cost > Q3232::ZERO,
+                "effect `{}` has zero activation_cost",
                 effect.primitive_id,
             );
         }

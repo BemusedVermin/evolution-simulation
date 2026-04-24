@@ -14,28 +14,13 @@ use std::collections::BTreeMap;
 
 use beast_core::{TickCounter, Q3232};
 
-/// Canonical body-site enum. Ordinal order is the deterministic iteration
-/// order used by per-site emission in [`crate::body_map`]. Do **not** reorder
-/// variants without updating fixture tests.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum BodySite {
-    /// The creature as a whole (global emissions).
-    Global,
-    /// Head.
-    Head,
-    /// Jaw / mouth.
-    Jaw,
-    /// Body core / torso.
-    Core,
-    /// Left limb.
-    LimbLeft,
-    /// Right limb.
-    LimbRight,
-    /// Tail.
-    Tail,
-    /// Generic appendage (antenna, tentacle, etc.).
-    Appendage,
-}
+/// Canonical body-site taxonomy.
+///
+/// Re-exported from [`beast_core`] so existing `beast_interpreter::phenotype::BodySite`
+/// call sites keep working. The enum itself lives in L0 — see
+/// [`beast_core::BodySite`] for the authoritative definition and ordering
+/// guarantees.
+pub use beast_core::BodySite;
 
 /// Life stage used as an expression-condition gate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -11,14 +11,10 @@
 //!
 //! # Known follow-ups (deliberately deferred past S4.4)
 //!
-//! * **Body-site fanout — [issue #67]**. §6.2B dedups by
-//!   `(primitive_id, body_site)`, but [`beast_primitives::PrimitiveEffect`]
-//!   does not yet carry a `body_site` field. S4.4 therefore dedups flat by
-//!   `primitive_id` only.
-//! * **First-class activation cost — [issue #67]**. Until
-//!   [`beast_primitives::PrimitiveEffect`] gains a dedicated `activation_cost`
-//!   field we surface the evaluated cost via the [`ACTIVATION_COST_PARAM`]
-//!   sentinel parameter below.
+//! * **Body-site fanout — [issue #67]**. `PrimitiveEffect.body_site` is now
+//!   first-class, but emission still produces one global effect per hook
+//!   (fanout into per-region effects for `body_site_applicable` channels
+//!   is the remaining half of #67).
 //! * **Set-valued Union merge — [issue #95]**. `MergeStrategy::Union`
 //!   currently collapses to `Max` because parameter values are scalar
 //!   `Q3232`. When set-valued parameters land, `Union` can implement true
@@ -39,15 +35,6 @@ use crate::error::{InterpreterError, Result};
 use crate::parameter_map::{collect_channel_refs, eval_expression};
 use crate::phenotype::ResolvedPhenotype;
 
-/// Parameter name reserved for the cost output on a [`PrimitiveEffect`].
-///
-/// Until [`beast_primitives::PrimitiveEffect`] gains a first-class
-/// `activation_cost` field (#67 / follow-up), we surface the evaluated cost
-/// inside `parameters` under this key so downstream consumers have access
-/// without a schema break. The leading underscore keeps it visually distinct
-/// from user-declared parameters.
-pub const ACTIVATION_COST_PARAM: &str = "_activation_cost";
-
 /// Build [`PrimitiveEffect`]s from the given fired hooks and merge duplicates.
 ///
 /// For every `(fired_hook, emit_spec)` pair the emitter:
@@ -58,8 +45,8 @@ pub const ACTIVATION_COST_PARAM: &str = "_activation_cost";
 ///    [`InterpreterError::UnknownPrimitive`] when absent.
 /// 3. Computes the activation cost through
 ///    [`beast_primitives::evaluate_cost`] using the evaluated parameters and
-///    stores it under [`ACTIVATION_COST_PARAM`] in the emission's
-///    `parameters` map.
+///    stores it on the emission's first-class
+///    [`activation_cost`](PrimitiveEffect::activation_cost) field.
 /// 4. Builds a [`PrimitiveEffect`] whose
 ///    [`source_channels`](PrimitiveEffect::source_channels) is the sorted,
 ///    deduplicated union of the firing hook's context channels and every
@@ -67,9 +54,9 @@ pub const ACTIVATION_COST_PARAM: &str = "_activation_cost";
 ///
 /// After every effect is built, effects are grouped by `primitive_id` and
 /// merged per §6.2B. Single-effect groups pass through unchanged;
-/// multi-effect groups merge each parameter via `max` (the doc's default)
-/// with the exception of [`ACTIVATION_COST_PARAM`], which sums across the
-/// group.
+/// multi-effect groups apply the manifest's declared merge strategy per
+/// parameter, and sum `activation_cost` across the group (each source hook
+/// incurs its own cost).
 ///
 /// The returned vector is sorted by `primitive_id` (grouped via
 /// [`BTreeMap`]), which gives deterministic output ordering without relying
@@ -154,13 +141,13 @@ fn build_effect(
     // Evaluate the cost against the just-computed parameters. `evaluate_cost`
     // falls back to manifest-declared defaults for any scaling term whose
     // parameter is absent from the map.
-    let cost = evaluate_cost(manifest, &parameters).map_err(|e| InterpreterError::ParseError {
-        message: format!(
-            "cost evaluation for primitive `{}` failed: {e}",
-            emit.primitive_id
-        ),
-    })?;
-    parameters.insert(ACTIVATION_COST_PARAM.to_owned(), cost);
+    let activation_cost =
+        evaluate_cost(manifest, &parameters).map_err(|e| InterpreterError::ParseError {
+            message: format!(
+                "cost evaluation for primitive `{}` failed: {e}",
+                emit.primitive_id
+            ),
+        })?;
 
     // Source channels = hook-context channels ∪ expression-referenced
     // channels, deduplicated and sorted (via `BTreeSet` below).
@@ -168,8 +155,12 @@ fn build_effect(
 
     Ok(PrimitiveEffect {
         primitive_id: emit.primitive_id.clone(),
+        // Fanout for `body_site_applicable` channels is the remaining
+        // half of #67; until then every emission is global.
+        body_site: None,
         source_channels,
         parameters,
+        activation_cost,
         emitter,
         provenance: manifest.provenance.clone(),
     })
@@ -205,20 +196,16 @@ fn collect_source_channels(fired: &FiredHook, emit: &EmitSpec) -> Vec<String> {
 ///
 /// Single-effect groups return the single effect unchanged. Multi-effect
 /// groups collect every parameter's values across the group, then apply
-/// the per-parameter strategy declared on `manifest.merge_strategy` — with
-/// two fixed rules that do not come from the manifest:
+/// the per-parameter strategy declared on `manifest.merge_strategy`.
+/// Parameters absent from that map default to [`MergeStrategy::Max`], the
+/// spec's conservative fallback per §6.2B (line 802).
 ///
-/// * [`ACTIVATION_COST_PARAM`] always sums (each source hook incurs its
-///   own cost; the sentinel parameter is not declared in
-///   `parameter_schema`, so manifests can't override it).
-/// * Parameters absent from `manifest.merge_strategy` default to
-///   [`MergeStrategy::Max`], the spec's conservative fallback per §6.2B
-///   (line 802).
-///
-/// `source_channels` is re-unioned across the group. `emitter` and
-/// `provenance` are copied from the first effect (all group members share
-/// the same emitting entity and the same primitive manifest, hence the same
-/// provenance).
+/// [`activation_cost`](PrimitiveEffect::activation_cost) sums across the
+/// group (each source hook incurs its own cost) and is not declarable on
+/// the manifest. `source_channels` is re-unioned across the group.
+/// `emitter` and `provenance` are copied from the first effect (all group
+/// members share the same emitting entity and the same primitive manifest,
+/// hence the same provenance).
 ///
 /// # Determinism
 ///
@@ -244,16 +231,20 @@ fn merge_group(mut group: Vec<PrimitiveEffect>, manifest: &PrimitiveManifest) ->
     // Carry identity fields from the first effect; group members share
     // them by construction.
     let primitive_id = group[0].primitive_id.clone();
+    let body_site = group[0].body_site;
     let emitter = group[0].emitter;
     let provenance = group[0].provenance.clone();
 
-    // Collect every parameter value across the group before applying any
-    // strategy. Using a `BTreeMap<String, Vec<Q3232>>` keeps both the
-    // outer key iteration and the inner per-key order deterministic
+    // Collect every parameter value and every per-hook activation_cost
+    // across the group before applying any strategy. Using a
+    // `BTreeMap<String, Vec<Q3232>>` for parameters keeps both the outer
+    // key iteration and the inner per-key order deterministic
     // (lexicographic over keys, input-order within each key).
     let mut per_param: BTreeMap<String, Vec<Q3232>> = BTreeMap::new();
     let mut source_set: BTreeSet<String> = BTreeSet::new();
+    let mut activation_cost = Q3232::ZERO;
     for effect in group {
+        activation_cost = activation_cost.saturating_add(effect.activation_cost);
         for ch in effect.source_channels {
             source_set.insert(ch);
         }
@@ -272,8 +263,10 @@ fn merge_group(mut group: Vec<PrimitiveEffect>, manifest: &PrimitiveManifest) ->
 
     PrimitiveEffect {
         primitive_id,
+        body_site,
         source_channels: source_set.into_iter().collect(),
         parameters: merged_params,
+        activation_cost,
         emitter,
         provenance,
     }
@@ -281,16 +274,9 @@ fn merge_group(mut group: Vec<PrimitiveEffect>, manifest: &PrimitiveManifest) ->
 
 /// Resolve the merge strategy for a single parameter.
 ///
-/// * The sentinel [`ACTIVATION_COST_PARAM`] always sums — it is not
-///   declarable via `manifest.merge_strategy` because it is not part of
-///   `parameter_schema`. Callers (mod authors) cannot override this until
-///   activation cost is promoted to a first-class field per issue #67.
-/// * Other parameters consult `manifest.merge_strategy`; an absent key
-///   resolves to [`MergeStrategy::Max`] per §6.2B line 802.
+/// Parameters consult `manifest.merge_strategy`; an absent key resolves to
+/// [`MergeStrategy::Max`] per §6.2B line 802.
 fn strategy_for(param_name: &str, manifest: &PrimitiveManifest) -> MergeStrategy {
-    if param_name == ACTIVATION_COST_PARAM {
-        return MergeStrategy::Sum;
-    }
     manifest
         .merge_strategy
         .get(param_name)
@@ -504,7 +490,7 @@ mod tests {
         // 0.5 * 8 = 4
         assert_eq!(e.parameters["intensity"], Q3232::from_num(4_i32));
         // cost = 1.0 (base only, no scaling term)
-        assert_eq!(e.parameters[ACTIVATION_COST_PARAM], Q3232::from_num(1_i32));
+        assert_eq!(e.activation_cost, Q3232::from_num(1_i32));
         assert_eq!(e.source_channels, vec!["auditory".to_string()]);
     }
 
@@ -558,7 +544,7 @@ mod tests {
         // within a small epsilon rather than bit-exact — the determinism
         // contract is bit-identical reproducibility across runs, which is
         // covered by `same_inputs_produce_identical_outputs_twice` below.
-        let cost = e.parameters[ACTIVATION_COST_PARAM];
+        let cost = e.activation_cost;
         let diff = cost.saturating_sub(Q3232::from_num(3_i32)).saturating_abs();
         assert!(
             diff < Q3232::from_num(0.001_f64),
@@ -601,7 +587,7 @@ mod tests {
         // max(0.3, 0.8) = 0.8
         assert_eq!(e.parameters["intensity"], Q3232::from_num(0.8_f64));
         // cost: base 1.0 per hook, summed = 2.0
-        assert_eq!(e.parameters[ACTIVATION_COST_PARAM], Q3232::from_num(2_i32));
+        assert_eq!(e.activation_cost, Q3232::from_num(2_i32));
         // Source channels unioned from both hooks.
         assert_eq!(e.source_channels, vec!["a".to_string(), "b".to_string()]);
     }
@@ -1074,18 +1060,16 @@ mod tests {
     }
 
     #[test]
-    fn activation_cost_still_sums_regardless_of_declared_strategy() {
-        // `_activation_cost` is a sentinel parameter inserted by
-        // `build_effect` — not something manifests declare in
-        // `parameter_schema`, and not something they can override via
-        // `merge_strategy`. It must continue to sum across the group so
-        // each source hook's cost is accounted for.
+    fn activation_cost_sums_across_the_group_regardless_of_strategy() {
+        // `activation_cost` is a first-class field on `PrimitiveEffect`;
+        // manifests cannot declare a merge strategy for it. It always sums
+        // across the group so each source hook's cost is accounted for,
+        // even when the strategy declared for user parameters is something
+        // else (here `delta` uses `sum` for variety, but the invariant
+        // holds for any strategy).
         let manifest = manifest_with_strategies("cost_fixture", &["delta"], &[("delta", "sum")]);
         let effect = run_two_hook_merge(manifest, "delta", "3", "5");
         // Base cost 1.0 per hook × 2 hooks = 2.0.
-        assert_eq!(
-            effect.parameters[ACTIVATION_COST_PARAM],
-            Q3232::from_num(2_i32)
-        );
+        assert_eq!(effect.activation_cost, Q3232::from_num(2_i32));
     }
 }
