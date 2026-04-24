@@ -141,7 +141,7 @@ Every channel is declared in a **manifest**—a JSON document specifying its ide
 | `composition_hooks[].emits[].parameter_mapping` | object | Map of (primitive_parameter_name → channel expression). Expressions use channel IDs and math operators. |
 | `expression_conditions` | object | Predicates controlling when channel is expressed (active). |
 | `expression_conditions.biome_flags` | list[string] | List of biome tags (e.g., "dark", "aquatic", "cave", "volcanic"); ["any"] means always expressible. |
-| `expression_conditions.scale_band` | [float, float] | [min_body_mass_kg, max_body_mass_kg] where channel is viable. Allows pathogens (grams) and macro-beasts (tons) to share schema. |
+| `scale_band` | object `{ min_kg, max_kg }` (top-level) | Applicable body-mass range. Authoritative, top-level field — not nested under `expression_conditions`. Allows pathogens (grams) and macro-beasts (tons) to share schema. |
 | `expression_conditions.developmental_stages` | list[string] | Stages in which channel can be expressed: ["larval", "juvenile", "adult", "geriatric"] or ["any"] |
 | `expression_conditions.dormant_if_unmet` | bool | If true, channel is present in genome but genetically silent until conditions are met; if false, channel causes developmental mismatch penalty (rare). |
 | `body_site_applicable` | bool | Can this channel vary per body region (limbs, torso, head, tail, etc.)? If false, channel is always global. |
@@ -1093,7 +1093,7 @@ if global_channels["light_absorption"] > 0.8:
 
 ```
 // Wound healing (regulatory family) triggers ability
-// Manifest may gate this by expression_conditions.scale_band: large creatures heal faster (higher metabolic budget)
+// Manifest may gate this by the top-level scale_band field: large creatures heal faster (higher metabolic budget)
 if global_channels["wound_healing"] > 0.3:
     healing_per_tick = base_healing * (1 + global_channels["wound_healing"] * 0.2)
     add_ability("RAPID_HEALING", trigger=Passive, power=healing_per_tick)
