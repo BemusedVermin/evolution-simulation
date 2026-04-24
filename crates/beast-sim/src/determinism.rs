@@ -138,7 +138,10 @@ pub fn compute_state_hash(sim: &Simulation) -> [u8; 32] {
 fn absorb_preamble(hasher: &mut blake3::Hasher, resources: &Resources) {
     // Domain-separator: a fixed magic so hashes of this crate's
     // compute_state_hash can never collide with hashes of other state
-    // that happens to start with the same bytes.
+    // that happens to start with the same bytes. The trailing `\0`
+    // acts as a length-delimited sentinel — if the separator ever
+    // changes length, prefix collisions against the old form are
+    // impossible.
     hasher.update(b"beast-sim::state-hash::v1\0");
     hasher.update(&resources.tick_counter.raw().to_le_bytes());
     hasher.update(&resources.world_seed.to_le_bytes());
@@ -156,8 +159,14 @@ fn absorb_entity_header(hasher: &mut blake3::Hasher, marker: MarkerKind, entity:
         MarkerKind::Biome => 5,
     };
     hasher.update(&[marker_byte]);
-    hasher.update(&entity.id().to_le_bytes());
-    hasher.update(&entity.gen().id().to_le_bytes());
+    // Explicit types pin the byte widths: a future specs release that
+    // changes `Entity::id()` → u64 or `Generation::id()` → i64 would
+    // still compile via coercion, silently changing hash output. The
+    // `let : T` bindings force a compile error on any width change.
+    let entity_id: u32 = entity.id();
+    let gen_id: i32 = entity.gen().id();
+    hasher.update(&entity_id.to_le_bytes());
+    hasher.update(&gen_id.to_le_bytes());
 }
 
 fn absorb_opt<T, F>(hasher: &mut blake3::Hasher, opt: Option<&T>, absorb: F)
@@ -202,7 +211,11 @@ mod tests {
     }
 
     #[test]
-    fn ticking_changes_the_hash() {
+    fn tick_counter_changes_the_hash() {
+        // Empty world → the only thing that varies between `before` and
+        // `after` is the tick counter in the preamble. Proves the
+        // preamble feeds into the hash. The full-world case is covered
+        // by `mutating_component_changes_the_hash` below.
         let mut sim = Simulation::new(SimulationConfig::empty(3));
         let before = compute_state_hash(&sim);
         sim.tick().expect("tick");
