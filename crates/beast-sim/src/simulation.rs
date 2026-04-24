@@ -134,7 +134,7 @@ impl Simulation {
     /// before calling `tick()`.
     pub fn tick(&mut self) -> Result<TickResult> {
         let watch = Stopwatch::start();
-        let stage_durations = self
+        let (stage_durations, overruns) = self
             .schedule
             .run_tick(&mut self.world, &mut self.resources)?;
         self.resources.advance_tick();
@@ -142,7 +142,20 @@ impl Simulation {
             tick: self.resources.tick_counter,
             duration_us: watch.elapsed_us(),
             stage_durations,
+            overruns,
         })
+    }
+
+    /// Register a system with an explicit microsecond budget (S6.7).
+    /// Any tick where the system's wall-clock duration exceeds
+    /// `budget_us` will be reported in [`TickResult::overruns`]. The
+    /// scheduler does not act on overruns — that's the caller's
+    /// decision.
+    pub fn register_system_with_budget<S>(&mut self, system: S, budget_us: u64)
+    where
+        S: beast_ecs::System + Send + 'static,
+    {
+        self.schedule.register_with_budget(system, budget_us);
     }
 
     /// Immutable view of the ECS world.
