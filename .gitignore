@@ -18,3 +18,9 @@ Thumbs.db
 # Build artifacts
 *.pdb
 *.exe
+
+# CI scratch outputs written locally when reproducing the quality-metrics step
+/quality-lizard.txt
+/quality-functions.csv
+/quality-duplicates.txt
+/quality-summary.md

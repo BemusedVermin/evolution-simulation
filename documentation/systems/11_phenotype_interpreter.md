@@ -587,25 +587,26 @@ function apply_scale_band_filtering(
     
     for channel_id in channel_registry.active_channels:
         channel_manifest = channel_registry.manifests[channel_id]
-        
-        if channel_manifest.expression_conditions == null:
+
+        if channel_manifest.scale_band == null:
             // No scale_band constraint; expressible at all scales
             continue
-        
-        if channel_manifest.expression_conditions.scale_band != null:
-            min_kg, max_kg = channel_manifest.expression_conditions.scale_band
-            
-            if creature_body_mass_kg < min_kg or creature_body_mass_kg > max_kg:
-                // Creature's mass is outside this channel's valid range
-                filtered_channels[channel_id] = 0.0  // Channel is dormant
-            // else: within range; channel expresses normally
-        
-        // Per-body-site channels: filter each site independently
-        if channel_manifest.body_site_applicable:
+
+        min_kg, max_kg = channel_manifest.scale_band
+        out_of_band = creature_body_mass_kg < min_kg or creature_body_mass_kg > max_kg
+
+        if out_of_band:
+            // Creature's mass is outside this channel's valid range
+            filtered_channels[channel_id] = 0.0  // Channel is dormant
+        // else: within range; channel expresses normally
+
+        // Per-body-site channels: filter each site independently when
+        // out-of-band. Uses the same top-level scale_band bounds — no
+        // per-site scale bands exist in the schema.
+        if channel_manifest.body_site_applicable and out_of_band:
             for body_region in resolved_phenotype.body_map:
-                if creature_body_mass_kg < min_kg or creature_body_mass_kg > max_kg:
-                    body_region.channel_amplitudes[channel_id] = 0.0
-    
+                body_region.channel_amplitudes[channel_id] = 0.0
+
     return filtered_channels
 ```
 
@@ -616,6 +617,8 @@ function apply_scale_band_filtering(
 - **Both scales** (e.g., `metabolic_rate`): scale_band = [1e-15, ∞] kg or no constraint. Active everywhere.
 
 **This stage executes BEFORE Stage 1 (Stat Resolver)** so that dormant channels contribute zero to stat calculations and composition hooks. Filtering is per-channel; body-site channels are filtered per-site-per-channel.
+
+**Authoritative `scale_band` field**: the top-level `ChannelManifest.scale_band` is the only source this stage consults. Any `ExpressionCondition::ScaleBand { min_kg, max_kg }` variants that appear on a composition hook's `expression_conditions` list are *additional runtime gates* evaluated later in Stage 2A (affordance filter) — not a second definition of the channel's scale band.
 
 ### 6.0B. Body-Site Aggregation (Issue #9)
 
