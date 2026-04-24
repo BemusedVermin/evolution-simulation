@@ -42,11 +42,14 @@
 
 pub mod components;
 pub mod entity_id;
+pub mod error;
 pub mod resources;
 pub mod storage;
 pub mod system;
 pub mod world;
 
+pub use error::{EcsError, Result};
+pub use system::{Resources, System, SystemStage};
 pub use world::EcsWorld;
 
 // Re-export the narrow slice of `specs` downstream crates legitimately
