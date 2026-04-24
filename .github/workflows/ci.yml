@@ -160,40 +160,21 @@ jobs:
         run: python -m pip install --disable-pip-version-check lizard
 
       - name: Measure maintainability metrics
+        # Shared with .githooks/pre-push — both call the same driver script
+        # so the lizard invocations, flags, and threshold gates stay in one
+        # place. `--artifact-dir` keeps the report files at the repo root
+        # where the upload step below expects them. Thresholds come from the
+        # job `env:` block above; the script falls back to the same defaults
+        # so pre-push doesn't have to re-declare them.
         run: |
           set +e
-          python -m lizard -l rust -C"${QUALITY_MAX_CCN}" -L"${QUALITY_MAX_LENGTH}" \
-            -x "*/tests/*" \
-            -x "*/benches/*" \
-            -W ".github/qa/whitelizard.txt" \
-            crates > quality-lizard.txt
-          complexity_status=$?
-          python -m lizard --csv -l rust -C"${QUALITY_MAX_CCN}" -L"${QUALITY_MAX_LENGTH}" \
-            -x "*/tests/*" \
-            -x "*/benches/*" \
-            -W ".github/qa/whitelizard.txt" \
-            crates > quality-functions.csv
-          functions_status=$?
-          python -m lizard -l rust -Eduplicate \
-            -x "*/tests/*" \
-            -x "*/benches/*" \
-            crates > quality-duplicates.txt
-          duplicates_status=$?
-          python .github/scripts/quality_metrics.py \
-            --functions quality-functions.csv \
-            --duplicates quality-duplicates.txt \
-            --summary quality-summary.md \
-            --workspace-root . \
-            --max-duplicate-rate "${QUALITY_MAX_DUPLICATE_RATE}" \
-            --max-ccn "${QUALITY_MAX_CCN}" \
-            --max-length "${QUALITY_MAX_LENGTH}" \
-            --min-public-doc-coverage "${QUALITY_MIN_PUBLIC_DOC_COVERAGE}"
-          summary_status=$?
+          .github/scripts/run-quality-metrics.sh --artifact-dir "${{ github.workspace }}" >/dev/null
+          status=$?
           set -e
-          cat quality-summary.md >> "${GITHUB_STEP_SUMMARY}"
-          if [ "${complexity_status}" -ne 0 ] || [ "${functions_status}" -ne 0 ] || [ "${duplicates_status}" -ne 0 ] || [ "${summary_status}" -ne 0 ]; then
-            exit 1
+          if [ -f quality-summary.md ]; then
+            cat quality-summary.md >> "${GITHUB_STEP_SUMMARY}"
           fi
+          exit "$status"
 
       - name: Upload quality artifacts
         uses: actions/upload-artifact@v7

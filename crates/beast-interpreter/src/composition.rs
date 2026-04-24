@@ -77,6 +77,14 @@ pub struct FiredHook {
     /// Kind (preserved for emission-time decisions such as
     /// Additive/Multiplicative intensity computation).
     pub kind: CompositionKind,
+    /// Firing-channel ids, cloned from [`InterpreterHook::channel_ids`].
+    ///
+    /// Preserved on the fired record so downstream emission can record the
+    /// hook's firing channels in [`beast_primitives::PrimitiveEffect::source_channels`]
+    /// per §6.2 (pseudocode line 746), including "gate-only" channels that
+    /// never appear in any `parameter_mapping` expression. Parallel to
+    /// [`channel_values`](Self::channel_values).
+    pub channel_ids: Vec<String>,
     /// Channel values at fire time, parallel to the hook's `channel_ids`.
     pub channel_values: Vec<Q3232>,
     /// Coefficient (copied for emission convenience).
@@ -139,6 +147,7 @@ pub fn resolve_hooks(phenotype: &ResolvedPhenotype, hooks: &[InterpreterHook]) -
                 fired.push(FiredHook {
                     hook_id: hook.id,
                     kind: hook.kind,
+                    channel_ids: hook.channel_ids.clone(),
                     channel_values,
                     coefficient: hook.coefficient,
                     emits: hook.emits.clone(),
