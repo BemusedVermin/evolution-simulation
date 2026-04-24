@@ -119,10 +119,15 @@ impl Simulation {
     /// Advance the simulation by one tick.
     ///
     /// Runs every registered system in declared [`beast_ecs::SystemStage`]
-    /// order, then increments the tick counter. If any system returns
-    /// an error the tick aborts — the counter is **not** advanced, so
-    /// `sim.tick()` returning `Err` leaves `resources.tick_counter`
-    /// unchanged.
+    /// order, then increments the tick counter.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first error any system reports. The counter is
+    /// **not** advanced on error, but systems that ran before the
+    /// failure retain their mutations — the world is in a partial
+    /// state. Callers that need rollback semantics must snapshot
+    /// before calling `tick()`.
     pub fn tick(&mut self) -> Result<()> {
         self.schedule
             .run_tick(&mut self.world, &mut self.resources)?;
