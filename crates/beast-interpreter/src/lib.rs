@@ -55,7 +55,7 @@ pub use body_map::{
 pub use composition::{
     resolve_hooks, CompositionKind, EmitSpec, FiredHook, HookId, InterpreterHook,
 };
-pub use emission::{emit_primitives, ACTIVATION_COST_PARAM};
+pub use emission::emit_primitives;
 pub use error::{InterpreterError, Result};
 pub use expression::filter_hooks_by_affordances;
 pub use interpreter::interpret_phenotype;
