@@ -381,6 +381,21 @@ mod tests {
         }
     }
 
+    /// Run the emitter against a list of fired hooks and assert exactly one
+    /// [`PrimitiveEffect`] comes back, returning it. Breaks up the
+    /// `emit_primitives → unwrap → assert_eq!(len, 1)` shape that lizard's
+    /// duplicate detector flags as repeated boilerplate when it recurs in
+    /// every test body.
+    fn run_expecting_single_effect(
+        fired: Vec<FiredHook>,
+        phenotype: &ResolvedPhenotype,
+        preg: &PrimitiveRegistry,
+    ) -> PrimitiveEffect {
+        let mut effects = emit_primitives(&fired, phenotype, preg, EntityId::new(1)).unwrap();
+        assert_eq!(effects.len(), 1);
+        effects.remove(0)
+    }
+
     // ----- unit tests ------------------------------------------------------
 
     #[test]
@@ -639,6 +654,23 @@ mod tests {
 
     // ----- regression tests for #70: gate-only source-channel provenance -----
 
+    /// Build the standard single-primitive registry + phenotype setup used
+    /// by the #70 regression tests. Each channel id gets phenotype value 0.5
+    /// (well above the auto-fail zero threshold) so threshold/gating hooks
+    /// admit without each test repeating the arithmetic.
+    fn single_primitive_setup(
+        channels: &[&str],
+    ) -> (ChannelRegistry, PrimitiveRegistry, ResolvedPhenotype) {
+        let creg = channel_registry_with(channels);
+        let preg = primitive_registry_with(vec![primitive_manifest("emit_pulse", false)]);
+        let values: Vec<(&str, Q3232)> = channels
+            .iter()
+            .map(|id| (*id, Q3232::from_num(0.5_f64)))
+            .collect();
+        let phenotype = phenotype_with(&values);
+        (creg, preg, phenotype)
+    }
+
     #[test]
     fn gate_only_channels_appear_in_source_channels() {
         // §6.2 (line 746) records the hook's firing channels in
@@ -646,31 +678,24 @@ mod tests {
         // spatial]` whose only parameter expression reads `vocal` must still
         // report all three — `auditory` and `spatial` are gate-only and
         // otherwise silently dropped from provenance.
-        let creg = channel_registry_with(&["auditory", "vocal", "spatial"]);
-        let preg = primitive_registry_with(vec![primitive_manifest("emit_pulse", false)]);
-        let phenotype = phenotype_with(&[
-            ("auditory", Q3232::from_num(0.8_f64)),
-            ("vocal", Q3232::from_num(0.9_f64)),
-            ("spatial", Q3232::from_num(0.7_f64)),
-        ]);
+        let (creg, preg, phenotype) = single_primitive_setup(&["auditory", "spatial", "vocal"]);
 
         let expr = parse_expression("ch[vocal]", &creg).unwrap();
         let fired = fired_hook(
             1,
             &["auditory", "vocal", "spatial"],
             vec![
-                Q3232::from_num(0.8_f64),
-                Q3232::from_num(0.9_f64),
-                Q3232::from_num(0.7_f64),
+                Q3232::from_num(0.5_f64),
+                Q3232::from_num(0.5_f64),
+                Q3232::from_num(0.5_f64),
             ],
             vec![emit("emit_pulse", vec![("intensity", expr)])],
             Q3232::ONE,
         );
 
-        let effects = emit_primitives(&[fired], &phenotype, &preg, EntityId::new(1)).unwrap();
-        assert_eq!(effects.len(), 1);
+        let effect = run_expecting_single_effect(vec![fired], &phenotype, &preg);
         assert_eq!(
-            effects[0].source_channels,
+            effect.source_channels,
             vec![
                 "auditory".to_string(),
                 "spatial".to_string(),
@@ -684,9 +709,7 @@ mod tests {
         // Additive hook on `metabolism` with a purely literal parameter
         // (`"delta": "8"`). No ChannelRef in the expression — before the fix
         // `source_channels` came back empty, dropping provenance entirely.
-        let creg = channel_registry_with(&["metabolism"]);
-        let preg = primitive_registry_with(vec![primitive_manifest("emit_pulse", false)]);
-        let phenotype = phenotype_with(&[("metabolism", Q3232::from_num(0.5_f64))]);
+        let (creg, preg, phenotype) = single_primitive_setup(&["metabolism"]);
 
         let expr = parse_expression("8", &creg).unwrap();
         let fired = fired_hook(
@@ -697,9 +720,8 @@ mod tests {
             Q3232::ONE,
         );
 
-        let effects = emit_primitives(&[fired], &phenotype, &preg, EntityId::new(1)).unwrap();
-        assert_eq!(effects.len(), 1);
-        assert_eq!(effects[0].source_channels, vec!["metabolism".to_string()],);
+        let effect = run_expecting_single_effect(vec![fired], &phenotype, &preg);
+        assert_eq!(effect.source_channels, vec!["metabolism".to_string()]);
     }
 
     #[test]
@@ -710,13 +732,7 @@ mod tests {
         // `source_channels` must be the full union [x, y, z] — proving that
         // `x` and `z` (each a gate-only channel on one hook and entirely
         // absent from the other's expression) survive the group merge step.
-        let creg = channel_registry_with(&["x", "y", "z"]);
-        let preg = primitive_registry_with(vec![primitive_manifest("emit_pulse", false)]);
-        let phenotype = phenotype_with(&[
-            ("x", Q3232::from_num(0.5_f64)),
-            ("y", Q3232::from_num(0.5_f64)),
-            ("z", Q3232::from_num(0.5_f64)),
-        ]);
+        let (creg, preg, phenotype) = single_primitive_setup(&["x", "y", "z"]);
 
         let expr_a = parse_expression("ch[y]", &creg).unwrap();
         let fired_a = fired_hook(
@@ -735,11 +751,9 @@ mod tests {
             Q3232::ONE,
         );
 
-        let effects =
-            emit_primitives(&[fired_a, fired_b], &phenotype, &preg, EntityId::new(1)).unwrap();
-        assert_eq!(effects.len(), 1);
+        let effect = run_expecting_single_effect(vec![fired_a, fired_b], &phenotype, &preg);
         assert_eq!(
-            effects[0].source_channels,
+            effect.source_channels,
             vec!["x".to_string(), "y".to_string(), "z".to_string()],
         );
     }
