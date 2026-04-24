@@ -29,4 +29,7 @@ proptest = { workspace = true }
 unsafe_code = "forbid"
 
 [lints.clippy]
-float_arithmetic = "warn"
+# Floats are forbidden on the sim path (INVARIANTS §1). `deny` makes
+# this unambiguous regardless of how clippy is invoked; `warn` only
+# escalates under `-D warnings`, which is invocation-dependent.
+float_arithmetic = "deny"

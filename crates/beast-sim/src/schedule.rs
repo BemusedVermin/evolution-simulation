@@ -94,9 +94,14 @@ impl SystemSchedule {
     }
 
     /// `true` iff no systems are registered.
+    ///
+    /// Since `register` always pushes immediately after `or_default()`,
+    /// an empty `Vec` bucket can never persist in the map — so checking
+    /// `self.systems.is_empty()` is equivalent and more obvious than
+    /// walking every bucket.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.systems.values().all(Vec::is_empty)
+        self.systems.is_empty()
     }
 }
 
@@ -129,7 +134,7 @@ mod tests {
             _world: &mut EcsWorld,
             _resources: &mut Resources,
         ) -> beast_ecs::Result<()> {
-            self.log.lock().unwrap().push(self.name);
+            self.log.lock().expect("log mutex poisoned").push(self.name);
             Ok(())
         }
     }
@@ -191,7 +196,10 @@ mod tests {
         let (mut w, mut r) = scratch_world_and_resources();
         schedule.run_tick(&mut w, &mut r).expect("tick");
 
-        assert_eq!(*log.lock().unwrap(), vec!["input", "genetics", "ecology"],);
+        assert_eq!(
+            *log.lock().expect("log mutex poisoned"),
+            vec!["input", "genetics", "ecology"],
+        );
     }
 
     #[test]
@@ -207,7 +215,10 @@ mod tests {
         }
         let (mut w, mut r) = scratch_world_and_resources();
         schedule.run_tick(&mut w, &mut r).expect("tick");
-        assert_eq!(*log.lock().unwrap(), vec!["first", "second", "third"]);
+        assert_eq!(
+            *log.lock().expect("log mutex poisoned"),
+            vec!["first", "second", "third"]
+        );
     }
 
     #[test]
@@ -230,7 +241,7 @@ mod tests {
         assert!(res.is_err(), "failing system should propagate its error");
         // 'before' ran (Genetics < Physiology); 'after' did not
         // (RenderPrep > Physiology and dispatch aborted).
-        assert_eq!(*log.lock().unwrap(), vec!["before"]);
+        assert_eq!(*log.lock().expect("log mutex poisoned"), vec!["before"]);
     }
 
     #[test]

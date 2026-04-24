@@ -71,15 +71,28 @@ impl EcsWorld {
         self.inner.create_entity()
     }
 
-    /// Borrow the inner [`specs::World`]. The escape hatch for code that
-    /// legitimately needs to call a `specs` API we haven't wrapped yet.
+    /// Borrow the inner [`specs::World`] — **escape hatch only**.
+    ///
+    /// Exposes `specs::World` through this facade so callers can reach
+    /// APIs we have not yet wrapped (e.g., direct `read_storage` /
+    /// `write_storage` access). The return type names `specs::World`,
+    /// which technically leaks the backend choice into the public API
+    /// surface; in practice callers use type inference plus the
+    /// [`specs`] re-exports from this crate (`Builder`, `WorldExt`,
+    /// `ReadStorage`, etc.) so they do **not** need a direct `specs`
+    /// dependency in their own `Cargo.toml`.
+    ///
     /// Prefer dedicated methods on `EcsWorld` when a wrapper exists.
+    /// Every use of this escape hatch is a candidate for future
+    /// wrapping; audit with `rg 'world\(\)\.world\(\)'` before
+    /// refactoring the backend.
     #[must_use]
     pub fn world(&self) -> &World {
         &self.inner
     }
 
-    /// Mutable counterpart to [`Self::world`].
+    /// Mutable counterpart to [`Self::world`]. Same escape-hatch
+    /// semantics — see the immutable version for guidance.
     pub fn world_mut(&mut self) -> &mut World {
         &mut self.inner
     }
