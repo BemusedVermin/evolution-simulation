@@ -81,20 +81,32 @@ impl SortedEntityIndex {
 
     /// Remove `entity` from the given marker bucket. Returns `true`
     /// iff the entry existed.
+    ///
+    /// Drops the bucket entry when the set becomes empty so `iter_all`
+    /// never visits empty buckets and `buckets.len()` matches the
+    /// number of markers currently populated.
     pub fn remove(&mut self, entity: Entity, marker: MarkerKind) -> bool {
-        match self.buckets.get_mut(&marker) {
-            Some(set) => set.remove(&entity),
-            None => false,
+        let Some(set) = self.buckets.get_mut(&marker) else {
+            return false;
+        };
+        let removed = set.remove(&entity);
+        if set.is_empty() {
+            self.buckets.remove(&marker);
         }
+        removed
     }
 
     /// Drop `entity` from every bucket it appears in. Convenience for
     /// entity deletion paths that do not track the marker kinds the
     /// entity carried.
+    ///
+    /// Buckets that become empty as a result are dropped from the map,
+    /// matching [`Self::remove`].
     pub fn remove_everywhere(&mut self, entity: Entity) {
-        for set in self.buckets.values_mut() {
+        self.buckets.retain(|_, set| {
             set.remove(&entity);
-        }
+            !set.is_empty()
+        });
     }
 
     /// Iterator of entities tagged with `marker`, in ascending entity
