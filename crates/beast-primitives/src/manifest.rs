@@ -31,6 +31,38 @@ pub enum ParameterType {
     Boolean,
 }
 
+/// How multiple emissions of the same primitive (in the same tick) collapse
+/// into one per parameter. See
+/// `documentation/systems/11_phenotype_interpreter.md` §6.2B.
+///
+/// Declared per-parameter on [`PrimitiveManifest::merge_strategy`]. Absence
+/// of a declaration resolves to [`MergeStrategy::Max`] downstream, the spec's
+/// conservative default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MergeStrategy {
+    /// Sum values via saturating addition. Intended for additive quantities
+    /// (force, magnitude, intensity accumulated across multiple sources).
+    Sum,
+    /// Take the maximum value. Intended for intensity-like quantities where
+    /// the strongest contributor dominates (concentration, frequency).
+    Max,
+    /// Arithmetic mean across the group (`sum / count`).
+    Mean,
+    /// Set-union semantics.
+    ///
+    /// The spec defines this for set-valued parameters (tags, molecular
+    /// types). [`PrimitiveEffect::parameters`] is a
+    /// `BTreeMap<String, Q3232>` today, so there is no representable set —
+    /// the interpreter collapses `Union` to the same deterministic rule as
+    /// [`MergeStrategy::Max`]. Tracked by
+    /// <https://github.com/BemusedVermin/evolution-simulation/issues/95> for
+    /// when set-valued parameters land.
+    ///
+    /// [`PrimitiveEffect::parameters`]: crate::effect::PrimitiveEffect::parameters
+    Union,
+}
+
 /// Default value stored alongside a parameter spec. Kept as-is from JSON so
 /// callers can apply the default into their own domain types.
 #[derive(Debug, Clone, PartialEq)]
@@ -121,6 +153,14 @@ pub struct PrimitiveManifest {
     pub cost_function: CostFunction,
     /// Observable signature.
     pub observable_signature: ObservableSignature,
+    /// Per-parameter merge strategy used when multiple hooks emit this
+    /// primitive in the same tick. Parameters absent from this map fall
+    /// back to [`MergeStrategy::Max`] at merge time (the spec's default).
+    ///
+    /// [`BTreeMap`] keeps iteration deterministic. Every key in this map
+    /// must exist in [`parameter_schema`](Self::parameter_schema); the
+    /// loader rejects manifests that reference unknown parameters.
+    pub merge_strategy: BTreeMap<String, MergeStrategy>,
     /// Origin of this primitive.
     pub provenance: Provenance,
 }
@@ -175,6 +215,8 @@ struct RawPrimitiveManifest {
     composition_compatibility: Vec<RawCompatibilityEntry>,
     cost_function: RawCostFunction,
     observable_signature: RawObservableSignature,
+    #[serde(default)]
+    merge_strategy: BTreeMap<String, MergeStrategy>,
     provenance: String,
 }
 
@@ -309,6 +351,16 @@ impl RawPrimitiveManifest {
             pattern_key: self.observable_signature.pattern_key,
         };
 
+        // --- merge strategy ---
+        for param in self.merge_strategy.keys() {
+            if !parameter_schema.contains_key(param) {
+                return Err(PrimitiveLoadError::UnknownMergeStrategyParameter {
+                    primitive_id: self.id.clone(),
+                    parameter: param.clone(),
+                });
+            }
+        }
+
         // --- provenance ---
         let provenance = Provenance::parse(&self.provenance)?;
 
@@ -320,6 +372,7 @@ impl RawPrimitiveManifest {
             composition_compatibility,
             cost_function,
             observable_signature,
+            merge_strategy: self.merge_strategy,
             provenance,
         })
     }

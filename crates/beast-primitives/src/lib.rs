@@ -36,8 +36,8 @@ pub use category::{Modality, PrimitiveCategory};
 pub use cost::{evaluate_cost, CostEvalError};
 pub use effect::PrimitiveEffect;
 pub use manifest::{
-    CompatibilityEntry, CostFunction, ObservableSignature, ParameterScaling, ParameterSpec,
-    ParameterType, PrimitiveManifest, Provenance,
+    CompatibilityEntry, CostFunction, MergeStrategy, ObservableSignature, ParameterScaling,
+    ParameterSpec, ParameterType, PrimitiveManifest, Provenance,
 };
 pub use registry::{PrimitiveRegistry, RegistryError};
 pub use schema::{PrimitiveLoadError, PRIMITIVE_MANIFEST_SCHEMA};

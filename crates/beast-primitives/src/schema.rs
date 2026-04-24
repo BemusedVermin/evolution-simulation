@@ -67,6 +67,17 @@ pub enum PrimitiveLoadError {
         parameter: String,
     },
 
+    /// A `merge_strategy` entry referenced a parameter that is not declared
+    /// in `parameter_schema`. Merge strategies are per-parameter, so an
+    /// unknown key is a manifest authoring bug.
+    #[error("primitive {primitive_id} merge_strategy references unknown parameter `{parameter}`")]
+    UnknownMergeStrategyParameter {
+        /// Primitive id from the manifest.
+        primitive_id: String,
+        /// Offending parameter name.
+        parameter: String,
+    },
+
     /// A parameter default value did not match the declared type.
     #[error("primitive {primitive_id} parameter `{parameter}` has invalid default: {reason}")]
     InvalidDefault {
@@ -171,6 +182,93 @@ mod tests {
         assert!(matches!(
             load_primitive_manifest(src),
             Err(PrimitiveLoadError::UnknownScalingParameter { .. })
+        ));
+    }
+
+    #[test]
+    fn merge_strategy_accepts_all_four_variants() {
+        use crate::manifest::MergeStrategy;
+
+        let src = r#"{
+            "id": "strategies",
+            "category": "force_application",
+            "description": "Exercises every merge strategy variant.",
+            "parameter_schema": {
+                "a": { "type": "number" },
+                "b": { "type": "number" },
+                "c": { "type": "number" },
+                "d": { "type": "number" }
+            },
+            "composition_compatibility": [ { "channel_family": "motor" } ],
+            "cost_function": { "base_metabolic_cost": 1 },
+            "observable_signature": { "modality": "behavioral", "detection_range_m": 1, "pattern_key": "k" },
+            "merge_strategy": {
+                "a": "sum",
+                "b": "max",
+                "c": "mean",
+                "d": "union"
+            },
+            "provenance": "core"
+        }"#;
+        let manifest = load_primitive_manifest(src).unwrap();
+        assert_eq!(manifest.merge_strategy.len(), 4);
+        assert_eq!(manifest.merge_strategy["a"], MergeStrategy::Sum);
+        assert_eq!(manifest.merge_strategy["b"], MergeStrategy::Max);
+        assert_eq!(manifest.merge_strategy["c"], MergeStrategy::Mean);
+        assert_eq!(manifest.merge_strategy["d"], MergeStrategy::Union);
+    }
+
+    #[test]
+    fn merge_strategy_absent_is_empty_map() {
+        let src = r#"{
+            "id": "no_strategy",
+            "category": "force_application",
+            "description": "Omits merge_strategy entirely — loader leaves the map empty.",
+            "parameter_schema": { "p": { "type": "number" } },
+            "composition_compatibility": [ { "channel_family": "motor" } ],
+            "cost_function": { "base_metabolic_cost": 1 },
+            "observable_signature": { "modality": "behavioral", "detection_range_m": 1, "pattern_key": "k" },
+            "provenance": "core"
+        }"#;
+        let manifest = load_primitive_manifest(src).unwrap();
+        assert!(manifest.merge_strategy.is_empty());
+    }
+
+    #[test]
+    fn schema_rejects_unknown_merge_strategy_value() {
+        let src = r#"{
+            "id": "bad",
+            "category": "force_application",
+            "description": "Declares a merge strategy that isn't in the enum.",
+            "parameter_schema": { "p": { "type": "number" } },
+            "composition_compatibility": [ { "channel_family": "motor" } ],
+            "cost_function": { "base_metabolic_cost": 1 },
+            "observable_signature": { "modality": "behavioral", "detection_range_m": 1, "pattern_key": "k" },
+            "merge_strategy": { "p": "median" },
+            "provenance": "core"
+        }"#;
+        assert!(matches!(
+            load_primitive_manifest(src),
+            Err(PrimitiveLoadError::SchemaViolation(_))
+        ));
+    }
+
+    #[test]
+    fn semantic_unknown_merge_strategy_parameter_rejected() {
+        let src = r#"{
+            "id": "bad",
+            "category": "force_application",
+            "description": "merge_strategy references a parameter that does not exist.",
+            "parameter_schema": { "p": { "type": "number" } },
+            "composition_compatibility": [ { "channel_family": "motor" } ],
+            "cost_function": { "base_metabolic_cost": 1 },
+            "observable_signature": { "modality": "behavioral", "detection_range_m": 1, "pattern_key": "k" },
+            "merge_strategy": { "ghost": "sum" },
+            "provenance": "core"
+        }"#;
+        assert!(matches!(
+            load_primitive_manifest(src),
+            Err(PrimitiveLoadError::UnknownMergeStrategyParameter { .. })
         ));
     }
 

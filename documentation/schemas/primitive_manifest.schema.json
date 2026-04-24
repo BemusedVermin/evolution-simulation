@@ -164,6 +164,15 @@
       },
       "description": "Defines metabolic cost of this primitive. Base cost plus optional parameter-dependent scaling for complex effects."
     },
+    "merge_strategy": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "enum": ["sum", "max", "mean", "union"],
+        "description": "How multiple emissions of this primitive collapse per parameter when more than one hook fires in the same tick. See §6.2B of documentation/systems/11_phenotype_interpreter.md. Absent entries default to 'max' (the spec's conservative default). 'union' is accepted but currently behaves as 'max' because parameter values are scalar — tracked separately for set-valued parameters."
+      },
+      "description": "Optional per-parameter merge strategy map. Each key must exist in parameter_schema; the loader rejects entries that reference unknown parameters."
+    },
     "observable_signature": {
       "type": "object",
       "required": ["modality", "detection_range_m", "pattern_key"],
