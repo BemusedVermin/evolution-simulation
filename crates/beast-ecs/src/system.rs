@@ -12,6 +12,11 @@
 
 use crate::world::EcsWorld;
 
+// Re-export the real Resources from its own module. S5.3 shipped a
+// placeholder here; S5.4 moves it to `resources` so this module only
+// owns the trait + stage enum.
+pub use crate::resources::Resources;
+
 /// Nine-stage tick ordering (eight game stages + render prep). Variants
 /// deliberately match the sections of `ECS_SCHEDULE.md` so `stage as u8`
 /// can be used as a sort key.
@@ -39,28 +44,6 @@ pub enum SystemStage {
     LabelingAndPersistence,
     /// Stage 8 — snapshot creation for the renderer.
     RenderPrep,
-}
-
-/// Placeholder resources container. S5.4 replaces this with the real
-/// struct holding registries, PRNG streams, and the tick counter.
-///
-/// Today it carries no state; systems can already accept
-/// `&mut Resources` without the trait API changing when the real fields
-/// arrive.
-#[derive(Debug, Default)]
-pub struct Resources {
-    // Intentionally empty — S5.4 fills this with registries + PRNG
-    // streams. The field prevents downstream from destructuring.
-    _private: (),
-}
-
-impl Resources {
-    /// Build an empty placeholder. Replaced by `Resources::new(...)`
-    /// with real fields in S5.4.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
 }
 
 /// A simulation system. Every system implements this trait and declares
@@ -95,6 +78,8 @@ pub trait System {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use beast_channels::ChannelRegistry;
+    use beast_primitives::PrimitiveRegistry;
 
     /// Toy system that does nothing — just to prove the trait compiles
     /// and is callable against [`EcsWorld`] + [`Resources`].
@@ -115,6 +100,10 @@ mod tests {
             self.ticks += 1;
             Ok(())
         }
+    }
+
+    fn test_resources() -> Resources {
+        Resources::new(7, ChannelRegistry::new(), PrimitiveRegistry::new())
     }
 
     #[test]
@@ -143,7 +132,7 @@ mod tests {
     #[test]
     fn system_trait_can_be_driven_against_ecs_world() {
         let mut world = EcsWorld::new();
-        let mut resources = Resources::new();
+        let mut resources = test_resources();
         let mut system = NoopSystem { ticks: 0 };
 
         for _ in 0..5 {
@@ -152,15 +141,6 @@ mod tests {
         assert_eq!(system.ticks, 5);
         assert_eq!(system.name(), "noop");
         assert_eq!(system.stage(), SystemStage::Ecology);
-    }
-
-    #[test]
-    fn resources_default_is_equivalent_to_new() {
-        // Placeholder carries no state; this test locks in that shape so
-        // S5.4 can swap the implementation without breaking callers that
-        // stored resources via Default.
-        let _a = Resources::default();
-        let _b = Resources::new();
     }
 
     #[test]
