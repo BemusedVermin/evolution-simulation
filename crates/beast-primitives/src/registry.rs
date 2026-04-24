@@ -169,6 +169,7 @@ mod tests {
                 detection_range_m: Q3232::ONE,
                 pattern_key: "fixture_v1".into(),
             },
+            merge_strategy: BTreeMap::new(),
             provenance: Provenance::Core,
         }
     }
