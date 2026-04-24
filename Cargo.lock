@@ -130,7 +130,9 @@ dependencies = [
 name = "beast-ecs"
 version = "0.1.0"
 dependencies = [
+ "beast-channels",
  "beast-core",
+ "beast-primitives",
  "proptest",
  "serde",
  "specs",

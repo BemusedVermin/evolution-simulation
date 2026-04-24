@@ -14,14 +14,17 @@ doctest = true
 
 [dependencies]
 beast-core = { workspace = true }
+# `beast-channels` and `beast-primitives` are listed here even though
+# S5.1 does not use them yet. S5.4 introduces the `Resources` struct
+# that holds `ChannelRegistry` + `PrimitiveRegistry` and is the first
+# real use; declaring the deps at scaffold time avoids a later churn
+# that would touch the whole stacked-PR chain. Flagged as dead-dep
+# noise by the S5.1 reviewer — it disappears once S5.4 merges.
+beast-channels = { workspace = true }
+beast-primitives = { workspace = true }
 specs = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
-# Note: `beast-channels`, `beast-primitives`, and `beast-genome` are added
-# as dependencies by later S5 stories (5.4 needs the registries for
-# `Resources`; 5.2 needs `beast-genome` + `beast-primitives` for the
-# GenomeComponent / PhenotypeComponent newtypes) — they intentionally
-# do not appear here to keep the S5.1 compile graph minimal.
 
 [dev-dependencies]
 proptest = { workspace = true }
