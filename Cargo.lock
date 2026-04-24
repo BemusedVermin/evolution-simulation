@@ -202,6 +202,7 @@ dependencies = [
  "beast-genome",
  "beast-interpreter",
  "beast-primitives",
+ "blake3",
  "proptest",
  "serde",
  "thiserror",

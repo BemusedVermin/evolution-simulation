@@ -44,6 +44,7 @@ pub mod simulation;
 pub mod tick;
 
 pub use budget::TickResult;
+pub use determinism::compute_state_hash;
 pub use error::{Result, SimError};
 pub use schedule::SystemSchedule;
 pub use simulation::{Simulation, SimulationConfig};
