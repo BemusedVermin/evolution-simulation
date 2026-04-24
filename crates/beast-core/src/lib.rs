@@ -22,6 +22,7 @@
 #![warn(missing_docs)]
 #![warn(rust_2018_idioms)]
 
+pub mod body_site;
 pub mod entity;
 pub mod error;
 pub mod fixed_point;
@@ -29,6 +30,7 @@ pub mod math;
 pub mod prng;
 pub mod time;
 
+pub use body_site::BodySite;
 pub use entity::{EntityId, EntityIdAllocator};
 pub use error::{Error, Result};
 pub use fixed_point::Q3232;
