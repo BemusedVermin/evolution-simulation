@@ -15,6 +15,9 @@ use beast_core::TickCounter;
 use beast_ecs::{components, EcsWorld, Resources};
 use beast_primitives::PrimitiveRegistry;
 
+use crate::error::Result;
+use crate::schedule::SystemSchedule;
+
 /// Inputs required to construct a [`Simulation`]. Kept as its own struct
 /// so later stories can add optional fields (e.g., a replay journal, a
 /// mod list) without breaking every call site.
@@ -52,6 +55,7 @@ impl SimulationConfig {
 pub struct Simulation {
     world: EcsWorld,
     resources: Resources,
+    schedule: SystemSchedule,
 }
 
 impl Simulation {
@@ -81,7 +85,49 @@ impl Simulation {
         let mut world = EcsWorld::new();
         components::register_all(&mut world);
         let resources = Resources::new(config.world_seed, config.channels, config.primitives);
-        Self { world, resources }
+        Self {
+            world,
+            resources,
+            schedule: SystemSchedule::new(),
+        }
+    }
+
+    /// Register a system on the schedule. Thin pass-through to
+    /// [`SystemSchedule::register`] so callers who hold a
+    /// `&mut Simulation` don't need to reach into `.schedule_mut()`
+    /// explicitly.
+    pub fn register_system<S>(&mut self, system: S)
+    where
+        S: beast_ecs::System + Send + 'static,
+    {
+        self.schedule.register(system);
+    }
+
+    /// Immutable view of the registered schedule. Useful for tests and
+    /// diagnostics that want to count systems without mutating state.
+    #[must_use]
+    pub fn schedule(&self) -> &SystemSchedule {
+        &self.schedule
+    }
+
+    /// Mutable view of the registered schedule — register systems
+    /// directly when the pass-through is insufficient.
+    pub fn schedule_mut(&mut self) -> &mut SystemSchedule {
+        &mut self.schedule
+    }
+
+    /// Advance the simulation by one tick.
+    ///
+    /// Runs every registered system in declared [`beast_ecs::SystemStage`]
+    /// order, then increments the tick counter. If any system returns
+    /// an error the tick aborts — the counter is **not** advanced, so
+    /// `sim.tick()` returning `Err` leaves `resources.tick_counter`
+    /// unchanged.
+    pub fn tick(&mut self) -> Result<()> {
+        self.schedule
+            .run_tick(&mut self.world, &mut self.resources)?;
+        self.resources.advance_tick();
+        Ok(())
     }
 
     /// Immutable view of the ECS world.
@@ -107,9 +153,11 @@ impl Simulation {
         &mut self.resources
     }
 
-    /// Convenience: current tick.
+    /// Convenience: current tick counter value. Renamed from `tick`
+    /// when S6.2 gave [`Self::tick`] its new meaning (advance one
+    /// step).
     #[must_use]
-    pub fn tick(&self) -> TickCounter {
+    pub fn current_tick(&self) -> TickCounter {
         self.resources.tick_counter
     }
 }
@@ -121,7 +169,7 @@ mod tests {
     #[test]
     fn new_starts_at_tick_zero_with_given_seed() {
         let sim = Simulation::new(SimulationConfig::empty(0xABCD));
-        assert_eq!(sim.tick().raw(), 0);
+        assert_eq!(sim.current_tick().raw(), 0);
         assert_eq!(sim.resources().world_seed, 0xABCD);
     }
 
@@ -135,6 +183,23 @@ mod tests {
 
         let sim = Simulation::new(SimulationConfig::empty(1));
         let _storage = sim.world().world().read_storage::<Position>();
+    }
+
+    #[test]
+    fn tick_advances_the_counter_exactly_once() {
+        let mut sim = Simulation::new(SimulationConfig::empty(5));
+        for expected in 1..=20 {
+            sim.tick().expect("tick");
+            assert_eq!(sim.current_tick().raw(), expected);
+        }
+    }
+
+    #[test]
+    fn tick_with_no_systems_succeeds_and_advances() {
+        let mut sim = Simulation::new(SimulationConfig::empty(5));
+        assert!(sim.schedule().is_empty());
+        sim.tick().expect("empty tick ok");
+        assert_eq!(sim.current_tick().raw(), 1);
     }
 
     #[test]

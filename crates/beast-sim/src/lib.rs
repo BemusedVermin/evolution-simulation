@@ -44,4 +44,5 @@ pub mod simulation;
 pub mod tick;
 
 pub use error::{Result, SimError};
+pub use schedule::SystemSchedule;
 pub use simulation::{Simulation, SimulationConfig};
