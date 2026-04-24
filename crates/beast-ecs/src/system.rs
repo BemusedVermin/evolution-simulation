@@ -12,13 +12,20 @@
 
 use crate::world::EcsWorld;
 
-/// Nine-stage tick ordering (eight game stages + render prep). Variants
-/// deliberately match the sections of `ECS_SCHEDULE.md` so `stage as u8`
-/// can be used as a sort key.
+/// Nine-stage tick ordering (eight game stages + render prep). Variant
+/// declaration order deliberately matches the sections of
+/// `ECS_SCHEDULE.md`; the derived `Ord` impl uses that declaration
+/// order so `BTreeMap<SystemStage, _>` iterates in tick-stage order
+/// without an explicit discriminant or sort step.
 ///
 /// Sequential between stages, parallel within: `InputAndAging` runs first
 /// every tick, `RenderPrep` last. The scheduler (S6) honours the declared
 /// order — systems are never reordered across stages.
+///
+/// This enum is **not** `#[repr(u8)]`; callers must never `as u8`-cast
+/// a `SystemStage` to use the discriminant as a stable id. Use `Ord` /
+/// `match` instead, so adding a variant in the middle doesn't silently
+/// shift every later variant's id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SystemStage {
     /// Stage 0 — input handling, random events, aging.
@@ -91,6 +98,13 @@ pub trait System {
     /// this tick) — that policy lives in S6.
     fn run(&mut self, world: &mut EcsWorld, resources: &mut Resources) -> crate::Result<()>;
 }
+
+// Compile-time object-safety check so the S6 scheduler can hold
+// `Box<dyn System>` without future trait additions accidentally
+// breaking dyn-compatibility.
+const _: fn() = || {
+    let _: Option<&dyn System> = None;
+};
 
 #[cfg(test)]
 mod tests {
