@@ -22,6 +22,7 @@ beast-core = { workspace = true }
 # noise by the S5.1 reviewer — it disappears once S5.4 merges.
 beast-channels = { workspace = true }
 beast-primitives = { workspace = true }
+beast-genome = { workspace = true }
 specs = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
