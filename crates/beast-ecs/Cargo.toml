@@ -14,11 +14,14 @@ doctest = true
 
 [dependencies]
 beast-core = { workspace = true }
-beast-channels = { workspace = true }
-beast-primitives = { workspace = true }
 specs = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+# Note: `beast-channels`, `beast-primitives`, and `beast-genome` are added
+# as dependencies by later S5 stories (5.4 needs the registries for
+# `Resources`; 5.2 needs `beast-genome` + `beast-primitives` for the
+# GenomeComponent / PhenotypeComponent newtypes) — they intentionally
+# do not appear here to keep the S5.1 compile graph minimal.
 
 [dev-dependencies]
 proptest = { workspace = true }
