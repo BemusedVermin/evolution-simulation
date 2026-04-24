@@ -66,8 +66,26 @@ pub struct PhenotypeComponent {
 impl PhenotypeComponent {
     /// Build from an already-sorted effect list (the interpreter emits
     /// them sorted — no re-sorting required here).
+    ///
+    /// In debug builds, verifies that `effects` is sorted by
+    /// `(primitive_id, body_site)`. A violation indicates the caller is
+    /// feeding a phenotype that bypassed the interpreter's emission
+    /// path, which would silently break the determinism invariant
+    /// (INVARIANTS §1) — downstream systems hash the phenotype in
+    /// visit order. Release builds skip the check; production callers
+    /// are expected to go through `beast_interpreter::emit_primitives`
+    /// which preserves the sort.
     #[must_use]
     pub fn new(effects: Vec<PrimitiveEffect>) -> Self {
+        debug_assert!(
+            effects.windows(2).all(|pair| {
+                (&pair[0].primitive_id, &pair[0].body_site)
+                    <= (&pair[1].primitive_id, &pair[1].body_site)
+            }),
+            "PhenotypeComponent::new: effects must be sorted by \
+             (primitive_id, body_site); caller bypassed the interpreter \
+             emission path"
+        );
         Self { effects }
     }
 }

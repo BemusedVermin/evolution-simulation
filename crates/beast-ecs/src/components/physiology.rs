@@ -29,14 +29,25 @@ impl Component for Age {
 /// Body mass in kilograms. The scale-band invariant (INVARIANTS §5)
 /// uses this value to decide channel expressibility; keep the field
 /// strictly positive and in Q32.32.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `Default` is intentionally **not** derived — a zero-mass creature
+/// would break scale-band filtering (every band starts at `≥ 0`, so
+/// zero is always "in band" vacuously) and would also divide-by-zero
+/// in any system that normalises by mass. Callers must supply an
+/// explicit value via `Mass::new`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Mass {
     /// Kilograms, Q32.32.
     pub kg: Q3232,
 }
 
 impl Mass {
-    /// Convenience constructor.
+    /// Convenience constructor. Does not validate positivity — mass
+    /// values can be arbitrarily small in the micro/pathogen band
+    /// (`1e-15 kg`). A `debug_assert!(kg > Q3232::ZERO)` would be
+    /// tempting but would forbid the intentionally-zero test fixtures
+    /// the interpreter uses for "dormant channel" checks; leave the
+    /// contract in prose.
     #[must_use]
     pub fn new(kg: Q3232) -> Self {
         Self { kg }
