@@ -110,6 +110,11 @@ impl Resources {
 
     /// Advance the tick counter by one. Called by the S6 scheduler after
     /// every stage has run for the current tick.
+    ///
+    /// Saturates at [`TickCounter::MAX`] (`u64::MAX`) rather than
+    /// wrapping — at 60 ticks/s the ceiling is ~9.7 billion years, so
+    /// in practice saturation indicates a logic bug rather than a
+    /// legitimate runtime event. See `beast_core::time::TickCounter`.
     pub fn advance_tick(&mut self) {
         self.tick_counter.advance();
     }
@@ -134,14 +139,17 @@ mod tests {
     fn same_seed_produces_identical_prng_draws() {
         // Determinism contract: Resources::new is a pure function of its
         // arguments. Any two Resources built with the same seed must
-        // produce the same first N draws on every stream.
+        // produce the same first N draws on every stream (all 8).
         let mut a = fresh();
         let mut b = fresh();
         for _ in 0..64 {
             assert_eq!(a.rng_genetics.next_u64(), b.rng_genetics.next_u64());
-            assert_eq!(a.rng_combat.next_u64(), b.rng_combat.next_u64());
+            assert_eq!(a.rng_phenotype.next_u64(), b.rng_phenotype.next_u64());
             assert_eq!(a.rng_physics.next_u64(), b.rng_physics.next_u64());
+            assert_eq!(a.rng_combat.next_u64(), b.rng_combat.next_u64());
+            assert_eq!(a.rng_physiology.next_u64(), b.rng_physiology.next_u64());
             assert_eq!(a.rng_ecology.next_u64(), b.rng_ecology.next_u64());
+            assert_eq!(a.rng_worldgen.next_u64(), b.rng_worldgen.next_u64());
             assert_eq!(a.rng_chronicler.next_u64(), b.rng_chronicler.next_u64());
         }
     }
