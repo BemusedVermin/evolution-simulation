@@ -48,6 +48,7 @@ pub mod storage;
 pub mod system;
 pub mod world;
 
+pub use entity_id::{MarkerKind, SortedEntityIndex};
 pub use error::{EcsError, Result};
 pub use system::{Resources, System, SystemStage};
 pub use world::EcsWorld;
