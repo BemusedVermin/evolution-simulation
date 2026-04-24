@@ -86,7 +86,19 @@ pub fn compute_state_hash(sim: &Simulation) -> [u8; 32] {
             h.update(&v.vy.to_bits().to_le_bytes());
         });
         absorb_opt(&mut hasher, stages.get(entity), |h, s| {
-            h.update(&[*s as u8]);
+            // Explicit match rather than `*s as u8` because
+            // DevelopmentalStage has no #[repr(u8)]; inserting a
+            // variant in the middle would silently renumber every
+            // later variant, invalidating persisted hashes. See PR
+            // #122 review note (HIGH).
+            let stage_byte: u8 = match s {
+                DevelopmentalStage::Egg => 0,
+                DevelopmentalStage::Larval => 1,
+                DevelopmentalStage::Juvenile => 2,
+                DevelopmentalStage::Adult => 3,
+                DevelopmentalStage::Geriatric => 4,
+            };
+            h.update(&[stage_byte]);
         });
         absorb_opt(&mut hasher, species.get(entity), |h, s| {
             h.update(&s.id.to_le_bytes());
@@ -99,8 +111,24 @@ pub fn compute_state_hash(sim: &Simulation) -> [u8; 32] {
         absorb_opt(&mut hasher, genomes.get(entity), |h, g| {
             h.update(format!("{:?}", g.0).as_bytes());
         });
+        // Phenotype requires defensive sorting before feeding into the
+        // hasher. `PrimitiveEffect.source_channels` is a `Vec<String>`
+        // whose element order comes from whichever hook fired first —
+        // the interpreter is expected to produce this sorted, but the
+        // hash gate must not silently assume it. See PR #122 review
+        // (CRITICAL). Sort is by primitive_id then by the
+        // pre-sorted source_channels slice, which matches the
+        // interpreter's contract. Allocations are per-tick, not
+        // per-frame.
         absorb_opt(&mut hasher, phenotypes.get(entity), |h, p| {
-            h.update(format!("{:?}", p.effects).as_bytes());
+            let mut sorted = p.effects.clone();
+            sorted.sort_by(|a, b| {
+                (&a.primitive_id, &a.body_site).cmp(&(&b.primitive_id, &b.body_site))
+            });
+            for effect in &mut sorted {
+                effect.source_channels.sort();
+            }
+            h.update(format!("{:?}", sorted).as_bytes());
         });
     }
 
