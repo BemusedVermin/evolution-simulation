@@ -15,6 +15,7 @@ use beast_core::TickCounter;
 use beast_ecs::{components, EcsWorld, Resources};
 use beast_primitives::PrimitiveRegistry;
 
+use crate::budget::{Stopwatch, TickResult};
 use crate::error::Result;
 use crate::schedule::SystemSchedule;
 
@@ -119,15 +120,25 @@ impl Simulation {
     /// Advance the simulation by one tick.
     ///
     /// Runs every registered system in declared [`beast_ecs::SystemStage`]
-    /// order, then increments the tick counter. If any system returns
-    /// an error the tick aborts — the counter is **not** advanced, so
-    /// `sim.tick()` returning `Err` leaves `resources.tick_counter`
-    /// unchanged.
-    pub fn tick(&mut self) -> Result<()> {
-        self.schedule
+    /// order, then increments the tick counter. Returns a
+    /// [`TickResult`] with the total + per-stage wall-clock durations
+    /// in microseconds — observation only, never fed back into sim
+    /// state.
+    ///
+    /// If any system returns an error the tick aborts — the counter is
+    /// **not** advanced, so `sim.tick()` returning `Err` leaves
+    /// `resources.tick_counter` unchanged.
+    pub fn tick(&mut self) -> Result<TickResult> {
+        let watch = Stopwatch::start();
+        let stage_durations = self
+            .schedule
             .run_tick(&mut self.world, &mut self.resources)?;
         self.resources.advance_tick();
-        Ok(())
+        Ok(TickResult {
+            tick: self.resources.tick_counter,
+            duration_us: watch.elapsed_us(),
+            stage_durations,
+        })
     }
 
     /// Immutable view of the ECS world.
@@ -189,8 +200,9 @@ mod tests {
     fn tick_advances_the_counter_exactly_once() {
         let mut sim = Simulation::new(SimulationConfig::empty(5));
         for expected in 1..=20 {
-            sim.tick().expect("tick");
+            let result = sim.tick().expect("tick");
             assert_eq!(sim.current_tick().raw(), expected);
+            assert_eq!(result.tick.raw(), expected);
         }
     }
 
@@ -198,8 +210,52 @@ mod tests {
     fn tick_with_no_systems_succeeds_and_advances() {
         let mut sim = Simulation::new(SimulationConfig::empty(5));
         assert!(sim.schedule().is_empty());
-        sim.tick().expect("empty tick ok");
+        let result = sim.tick().expect("empty tick ok");
         assert_eq!(sim.current_tick().raw(), 1);
+        assert_eq!(result.tick.raw(), 1);
+        // No systems ran → no stage entries.
+        assert!(result.stage_durations.is_empty());
+    }
+
+    #[test]
+    fn tick_result_reports_stage_and_tick_metadata() {
+        use beast_ecs::{EcsWorld, Resources, System, SystemStage};
+
+        struct Noop(SystemStage);
+        impl System for Noop {
+            fn name(&self) -> &'static str {
+                "noop"
+            }
+            fn stage(&self) -> SystemStage {
+                self.0
+            }
+            fn run(
+                &mut self,
+                _world: &mut EcsWorld,
+                _resources: &mut Resources,
+            ) -> beast_ecs::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut sim = Simulation::new(SimulationConfig::empty(11));
+        sim.register_system(Noop(SystemStage::Genetics));
+        sim.register_system(Noop(SystemStage::Ecology));
+
+        let r = sim.tick().expect("tick");
+        assert_eq!(r.tick.raw(), 1);
+        // Both stages ran exactly once — each appears in the map.
+        assert!(r.stage_durations.contains_key(&SystemStage::Genetics));
+        assert!(r.stage_durations.contains_key(&SystemStage::Ecology));
+        assert_eq!(r.stage_durations.len(), 2);
+        // Per-stage + total are monotonically consistent (total ≥ sum).
+        let sum: u64 = r.stage_durations.values().sum();
+        assert!(
+            r.duration_us >= sum,
+            "total ({}) must be ≥ sum of stages ({})",
+            r.duration_us,
+            sum
+        );
     }
 
     #[test]
