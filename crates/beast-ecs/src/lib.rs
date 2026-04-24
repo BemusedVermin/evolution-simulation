@@ -60,5 +60,5 @@ pub use world::EcsWorld;
 // private to this crate.
 pub use specs::{
     Builder, Component, DenseVecStorage, Entity, EntityBuilder, NullStorage, ReadStorage,
-    VecStorage, WriteStorage,
+    VecStorage, WorldExt, WriteStorage,
 };
