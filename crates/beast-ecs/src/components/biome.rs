@@ -49,9 +49,20 @@ pub enum BiomeKind {
 
 impl BiomeKind {
     /// String form expected by future channel manifests that filter
-    /// by terrain (e.g., "expression_conditions: { terrain: forest }").
+    /// by **terrain** (e.g., "expression_conditions: { terrain: forest }").
     /// Stable across versions — a rename would break every shipping
     /// manifest that references it.
+    ///
+    /// Distinct from the existing `biome_flag` expression-condition
+    /// kind, which is a free-form ecological/sensory niche tag (e.g.,
+    /// `complex_soundscape`, `nocturnal`). A future schema kind will
+    /// enum-constrain terrain matches to these strings — tracked in
+    /// issue #156.
+    ///
+    /// Equivalent to the snake_case form produced by
+    /// `serde_json::to_string`, locked in by the
+    /// `as_str_matches_serde_for_every_variant` test below so a new
+    /// `BiomeKind` variant can't silently desynchronise the two.
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -105,9 +116,15 @@ impl BiomeCell {
         }
     }
 
-    /// Conventional ocean cell with the spec's default 288.15K (15°C)
-    /// surface temperature and 1000mm precipitation. Used by the
-    /// world-gen default when a coordinate hasn't been classified yet.
+    /// Conventional ocean cell at the spec's default 288K (~15°C, the
+    /// integer-Kelvin approximation of 288.15K) surface temperature and
+    /// 1000mm precipitation. Used by the world-gen default when a
+    /// coordinate hasn't been classified yet.
+    ///
+    /// The 0.15K shave keeps every default constructor expressible as
+    /// an integer Q3232 literal; the climate model (S8.5) is the right
+    /// place to introduce sub-Kelvin precision when seasonal deltas
+    /// land.
     #[must_use]
     pub fn ocean() -> Self {
         Self::new(
@@ -148,6 +165,34 @@ mod tests {
     fn biome_kind_serialises_as_snake_case_in_json() {
         let s = serde_json::to_string(&BiomeKind::Forest).unwrap();
         assert_eq!(s, "\"forest\"");
+    }
+
+    #[test]
+    fn as_str_matches_serde_for_every_variant() {
+        // Lock-in: `as_str` is hand-written, `serde(rename_all =
+        // "snake_case")` is automatic. A new variant (e.g.,
+        // `TemperateForest`) gets a serde string for free but the
+        // compiler won't flag a missing `as_str` arm — it would
+        // produce a stale string. Asserting per-variant equivalence
+        // here means a missing arm fails the test on first add.
+        for variant in [
+            BiomeKind::Ocean,
+            BiomeKind::Forest,
+            BiomeKind::Plains,
+            BiomeKind::Desert,
+            BiomeKind::Mountain,
+            BiomeKind::Tundra,
+        ] {
+            let serde_form = serde_json::to_string(&variant).unwrap();
+            let trimmed = serde_form.trim_matches('"');
+            assert_eq!(
+                variant.as_str(),
+                trimmed,
+                "as_str / serde divergence for {variant:?}: as_str={:?}, serde={:?}",
+                variant.as_str(),
+                trimmed,
+            );
+        }
     }
 
     #[test]
