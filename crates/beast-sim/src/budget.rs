@@ -15,7 +15,7 @@ use beast_core::TickCounter;
 use beast_ecs::SystemStage;
 
 /// Summary of a single tick: what tick number it was, total wall-clock
-/// duration, and per-stage breakdown.
+/// duration, and per-stage + per-system breakdowns.
 ///
 /// `stage_durations` only contains entries for stages that had at least
 /// one system registered; empty stages do not appear.
@@ -31,6 +31,27 @@ pub struct TickResult {
     /// `BTreeMap` so iteration is deterministic if two tests compare
     /// serialised results.
     pub stage_durations: BTreeMap<SystemStage, u64>,
+    /// Systems that exceeded their declared `budget_us` during this
+    /// tick (S6.7). Empty when every system stayed under budget or
+    /// when every registered system declined to declare a budget.
+    /// Ordered by `(stage, registration_index)` so cross-tick diffs
+    /// are meaningful.
+    pub overruns: Vec<BudgetOverrun>,
+}
+
+/// One entry of [`TickResult::overruns`]. Purely observational — the
+/// scheduler never reads these back for control-flow decisions on the
+/// sim path (INVARIANTS §1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BudgetOverrun {
+    /// `System::name()` of the offending system.
+    pub system: &'static str,
+    /// Stage the system was registered to.
+    pub stage: SystemStage,
+    /// Declared budget in microseconds.
+    pub budget_us: u64,
+    /// Actual wall-clock duration in microseconds.
+    pub actual_us: u64,
 }
 
 /// Minimal wrapper over `std::time::Instant` so test code can audit
@@ -84,10 +105,12 @@ mod tests {
             tick: TickCounter::new(0),
             duration_us: 0,
             stage_durations: BTreeMap::new(),
+            overruns: Vec::new(),
         };
         assert_eq!(t.tick.raw(), 0);
         assert_eq!(t.duration_us, 0);
         assert!(t.stage_durations.is_empty());
+        assert!(t.overruns.is_empty());
     }
 
     #[test]

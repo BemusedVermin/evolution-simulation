@@ -18,14 +18,29 @@ use std::collections::BTreeMap;
 
 use beast_ecs::{EcsWorld, Resources, System, SystemStage};
 
-use crate::budget::Stopwatch;
+use crate::budget::{BudgetOverrun, Stopwatch};
 use crate::error::Result;
+
+/// Budget value meaning "no declared budget" — a system registered via
+/// [`SystemSchedule::register`] gets this; nothing ever overruns.
+/// Explicit constant (not `u64::MAX`) so `run_tick` can skip the
+/// overrun-recording branch cheaply.
+const NO_BUDGET: u64 = u64::MAX;
+
+/// Internal entry — a registered system plus its declared budget.
+struct SystemEntry {
+    system: Box<dyn System + Send>,
+    /// Declared budget in microseconds. `NO_BUDGET` means "don't
+    /// record overruns for this system".
+    budget_us: u64,
+}
 
 /// Ordered collection of systems keyed by [`SystemStage`].
 ///
 /// Build with [`SystemSchedule::new`], push systems with
-/// [`SystemSchedule::register`], and drive it each tick with
-/// [`SystemSchedule::run_tick`].
+/// [`SystemSchedule::register`] or
+/// [`SystemSchedule::register_with_budget`], and drive it each tick
+/// with [`SystemSchedule::run_tick`].
 #[derive(Default)]
 pub struct SystemSchedule {
     // BTreeMap → deterministic stage order; Vec inside → deterministic
@@ -34,7 +49,7 @@ pub struct SystemSchedule {
     // `Send` on the inner trait object keeps the schedule `Send` so
     // S6.3 can parallelise inside a stage via rayon without fighting
     // the trait bound.
-    systems: BTreeMap<SystemStage, Vec<Box<dyn System + Send>>>,
+    systems: BTreeMap<SystemStage, Vec<SystemEntry>>,
 }
 
 impl SystemSchedule {
@@ -44,16 +59,31 @@ impl SystemSchedule {
         Self::default()
     }
 
-    /// Register a system. Appends to the stage bucket; within-stage
-    /// order is registration order.
+    /// Register a system without a budget. Appends to the stage
+    /// bucket; within-stage order is registration order. Budgetless
+    /// systems never appear in [`crate::TickResult::overruns`].
     pub fn register<S>(&mut self, system: S)
+    where
+        S: System + Send + 'static,
+    {
+        self.register_with_budget(system, NO_BUDGET);
+    }
+
+    /// Register a system with an explicit budget in microseconds
+    /// (S6.7). Any tick where the system's wall-clock duration exceeds
+    /// `budget_us` adds an entry to [`crate::TickResult::overruns`].
+    /// The scheduler does not act on overruns — it only reports them.
+    pub fn register_with_budget<S>(&mut self, system: S, budget_us: u64)
     where
         S: System + Send + 'static,
     {
         self.systems
             .entry(system.stage())
             .or_default()
-            .push(Box::new(system));
+            .push(SystemEntry {
+                system: Box::new(system),
+                budget_us,
+            });
     }
 
     /// Run one tick's worth of systems, stage by stage in declared
@@ -66,24 +96,37 @@ impl SystemSchedule {
     /// `resources.tick_counter` being unchanged from the pre-tick
     /// value.
     ///
-    /// Returns the per-stage wall-clock-microsecond breakdown (S6.4).
-    /// Only stages that actually ran (≥ 1 registered system) appear in
-    /// the map. Timing is observation only; it must never influence
-    /// sim-state control flow (INVARIANTS §1).
+    /// Returns `(stage_durations, overruns)`. Only stages that
+    /// actually ran appear in the map; `overruns` lists systems whose
+    /// wall-clock duration exceeded their declared `budget_us` in
+    /// `(stage, registration_index)` order. Timing is observation
+    /// only — it must never influence sim-state control flow
+    /// (INVARIANTS §1).
     pub fn run_tick(
         &mut self,
         world: &mut EcsWorld,
         resources: &mut Resources,
-    ) -> Result<BTreeMap<SystemStage, u64>> {
+    ) -> Result<(BTreeMap<SystemStage, u64>, Vec<BudgetOverrun>)> {
         let mut stage_durations: BTreeMap<SystemStage, u64> = BTreeMap::new();
+        let mut overruns: Vec<BudgetOverrun> = Vec::new();
         for (stage, systems) in self.systems.iter_mut() {
-            let watch = Stopwatch::start();
-            for system in systems.iter_mut() {
-                system.run(world, resources)?;
+            let stage_watch = Stopwatch::start();
+            for entry in systems.iter_mut() {
+                let system_watch = Stopwatch::start();
+                entry.system.run(world, resources)?;
+                let actual_us = system_watch.elapsed_us();
+                if entry.budget_us != NO_BUDGET && actual_us > entry.budget_us {
+                    overruns.push(BudgetOverrun {
+                        system: entry.system.name(),
+                        stage: *stage,
+                        budget_us: entry.budget_us,
+                        actual_us,
+                    });
+                }
             }
-            stage_durations.insert(*stage, watch.elapsed_us());
+            stage_durations.insert(*stage, stage_watch.elapsed_us());
         }
-        Ok(stage_durations)
+        Ok((stage_durations, overruns))
     }
 
     /// Number of systems registered across every stage. Useful for
@@ -251,6 +294,135 @@ mod tests {
         assert_eq!(schedule.len(), 0);
         let (mut w, mut r) = scratch_world_and_resources();
         schedule.run_tick(&mut w, &mut r).expect("empty tick ok");
+    }
+
+    /// Test system that sleeps `sleep_us` microseconds before
+    /// returning. Used to deterministically exceed a budget.
+    struct SlowSystem {
+        name: &'static str,
+        stage: SystemStage,
+        sleep_us: u64,
+    }
+
+    impl System for SlowSystem {
+        fn name(&self) -> &'static str {
+            self.name
+        }
+        fn stage(&self) -> SystemStage {
+            self.stage
+        }
+        fn run(
+            &mut self,
+            _world: &mut EcsWorld,
+            _resources: &mut Resources,
+        ) -> beast_ecs::Result<()> {
+            std::thread::sleep(std::time::Duration::from_micros(self.sleep_us));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn run_tick_reports_overrun_when_system_exceeds_budget() {
+        // SlowSystem sleeps 5_000 µs; budget 500 µs → overrun. The
+        // margins are generous (10x) so this isn't flaky on loaded CI.
+        let mut schedule = SystemSchedule::new();
+        schedule.register_with_budget(
+            SlowSystem {
+                name: "slow",
+                stage: SystemStage::Ecology,
+                sleep_us: 5_000,
+            },
+            500,
+        );
+        let (mut w, mut r) = scratch_world_and_resources();
+        let (_stage_durations, overruns) = schedule.run_tick(&mut w, &mut r).expect("tick");
+        assert_eq!(overruns.len(), 1);
+        assert_eq!(overruns[0].system, "slow");
+        assert_eq!(overruns[0].stage, SystemStage::Ecology);
+        assert_eq!(overruns[0].budget_us, 500);
+        assert!(
+            overruns[0].actual_us > 500,
+            "actual_us ({}) should exceed the budget ({})",
+            overruns[0].actual_us,
+            overruns[0].budget_us
+        );
+    }
+
+    #[test]
+    fn register_without_budget_never_reports_overrun() {
+        // A system registered via `register` (no budget) can take as
+        // long as it wants without landing in overruns. Guards against
+        // accidental regression where `NO_BUDGET` stops behaving as
+        // the "don't record" sentinel.
+        let mut schedule = SystemSchedule::new();
+        schedule.register(SlowSystem {
+            name: "no-budget",
+            stage: SystemStage::Ecology,
+            sleep_us: 2_000,
+        });
+        let (mut w, mut r) = scratch_world_and_resources();
+        let (_stage_durations, overruns) = schedule.run_tick(&mut w, &mut r).expect("tick");
+        assert!(overruns.is_empty());
+    }
+
+    #[test]
+    fn overruns_are_ordered_by_stage_then_registration() {
+        // Register two over-budget systems across two stages in
+        // reverse declaration order; overruns should come back in
+        // (stage, registration_index) order.
+        let mut schedule = SystemSchedule::new();
+        schedule.register_with_budget(
+            SlowSystem {
+                name: "ecology-slow",
+                stage: SystemStage::Ecology,
+                sleep_us: 3_000,
+            },
+            100,
+        );
+        schedule.register_with_budget(
+            SlowSystem {
+                name: "genetics-slow-a",
+                stage: SystemStage::Genetics,
+                sleep_us: 3_000,
+            },
+            100,
+        );
+        schedule.register_with_budget(
+            SlowSystem {
+                name: "genetics-slow-b",
+                stage: SystemStage::Genetics,
+                sleep_us: 3_000,
+            },
+            100,
+        );
+        let (mut w, mut r) = scratch_world_and_resources();
+        let (_stage_durations, overruns) = schedule.run_tick(&mut w, &mut r).expect("tick");
+        assert_eq!(overruns.len(), 3);
+        let names: Vec<_> = overruns.iter().map(|o| o.system).collect();
+        // Genetics comes before Ecology; within Genetics registration order.
+        assert_eq!(
+            names,
+            vec!["genetics-slow-a", "genetics-slow-b", "ecology-slow"]
+        );
+    }
+
+    #[test]
+    fn under_budget_systems_are_not_reported() {
+        // System that does nothing; budget is 1 second. Never overruns.
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut schedule = SystemSchedule::new();
+        schedule.register_with_budget(
+            Recorder {
+                name: "fast",
+                stage: SystemStage::Genetics,
+                log: log.clone(),
+            },
+            1_000_000,
+        );
+        let (mut w, mut r) = scratch_world_and_resources();
+        let (_stage_durations, overruns) = schedule.run_tick(&mut w, &mut r).expect("tick");
+        assert!(overruns.is_empty());
+        assert_eq!(*log.lock().expect("log mutex poisoned"), vec!["fast"]);
     }
 
     #[test]
