@@ -9,6 +9,7 @@ members = [
     "crates/beast-interpreter",
     "crates/beast-ecs",
     "crates/beast-sim",
+    "crates/beast-serde",
 ]
 
 [workspace.package]
@@ -28,6 +29,14 @@ rand_xoshiro = { version = "0.7", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+
+# S7 (#129) — bincode 2.x for the canonical binary save format. The
+# `serde` feature surfaces the `bincode::serde::{encode_to_vec,
+# decode_from_slice}` adapter so existing `#[derive(Serialize,
+# Deserialize)]` types round-trip without a separate `Encode`/`Decode`
+# derive. `default-features = false` drops `derive` (we don't need
+# the `bincode::Encode` derive macro) and keeps the build lean.
+bincode = { version = "2.0", default-features = false, features = ["serde", "std"] }
 
 # Sprint 2: manifest + registry deps. `jsonschema` 0.46 uses the modern
 # `validator_for` API and natively supports Draft 2020-12 (matching the
@@ -64,6 +73,7 @@ beast-genome = { path = "crates/beast-genome" }
 beast-interpreter = { path = "crates/beast-interpreter" }
 beast-ecs = { path = "crates/beast-ecs" }
 beast-sim = { path = "crates/beast-sim" }
+beast-serde = { path = "crates/beast-serde" }
 
 # Dev-only
 proptest = "1.5"
