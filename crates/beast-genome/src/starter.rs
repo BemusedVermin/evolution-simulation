@@ -13,7 +13,9 @@
 //!   deterministic across runs and processes.
 //! * Lineage tags are hand-assigned in the `0xAAAA_xxxx` (grassland),
 //!   `0xBBBB_xxxx` (forest), `0xCCCC_xxxx` (tundra) ranges so a tag
-//!   identifies its origin species at a glance during debugging.
+//!   identifies its origin species at a glance during debugging. The
+//!   prefix registry — required reading before adding a fourth
+//!   starter species — lives in issue #161.
 //! * Each spec has 10–15 trait genes per `documentation/planning/
 //!   IMPLEMENTATION_PLAN.md` Sprint S8 acceptance criteria.
 //! * Each spec carries a `home_biome_tag` matching
@@ -25,9 +27,30 @@
 //!   [`StarterError::MissingChannel`] when a referenced channel is
 //!   not registered, so the failure mode is loud and the test suite
 //!   uses a minimal registry built by `tests::test_registry()`.
+//!
+//! # Bit literals: source of truth
+//!
+//! `q(value, bits)` stores raw `i64` bits as the canonical Q3232
+//! encoding. **The `value` argument is purely decorative** — it is
+//! never read at compile time or at runtime. Reviewers must audit
+//! the `bits` field, not the decimal annotation.
+//!
+//! Two safety nets keep the `bits` honest:
+//!
+//! 1. `tests::q_constants_match_decimals` recomputes the expected
+//!    bit pattern from each named decimal constant (`HALF`, `ONE`,
+//!    etc.) using `Q3232::from_num(decimal).to_bits()` and asserts
+//!    equality. A slip in any named constant fails this test on
+//!    first compile.
+//! 2. `tests::q3232_internal_repr_is_i32f32` locks the assumption
+//!    that `Q3232::from_bits(ONE).to_num::<f64>() == 1.0`. If the
+//!    `fixed` crate ever changes the internal layout of `I32F32`,
+//!    this test fails at the type-system boundary and every spec
+//!    constant has to be re-encoded.
 
 use beast_channels::{ChannelRegistry, Provenance};
 use beast_core::Q3232;
+use serde::Serialize;
 
 use crate::body_site::BodyVector;
 use crate::error::GenomeError;
@@ -65,7 +88,7 @@ pub enum StarterError {
 /// All `Q3232`-shaped fields are stored as `i64` raw bits (the
 /// internal representation of `Q3232`) so the spec can live in
 /// `const` context. The build step rehydrates them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct StarterGeneSpec {
     /// Channel registry id this gene contributes to (e.g.,
     /// `"metabolic_rate"`).
@@ -94,7 +117,12 @@ pub struct StarterGeneSpec {
 
 /// A starter species — a named blueprint that builds a [`Genome`]
 /// against the live channel registry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Only `Serialize` is derived — `Deserialize` would require
+/// owning every `&'static str`, which is out of scope for a static
+/// blueprint. Tooling that needs to *read* spec JSON should
+/// deserialise into a separate owned-string mirror type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct StarterSpec {
     /// Snake-case identifier, also used as the species name.
     pub name: &'static str,
@@ -254,7 +282,7 @@ pub const GRASSLAND_GRAZER: StarterSpec = StarterSpec {
         },
         StarterGeneSpec {
             channel_id: "skin_thickness",
-            channel_value_bits: q(0.35, 0x599_9999A),
+            channel_value_bits: q(0.35, 0x5999_999A),
             effect_magnitude_bits: q(0.4, 0x6666_6666),
             effect_radius_bits: ZERO,
             timing: Timing::Passive,
@@ -536,8 +564,8 @@ pub const TUNDRA_ENDOTHERM: StarterSpec = StarterSpec {
         },
         StarterGeneSpec {
             channel_id: "locomotion_speed",
-            channel_value_bits: q(0.35, 0x599_9999A),
-            effect_magnitude_bits: q(0.35, 0x599_9999A),
+            channel_value_bits: q(0.35, 0x5999_999A),
+            effect_magnitude_bits: q(0.35, 0x5999_999A),
             effect_radius_bits: ZERO,
             timing: Timing::Passive,
             target: Target::SelfEntity,
@@ -629,6 +657,30 @@ pub const TUNDRA_ENDOTHERM: StarterSpec = StarterSpec {
 /// * Empty regulatory networks (added by S15+ stories — see issue
 ///   #145 acceptance criteria).
 ///
+/// # Channel-position binding contract
+///
+/// **Channel vector indices are positional**: the position of a
+/// channel in the produced `EffectVector::channel` matches the
+/// channel's iteration position in the registry (BTreeMap-sorted by
+/// id). This means a channel's position is stable only as long as
+/// no channel sorting alphabetically before it is added or removed.
+/// Adding `aquatic_efficiency` to a registry that already had
+/// `metabolic_rate` would shift every position from `metabolic_rate`
+/// onward by one slot.
+///
+/// Implications for callers:
+///
+/// * **Saved genomes carry no registry fingerprint**, so a save
+///   created against registry A cannot be safely loaded against
+///   registry B without an external check. The fingerprint guard
+///   for `SaveFile` is tracked in issue #160 — until that lands,
+///   the simulation must rebuild starter genomes (call this
+///   function again) rather than reload them whenever the channel
+///   registry changes.
+/// * Mods that introduce new channels must not insert them into a
+///   running world; channels are append-only at world creation
+///   only.
+///
 /// # Errors
 ///
 /// * [`StarterError::MissingChannel`] when a referenced channel id
@@ -716,6 +768,14 @@ mod tests {
     /// Build a registry containing every channel referenced by the
     /// shipping starter species. Test-only — production code loads
     /// the registry from manifests on disk.
+    ///
+    /// **WARNING:** every channel is registered with
+    /// `ChannelFamily::Metabolic` for simplicity. Tests that depend
+    /// on family-keyed lookups (e.g.,
+    /// `registry.ids_by_family(ChannelFamily::Locomotion)`) must
+    /// build their own registry — this fixture will return an empty
+    /// iterator for any non-metabolic family. Per-family taxonomy is
+    /// out of scope until the core channel manifest set lands.
     fn test_registry() -> ChannelRegistry {
         // Collect every distinct channel id used by the starter
         // specs. Sorted by BTreeSet so test failures are stable.
@@ -802,9 +862,21 @@ mod tests {
     fn home_biome_tags_are_known_biomekind_strings() {
         // Mirrors `BiomeKind::as_str()` in `beast-ecs`. We can't
         // import `BiomeKind` here (layer DAG) but we *can* lock in
-        // that the spawner has six valid choices; if BiomeKind ever
-        // gains a new variant the spawner side can pick it up
-        // without changing this list.
+        // that the spawner has six valid choices.
+        //
+        // **Rename hazard:** if a `BiomeKind` variant is renamed
+        // (e.g., `Plains` → `Grassland`, changing as_str output to
+        // `"grassland"`), this test still passes as long as
+        // `KNOWN` is also updated. To prevent silent drift:
+        //
+        //   1. Update `BiomeKind::as_str()` in beast-ecs.
+        //   2. Update the affected spec's `home_biome_tag` in this
+        //      file.
+        //   3. Update the `KNOWN` list below.
+        //
+        // The unification refactor that collapses `BiomeTag` and
+        // `BiomeKind` (tracked in the S8 epic) will replace this
+        // hand-maintained mirror with a real type lock-in.
         const KNOWN: &[&str] = &["ocean", "forest", "plains", "desert", "mountain", "tundra"];
         for spec in STARTER_SPECIES {
             assert!(
@@ -897,5 +969,123 @@ mod tests {
                 spec.name
             );
         }
+    }
+
+    #[test]
+    fn q3232_internal_repr_is_i32f32() {
+        // Lock-in: the entire spec encoding assumes
+        // `Q3232::from_bits(x).to_num::<f64>() == x as f64 / 2^32`.
+        // This is true today because `Q3232 = I32F32` (32 integer
+        // bits + 32 fractional bits, stored as a plain `i64`). If
+        // the `fixed` crate ever changes this layout — or if the
+        // project migrates to a different fixed-point library —
+        // this test fails immediately and every spec constant has
+        // to be re-encoded. Without this guard, the migration
+        // would silently produce wrong values throughout
+        // STARTER_SPECIES.
+        assert_eq!(Q3232::from_bits(ONE).to_num::<f64>(), 1.0_f64);
+        assert_eq!(Q3232::from_bits(HALF).to_num::<f64>(), 0.5_f64);
+        assert_eq!(Q3232::from_bits(ZERO).to_num::<f64>(), 0.0_f64);
+    }
+
+    #[test]
+    fn q_constants_match_decimals() {
+        // Per the module-doc warning, the `q(value, bits)` helper
+        // discards `value` at compile time — bits are the source of
+        // truth. This test recomputes the expected bits for each
+        // named constant from the corresponding decimal using
+        // `Q3232::from_num(decimal).to_bits()` and asserts equality
+        // so a stale named constant fails the test on first
+        // compile. Drift in *inline* hex values within spec
+        // entries is still possible by hand; the named-constant
+        // checks here cover the most-reused values.
+        assert_eq!(ZERO, Q3232::from_num(0_i32).to_bits());
+        assert_eq!(ONE_TENTH, Q3232::from_num(0.1_f64).to_bits());
+        assert_eq!(ONE_QUARTER, Q3232::from_num(0.25_f64).to_bits());
+        assert_eq!(HALF, Q3232::from_num(0.5_f64).to_bits());
+        assert_eq!(THREE_QUARTERS, Q3232::from_num(0.75_f64).to_bits());
+        assert_eq!(FOUR_FIFTHS, Q3232::from_num(0.8_f64).to_bits());
+        assert_eq!(ONE, Q3232::from_num(1_i32).to_bits());
+    }
+
+    #[test]
+    fn build_returns_invalid_genome_when_spec_has_out_of_range_value() {
+        // Negative test for the `StarterError::InvalidGenome`
+        // branch — without this, the three `.map_err` chains in
+        // `build_starter_genome` are uncovered and an upstream
+        // refactor could silently start swallowing errors.
+        // Synthesise a one-gene spec with effect_magnitude_bits
+        // representing 1.5 (out of [0, 1]) so `EffectVector::new`
+        // rejects it. `static` items are required because
+        // `StarterSpec.genes` is `&'static [...]`.
+        static BAD_GENES: [StarterGeneSpec; 1] = [StarterGeneSpec {
+            channel_id: "metabolic_rate",
+            channel_value_bits: HALF,
+            // 1.5 in Q3232 = 1.5 * 2^32 = 0x1_8000_0000.
+            effect_magnitude_bits: 0x1_8000_0000,
+            effect_radius_bits: ZERO,
+            timing: Timing::Passive,
+            target: Target::SelfEntity,
+            body_surface_bits: ZERO,
+            body_region_bits: ZERO,
+            body_bilateral: false,
+            body_coverage_bits: ZERO,
+            lineage_tag: 0xDEAD_0001,
+        }];
+        static BAD_SPEC: StarterSpec = StarterSpec {
+            name: "synthesised_bad_spec",
+            description: "test fixture for InvalidGenome path",
+            home_biome_tag: "plains",
+            genes: &BAD_GENES,
+        };
+        // Build a single-channel registry containing the channel
+        // the spec references, so we get past MissingChannel and
+        // hit InvalidGenome.
+        let mut registry = ChannelRegistry::new();
+        registry
+            .register(ChannelManifest {
+                id: "metabolic_rate".into(),
+                family: ChannelFamily::Metabolic,
+                description: "test fixture".into(),
+                range: Range {
+                    min: Q3232::ZERO,
+                    max: Q3232::ONE,
+                    units: "dimensionless".into(),
+                },
+                mutation_kernel: MutationKernel {
+                    sigma: Q3232::from_num(0.1_f64),
+                    bounds_policy: BoundsPolicy::Clamp,
+                    genesis_weight: Q3232::ONE,
+                    correlation_with: Vec::new(),
+                },
+                composition_hooks: Vec::new(),
+                expression_conditions: Vec::new(),
+                scale_band: ScaleBand {
+                    min_kg: Q3232::ZERO,
+                    max_kg: Q3232::from_num(1000_i32),
+                },
+                body_site_applicable: false,
+                provenance: ChannelProv::Core,
+            })
+            .expect("test registry registration");
+
+        let err = build_starter_genome(&BAD_SPEC, &registry).unwrap_err();
+        match err {
+            StarterError::InvalidGenome { species, source: _ } => {
+                assert_eq!(species, "synthesised_bad_spec");
+            }
+            other => panic!("expected InvalidGenome, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn starter_spec_round_trips_through_serialize() {
+        // Smoke-test the new `Serialize` derive so a future
+        // refactor that breaks JSON output is caught here. We do
+        // not test Deserialize because the spec carries `&'static
+        // str`, which is intentionally non-roundtrippable.
+        let s = serde_json::to_string(&GRASSLAND_GRAZER).expect("serialize");
+        assert!(s.contains("grassland_grazer"));
+        assert!(s.contains("metabolic_rate"));
     }
 }
