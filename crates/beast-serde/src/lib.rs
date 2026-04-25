@@ -31,9 +31,11 @@
 #![forbid(unsafe_code)]
 
 pub mod manager;
+pub mod replay;
 pub mod save;
 
 pub use manager::{
     load_from_path, load_game, primitive_fingerprint, save_game, save_to_path, ManagerError,
 };
+pub use replay::{InputEvent, ReplayError, ReplayJournal, REPLAY_FORMAT_VERSION};
 pub use save::SaveFile;
