@@ -54,4 +54,4 @@ pub use determinism::compute_state_hash;
 pub use error::{Result, SimError};
 pub use schedule::SystemSchedule;
 pub use simulation::{Simulation, SimulationConfig};
-pub use spawner::{apply_spawn_plans, plan_spawns, SpawnPlan, SpawnerError};
+pub use spawner::{apply_spawn_plans, plan_spawns, SpawnPlan, SpawnerError, SpeciesId};
