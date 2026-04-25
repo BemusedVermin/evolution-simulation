@@ -40,10 +40,12 @@ use thiserror::Error;
 /// for mod-specific UI state.
 const DEFAULT_FORBIDDEN_LITERALS: &[&str] = &["bestiary_discovered"];
 
-/// Default forbidden prefix: any key starting with this string is
+/// Default forbidden prefixes: any key starting with one of these is
 /// rejected. Catches the `ui_*` family wholesale (camera, scroll,
-/// filter selections, etc.) per System 22 §2.6.
-const DEFAULT_FORBIDDEN_PREFIX: &str = "ui_";
+/// filter selections, etc.) per System 22 §2.6. Extended at runtime
+/// via [`SaveValidator::with_forbidden_prefix`] for mod-specific UI
+/// state families (e.g., a mod shipping a `mod_ui_*` set).
+const DEFAULT_FORBIDDEN_PREFIXES: &[&str] = &["ui_"];
 
 /// Validates parsed save JSON against the UI-state-in-save invariant.
 ///
@@ -60,7 +62,7 @@ const DEFAULT_FORBIDDEN_PREFIX: &str = "ui_";
 #[derive(Debug, Clone)]
 pub struct SaveValidator {
     forbidden_literals: Vec<String>,
-    forbidden_prefix: String,
+    forbidden_prefixes: Vec<String>,
 }
 
 impl Default for SaveValidator {
@@ -79,7 +81,10 @@ impl SaveValidator {
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
-            forbidden_prefix: DEFAULT_FORBIDDEN_PREFIX.to_string(),
+            forbidden_prefixes: DEFAULT_FORBIDDEN_PREFIXES
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
         }
     }
 
@@ -89,6 +94,15 @@ impl SaveValidator {
     #[must_use]
     pub fn with_forbidden(mut self, key: impl Into<String>) -> Self {
         self.forbidden_literals.push(key.into());
+        self
+    }
+
+    /// Add a forbidden prefix — any key beginning with this string is
+    /// rejected. Useful for mod-specific UI families (e.g., a mod
+    /// shipping a `mod_ui_*` set). Per PR #138 review.
+    #[must_use]
+    pub fn with_forbidden_prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.forbidden_prefixes.push(prefix.into());
         self
     }
 
@@ -111,7 +125,10 @@ impl SaveValidator {
 
     fn is_forbidden(&self, key: &str) -> bool {
         self.forbidden_literals.iter().any(|f| f == key)
-            || (!self.forbidden_prefix.is_empty() && key.starts_with(&self.forbidden_prefix))
+            || self
+                .forbidden_prefixes
+                .iter()
+                .any(|p| !p.is_empty() && key.starts_with(p.as_str()))
     }
 
     fn walk(&self, value: &Value, path: &mut PathBuf) -> Result<(), ValidationError> {
@@ -196,7 +213,20 @@ impl PathBuf {
                     if i > 0 {
                         out.push('.');
                     }
-                    out.push_str(name);
+                    // Per PR #138 review (MEDIUM): if the field name
+                    // itself contains characters used by the path
+                    // grammar (`.` for separator, `[` / `]` for
+                    // indices), wrap it in backticks so the diagnostic
+                    // is unambiguous. `entities[1].extras.bar` and a
+                    // single field named `entities[1].extras.bar`
+                    // would otherwise render identically.
+                    if name.contains(['.', '[', ']']) {
+                        out.push('`');
+                        out.push_str(name);
+                        out.push('`');
+                    } else {
+                        out.push_str(name);
+                    }
                 }
                 Segment::Index(idx) => {
                     use std::fmt::Write as _;
@@ -295,21 +325,82 @@ mod tests {
         // The shipping `SaveFile::to_json` output must always be clean.
         // If the save shape ever sprouts a UI-derived field, this test
         // catches it.
+        //
+        // Per PR #138 review (LOW): exercise a populated SaveFile with
+        // a non-empty `extras` map on at least one entity — that's the
+        // attack surface the validator guards. The previous version of
+        // this test only validated an empty world.
         use crate::save::SaveFile;
         use beast_channels::ChannelRegistry;
+        use beast_ecs::components::{Age, Creature, Mass};
+        use beast_ecs::{Builder, MarkerKind};
         use beast_primitives::PrimitiveRegistry;
         use beast_sim::{Simulation, SimulationConfig};
 
-        let sim = Simulation::new(SimulationConfig {
+        let mut sim = Simulation::new(SimulationConfig {
             world_seed: 1,
             channels: ChannelRegistry::new(),
             primitives: PrimitiveRegistry::new(),
         });
-        let save = crate::manager::save_game(&sim).unwrap();
+        // Spawn a creature so SaveFile.entities is non-empty.
+        let entity = sim
+            .world_mut()
+            .create_entity()
+            .with(Creature)
+            .with(Age::new(7))
+            .with(Mass::new(beast_core::Q3232::from_num(3)))
+            .build();
+        sim.resources_mut()
+            .entity_index
+            .insert(entity, MarkerKind::Creature);
+
+        let mut save = crate::manager::save_game(&sim).unwrap();
+        // Manually populate `extras` on the entity so the validator
+        // walks a non-trivial subtree. The keys here are deliberately
+        // *allowed* (no UI prefix, no forbidden literal) — the assertion
+        // is that valid extras pass validation.
+        if let Some(rec) = save.entities.first_mut() {
+            rec.extras
+                .insert("origin_seed".into(), serde_json::json!(42));
+            rec.extras
+                .insert("biome_hint".into(), serde_json::json!("forest"));
+        } else {
+            unreachable!("test fixture must have an entity")
+        }
+
         let s = save.to_json().unwrap();
         let value: serde_json::Value = serde_json::from_str(&s).unwrap();
         SaveValidator::new().validate(&value).unwrap();
         let _ = SaveFile::from_json(&s).unwrap(); // sanity: round-trips
+    }
+
+    #[test]
+    fn caller_can_register_extra_forbidden_prefix() {
+        // Per PR #138 review (MEDIUM): mod-specific UI families need
+        // prefix extension. Confirms `with_forbidden_prefix` rejects
+        // every key under the prefix.
+        let v = json!({"mod_ui_camera_x": 0, "mod_ui_filter": "all"});
+        let validator = SaveValidator::new().with_forbidden_prefix("mod_ui_");
+        let err = validator.validate(&v).unwrap_err();
+        assert!(matches!(err, ValidationError::ForbiddenKey { .. }));
+        // Without the prefix registration, both keys are allowed.
+        SaveValidator::new().validate(&v).unwrap();
+    }
+
+    #[test]
+    fn path_renderer_escapes_field_names_with_path_chars() {
+        // Per PR #138 review (MEDIUM): if a field name contains `.` /
+        // `[` / `]`, the diagnostic must distinguish it from a real
+        // path segment.
+        let v = json!({
+            "weird.key.with.dots": {"ui_inner": 1}
+        });
+        let err = SaveValidator::new().validate(&v).unwrap_err();
+        match err {
+            ValidationError::ForbiddenKey { path, .. } => {
+                assert_eq!(path, "`weird.key.with.dots`.ui_inner");
+            }
+        }
     }
 
     #[test]
