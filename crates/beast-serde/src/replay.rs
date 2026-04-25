@@ -38,6 +38,14 @@ use thiserror::Error;
 /// independently of [`crate::save::SAVE_FORMAT_VERSION`] because the
 /// journal layout can drift on its own — adding an `InputEvent`
 /// variant does not necessarily change the save envelope.
+///
+/// **Naming note (per PR #137 review)**: `beast_genome::save::SAVE_FORMAT_VERSION`
+/// is a `u32 = 1` because that envelope predates Sprint 7 and is a
+/// separate single-genome format with no migration story. The whole-world
+/// save (`SaveFile`) and this `ReplayJournal` use semver-string
+/// `format_version` because the migration registry (S7.5) is keyed on
+/// strings and treats them as ordered identifiers. The two genome and
+/// world-save schemes deliberately do not share a registry.
 pub const REPLAY_FORMAT_VERSION: &str = "0.1.0";
 
 /// Recorded events that drove the simulation forward, keyed by the
@@ -77,8 +85,20 @@ impl ReplayJournal {
     /// Append `event` under the given tick. Multiple calls with the
     /// same tick stack in insertion order — a future replay will play
     /// them back in that same order.
+    ///
+    /// Sim-side callers hold a [`TickCounter`]; pass it directly. For
+    /// external tooling (test fixtures, fuzz harnesses, replay
+    /// editors) that doesn't want a `beast-core` dep just to wrap a
+    /// raw tick number, use [`Self::record_raw`].
     pub fn record(&mut self, tick: TickCounter, event: InputEvent) {
-        self.events.entry(tick.raw()).or_default().push(event);
+        self.record_raw(tick.raw(), event);
+    }
+
+    /// Like [`Self::record`] but takes the tick as a raw `u64`. Per
+    /// PR #137 review (HIGH): keeps external tooling free of a
+    /// `beast-core` dep just to call `tick.raw()`.
+    pub fn record_raw(&mut self, tick: u64, event: InputEvent) {
+        self.events.entry(tick).or_default().push(event);
     }
 
     /// All events that should fire at `tick`, in insertion order.
@@ -86,10 +106,14 @@ impl ReplayJournal {
     /// tick.
     #[must_use]
     pub fn events_at(&self, tick: TickCounter) -> &[InputEvent] {
-        self.events
-            .get(&tick.raw())
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
+        self.events_at_raw(tick.raw())
+    }
+
+    /// Like [`Self::events_at`] but takes the tick as a raw `u64`.
+    /// Symmetric with [`Self::record_raw`].
+    #[must_use]
+    pub fn events_at_raw(&self, tick: u64) -> &[InputEvent] {
+        self.events.get(&tick).map(Vec::as_slice).unwrap_or(&[])
     }
 
     /// Total number of recorded events across every tick. Useful for
@@ -224,14 +248,38 @@ mod tests {
             j.record(TickCounter::new(tick), InputEvent::Noop);
         }
         let s = j.to_json().unwrap();
-        // Crude scan: find each tick key in the order it must appear.
-        let pos: Vec<usize> = ["\"1\"", "\"3\"", "\"7\"", "\"50\"", "\"100\"", "\"999\""]
-            .iter()
-            .map(|key| s.find(key).expect("key missing"))
-            .collect();
-        let mut sorted = pos.clone();
-        sorted.sort_unstable();
-        assert_eq!(pos, sorted, "tick keys not in ascending order");
+
+        // Per PR #137 review (MEDIUM): the previous `str::find("\"1\"")`
+        // approach would false-positive once a real `InputEvent` variant
+        // carries a numeric payload. We can't round-trip through
+        // `serde_json::Value` either — the default `serde_json::Map`
+        // is `BTreeMap<String, Value>` whose iteration is *lexicographic*
+        // over strings ("1" < "100" < "3"), losing the numeric order.
+        //
+        // Instead, isolate the events sub-string between `"events":{`
+        // and the next `}` at depth 0, then scan only that slice for
+        // the unambiguous `"<n>":` key pattern. Event payloads (`[`-
+        // delimited arrays of objects) cannot start with `"<n>":` in
+        // the events scope (each value starts with `[`), so this is
+        // safe even after S13+ payloads land.
+        let events_start = s.find("\"events\":{").expect("events object");
+        let events_slice = &s[events_start + "\"events\":".len()..];
+        // Find each key in expected ascending order; assert each later
+        // key appears AFTER the previous one in the slice.
+        let expected = [
+            "\"1\":", "\"3\":", "\"7\":", "\"50\":", "\"100\":", "\"999\":",
+        ];
+        let mut last_pos = 0usize;
+        for key in expected {
+            let p = events_slice
+                .find(key)
+                .unwrap_or_else(|| panic!("missing key {key} in events object: {events_slice}"));
+            assert!(
+                p >= last_pos,
+                "key {key} appeared before previous key (pos {p} < {last_pos})"
+            );
+            last_pos = p;
+        }
     }
 
     #[test]
