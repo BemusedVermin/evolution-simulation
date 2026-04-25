@@ -33,7 +33,6 @@ use std::collections::BTreeMap;
 
 use beast_channels::RegistryFingerprint;
 use beast_core::prng::Prng;
-use beast_core::Q3232;
 use beast_ecs::components::{
     Age, DevelopmentalStage, GenomeComponent, HealthState, Mass, Position, Species, Velocity,
 };
@@ -59,7 +58,7 @@ pub const SAVE_FORMAT_VERSION: &str = "0.1.0";
 /// manifest files on disk, loaded at process start. The fingerprints
 /// guard against loading a save against a divergent vocabulary, which
 /// would silently break replay determinism.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SaveFile {
     /// Schema version stamp. Must equal [`SAVE_FORMAT_VERSION`] for the
@@ -100,6 +99,7 @@ impl SaveFile {
     /// here, since every field is statically sized or a length-prefixed
     /// `Vec`/`BTreeMap`).
     pub fn to_bincode(&self) -> Result<Vec<u8>, SaveError> {
+        self.assert_entities_sorted();
         let cfg = bincode::config::standard();
         bincode::serde::encode_to_vec(self, cfg).map_err(|e| SaveError::Bincode(e.to_string()))
     }
@@ -110,11 +110,21 @@ impl SaveFile {
     /// # Errors
     ///
     /// Returns [`SaveError::Bincode`] on any decoder failure (truncated
-    /// input, version mismatch, etc.).
+    /// input, version mismatch, **or trailing bytes after the first
+    /// record**). The trailing-bytes check exists so a caller passing a
+    /// concatenated stream (journal blob, fuzz fixture with checksum
+    /// trailer) receives a loud failure instead of silently getting only
+    /// the first record. Per PR #135 review.
     pub fn from_bincode(bytes: &[u8]) -> Result<Self, SaveError> {
         let cfg = bincode::config::standard();
-        let (decoded, _consumed) = bincode::serde::decode_from_slice::<Self, _>(bytes, cfg)
+        let (decoded, consumed) = bincode::serde::decode_from_slice::<Self, _>(bytes, cfg)
             .map_err(|e| SaveError::Bincode(e.to_string()))?;
+        if consumed != bytes.len() {
+            return Err(SaveError::Bincode(format!(
+                "trailing bytes after save record: consumed {consumed}, slice was {} bytes",
+                bytes.len()
+            )));
+        }
         Ok(decoded)
     }
 
@@ -127,7 +137,21 @@ impl SaveFile {
     ///
     /// Returns [`SaveError::Json`] on encoder failure.
     pub fn to_json(&self) -> Result<String, SaveError> {
+        self.assert_entities_sorted();
         serde_json::to_string(self).map_err(SaveError::Json)
+    }
+
+    /// Debug-only sanity: `entities` must be sorted by `id` for the
+    /// save to be deterministic. Producers (today only
+    /// `crate::manager::save_game`) build the vec from a `BTreeMap`
+    /// so the invariant holds by construction; this guard catches
+    /// future hand-built fixtures or out-of-band manipulation. Per
+    /// PR #135 review.
+    fn assert_entities_sorted(&self) {
+        debug_assert!(
+            self.entities.windows(2).all(|w| w[0].id <= w[1].id),
+            "SaveFile::entities must be sorted ascending by id; found out-of-order entry"
+        );
     }
 
     /// Restore a `SaveFile` from JSON produced by [`Self::to_json`].
@@ -146,8 +170,15 @@ impl SaveFile {
 /// 8-element `Vec` so a future stream addition (e.g., `rng_climate`)
 /// requires a deliberate field bump + migration step rather than a
 /// silent index shift.
+///
+/// **No `#[serde(deny_unknown_fields)]` here** — when a future `Stream`
+/// variant adds a field, an old save with the old field set is meant
+/// to flow through the migration registry (S7.5), not die at decode
+/// with a misleading "missing field" error. The top-level [`SaveFile`]
+/// keeps `deny_unknown_fields` because envelope-level surprises (a
+/// rogue UI flag, a typo) should fail loud; per-subtype strictness
+/// would defeat the migration story. Per PR #135 review.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct PrngStreams {
     /// Genetic mutation operators.
     pub genetics: Prng,
@@ -206,7 +237,14 @@ pub struct SerializedEntity {
     /// Per-entity opaque scratch data the save layer doesn't yet model.
     /// Reserved for forward-compatible additions in S8+; today this is
     /// always an empty map.
-    pub extras: BTreeMap<String, Q3232>,
+    ///
+    /// Typed as `serde_json::Value` so a future caller can stash a
+    /// `u64` counter, a boolean flag, or a nested struct without
+    /// forcing a breaking format change — the whole point of an
+    /// "extras" escape hatch. JSON `Value` round-trips through both
+    /// bincode and serde_json without losing structure. Per PR #135
+    /// review (was `BTreeMap<String, Q3232>`).
+    pub extras: BTreeMap<String, serde_json::Value>,
 }
 
 /// Marker-component presence flag. Mirrors `beast_ecs::MarkerKind` but
@@ -248,6 +286,7 @@ pub enum SaveError {
 mod tests {
     use super::*;
     use beast_core::prng::{Prng, Stream};
+    use beast_core::Q3232;
 
     fn sample_save() -> SaveFile {
         let master = Prng::from_seed(0xDEAD_BEEF_CAFE_F00D);

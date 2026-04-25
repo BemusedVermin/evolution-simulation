@@ -199,7 +199,6 @@ dependencies = [
  "beast-channels",
  "beast-core",
  "beast-ecs",
- "beast-genome",
  "beast-primitives",
  "bincode",
  "serde",
