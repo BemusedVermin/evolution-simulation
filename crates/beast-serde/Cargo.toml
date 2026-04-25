@@ -1,0 +1,39 @@
+[package]
+name = "beast-serde"
+description = "Save/load, replay journaling, and deterministic serialization for the Beast Evolution Game."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = true
+
+[dependencies]
+beast-core = { workspace = true }
+beast-channels = { workspace = true }
+beast-primitives = { workspace = true }
+# `GenomeComponent` reaches us through `beast_ecs::components` (which
+# wraps `beast_genome::Genome`); we never name `beast_genome` directly
+# in this crate. Per PR #135 review: removed the redundant direct dep
+# to avoid version-skew risk if `beast-ecs` and `beast-genome` diverge.
+beast-ecs = { workspace = true }
+bincode = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+# Floats are forbidden on the sim path (INVARIANTS §1). The save layer
+# is sim-adjacent and writes sim state verbatim; keeping the same
+# escalation here prevents float values from sneaking in via custom
+# serializers.
+float_arithmetic = "deny"
