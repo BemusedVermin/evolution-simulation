@@ -29,6 +29,10 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+# S8.2 (#142) — round-trip tests for new components serialise via JSON
+# to verify the snake_case wire form. The runtime uses bincode through
+# beast-serde; serde_json is dev-only here.
+serde_json = { workspace = true }
 
 [lints.rust]
 unsafe_code = "forbid"

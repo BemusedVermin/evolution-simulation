@@ -136,6 +136,7 @@ dependencies = [
  "beast-primitives",
  "proptest",
  "serde",
+ "serde_json",
  "specs",
  "thiserror",
 ]
