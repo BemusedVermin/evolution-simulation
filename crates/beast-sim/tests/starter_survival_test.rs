@@ -28,6 +28,13 @@ use beast_ecs::components::{Age, Creature, Mass, Position};
 use beast_ecs::{Builder, EcsWorld, MarkerKind, Resources, System, SystemStage, WorldExt};
 use beast_sim::{compute_state_hash, Simulation, SimulationConfig};
 
+/// Q3232 representation of `0.5` — the cell-centre offset applied
+/// when translating a cell coordinate to a world position. Built
+/// from raw bits so no f64 literal appears on the sim path
+/// (`I32F32`'s binary point is after bit 31, so `1 << 31 = 0.5`).
+/// Mirrors `beast_sim::spawner::HALF_CELL` once S8.4 (#163) lands.
+const HALF_CELL: Q3232 = Q3232::from_bits(1_i64 << 31);
+
 /// Trivial aging system mirroring `tests/determinism_test.rs`. Kept
 /// local (not exposed from beast-sim) because the production
 /// physiology module hasn't shipped yet.
@@ -35,7 +42,9 @@ use beast_sim::{compute_state_hash, Simulation, SimulationConfig};
 /// SYNC: keep in step with `tests/determinism_test.rs::AgingSystem`
 /// and `crates/beast-serde/tests/replay_determinism_test.rs::AgingSystem`.
 /// All three test fixtures must implement the same arithmetic so the
-/// M1, M2, and S8 stability gates verify the same thing.
+/// M1, M2, and S8 stability gates verify the same thing. Issue #165
+/// tracks the build-time enforcement extraction (move into
+/// `tests/common/` short-term, `beast-test-utils` crate long-term).
 struct AgingSystem;
 
 impl System for AgingSystem {
@@ -77,14 +86,21 @@ fn build_seeded_population(seed: u64, width: u32, height: u32, n_creatures: usiz
     sim.register_system(AgingSystem);
 
     // Spread n_creatures across the grid in a deterministic stride.
-    // A real spawner uses PRNG-rejection placement (S8.4); the
-    // stride keeps this test self-contained without losing the
-    // "creatures occupy distinct cells" property a real spawner
-    // would respect.
+    // A real spawner uses PRNG-rejection placement (S8.4).
+    //
+    // NOTE: stride placement is uniform over `cell_index` (1-D) but
+    // *not* uniform in 2-D space — for n_creatures=50, width=32,
+    // height=32, cell indices `0, 20, 40, ...` cluster across early
+    // rows before wrapping. Sufficient for pure tick-loop tests with
+    // no spatial systems active. Tests that add spatial assertions
+    // must build their own fixture or wait for the real spawner
+    // (S8.4 #163) to land.
+    assert!(n_creatures > 0, "n_creatures must be at least 1");
     let total_cells = (width as u64) * (height as u64);
     assert!(
         n_creatures as u64 <= total_cells,
-        "{n_creatures} creatures don't fit in {width}×{height} = {total_cells} cells",
+        "{n_creatures} creatures don't fit in {width}×{height} = {total_cells} cells; \
+         reduce n_creatures or increase the grid dimensions",
     );
     let stride = total_cells / (n_creatures as u64);
 
@@ -93,10 +109,11 @@ fn build_seeded_population(seed: u64, width: u32, height: u32, n_creatures: usiz
         let cell_x = (cell_index % u64::from(width)) as u32;
         let cell_y = (cell_index / u64::from(width)) as u32;
         // Centre on cell. Mirrors `beast_sim::spawner::cell_to_position`
-        // which lands once S8.4 (#163) merges; same +0.5 offset.
+        // which lands once S8.4 (#163) merges; same +0.5 offset via
+        // HALF_CELL.
         let position = Position::new(
-            Q3232::from_num(cell_x).saturating_add(Q3232::from_bits(1_i64 << 31)),
-            Q3232::from_num(cell_y).saturating_add(Q3232::from_bits(1_i64 << 31)),
+            Q3232::from_num(cell_x).saturating_add(HALF_CELL),
+            Q3232::from_num(cell_y).saturating_add(HALF_CELL),
         );
         let entity = sim
             .world_mut()
@@ -119,6 +136,12 @@ fn fifty_creatures_survive_one_hundred_ticks() {
     // No metabolism / death system in S8 yet, so "survive" means
     // (a) the tick loop runs without panicking and (b) the
     // creature count is unchanged.
+    //
+    // TODO(S15): once metabolism/death lands, strengthen this to
+    // assert that *some* creatures die after a long-enough run —
+    // today the assertion is vacuously true and would stay green
+    // even if the death system has a bug preventing it from killing
+    // anything.
     const N_CREATURES: usize = 50;
     const TICKS: usize = 100;
     const SEED: u64 = 0xCAFE_BABE;
@@ -148,7 +171,7 @@ fn ages_advance_uniformly_for_population() {
     // entities (e.g., if entity_index iteration order ever
     // diverges from storage order).
     const N_CREATURES: usize = 50;
-    const TICKS: u64 = 100;
+    const TICKS: usize = 100;
     const SEED: u64 = 0x1234_5678_9ABC_DEF0;
 
     let mut sim = build_seeded_population(SEED, 32, 32, N_CREATURES);
@@ -165,11 +188,12 @@ fn ages_advance_uniformly_for_population() {
         .entities_of(MarkerKind::Creature)
         .collect();
     assert_eq!(creatures.len(), N_CREATURES);
+    let expected_ticks = TICKS as u64;
     for entity in creatures {
         let age = ages.get(entity).expect("age component present");
         assert_eq!(
-            age.ticks, TICKS,
-            "creature {entity:?} aged to {} ticks, expected {TICKS}",
+            age.ticks, expected_ticks,
+            "creature {entity:?} aged to {} ticks, expected {expected_ticks}",
             age.ticks,
         );
     }
@@ -200,11 +224,18 @@ fn determinism_holds_for_starter_population() {
 }
 
 #[test]
-fn population_count_is_stable_over_long_run() {
-    // 1000 ticks (one full season cycle worth) — extends the
-    // 100-tick test to the duration mentioned in the seasonal
-    // demo criterion. Once S8.5's climate model lands a follow-up
-    // can assert seasonal-cycle invariants here.
+fn population_count_is_stable_over_one_season_cycle() {
+    // 1000 ticks = one full season cycle per the design spec
+    // (epic #20 demo criterion: "season cycles every 1000 ticks").
+    // Today this is the same shape as the 100-tick test with more
+    // iterations and a different seed — the 10× duration costs
+    // ~negligibly and serves as a regression guard for slow drift
+    // (e.g., a future system that leaks one entity every N ticks).
+    //
+    // TODO(S8.5/#162): once the climate model is wired into the
+    // tick loop, assert that the season here matches the predicted
+    // sequence (Spring → Summer → Autumn → Winter → Spring) over
+    // the full cycle.
     const N_CREATURES: usize = 50;
     const TICKS: usize = 1000;
     const SEED: u64 = 0xCAFE_F00D;
