@@ -1,0 +1,457 @@
+//! Beast Evolution Game — deterministic climate model.
+//!
+//! Sprint S8.5 (issue #144). Computes per-tick effective temperature
+//! and precipitation for a biome cell, layered over the **base**
+//! values stored in `BiomeCell` (S8.2) or returned from
+//! `beast_world::generate_archipelago` (S8.1). The base values are
+//! never mutated — climate is a pure function of `(tick, base,
+//! latitude)`, so the simulation can rewind, fast-forward, or
+//! sample arbitrary ticks without disturbing world state.
+//!
+//! # Crate scope
+//!
+//! Standalone L3 crate. Depends only on `beast-core` (for `Q3232`)
+//! plus serde/thiserror — no link with `beast-world` or `beast-ecs`,
+//! so this PR rebases independently of S8.1 (#159) and S8.2 (#147).
+//! The spawner / tick loop bridges the (base, latitude) inputs to
+//! this model from whichever component layer it loads them from.
+//!
+//! # Closed-cycle invariant
+//!
+//! Per `documentation/INVARIANTS.md` §1, world dynamics must be
+//! tick-deterministic and round-trip exactly. The seasonal cycle is
+//! a triangle wave with period `season_period_ticks` (default 1000):
+//! at tick `0`, `period/2`, `period`, etc., the seasonal contribution
+//! is exactly zero, so after one full cycle the visible value returns
+//! to base — no accumulated rounding error from a sinusoidal
+//! approximation.
+//!
+//! Triangle wave (rather than `sin`) was chosen because:
+//!
+//! * Q3232 has no `sin`/`cos` primitive; importing one would pull in
+//!   the `cordic` or `libm` dependency surface.
+//! * Triangle wave is exactly representable in fixed-point.
+//! * Visual smoothness matters less for climate than for procedural
+//!   audio — the gameplay impact is "spring is mid-temperature,
+//!   summer is the peak."
+//!
+//! # Season ordering
+//!
+//! Phase windows for the default 1000-tick period:
+//!
+//! | Phase (ticks) | Season | Triangle wave | Notes |
+//! |---|---|---|---|
+//! | 0 …  249 | Spring | rising 0 → +1 | crosses zero at the start |
+//! | 250 … 499 | Summer | falling +1 → 0 | peak warmth at the start |
+//! | 500 … 749 | Autumn | falling 0 → −1 | crosses zero at the start |
+//! | 750 … 999 | Winter | rising −1 → 0 | trough cold at the start |
+//!
+//! Demo criterion (epic #20): "season cycles every 1000 ticks" —
+//! [`season_at_tick`] returns the four variants in this order.
+
+#![forbid(unsafe_code)]
+#![warn(missing_docs)]
+#![warn(rust_2018_idioms)]
+
+use beast_core::Q3232;
+use serde::{Deserialize, Serialize};
+
+/// Four-season cycle. Variant order matches the canonical season
+/// ordering for the default config; see [`season_at_tick`].
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum Season {
+    /// Phase 0..0.25 of the seasonal cycle. Triangle wave rises
+    /// from 0 to +1.
+    #[default]
+    Spring,
+    /// Phase 0.25..0.5. Triangle wave falls from +1 to 0.
+    Summer,
+    /// Phase 0.5..0.75. Triangle wave falls from 0 to −1.
+    Autumn,
+    /// Phase 0.75..1.0. Triangle wave rises from −1 to 0.
+    Winter,
+}
+
+/// Climate model parameters.
+///
+/// All deltas are amplitudes — the *peak* deviation from base. The
+/// seasonal triangle wave multiplies these by a value in `[-1, 1]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClimateConfig {
+    /// Length of one full season cycle in simulation ticks. Default
+    /// `1000`. Must be ≥ 4 (one tick per season minimum).
+    pub season_period_ticks: u32,
+    /// Peak temperature deviation from base, in Kelvin (Q3232).
+    /// Default `15` — a moderate seasonal swing.
+    pub seasonal_temperature_amplitude: Q3232,
+    /// Peak precipitation deviation from base, in mm/year (Q3232).
+    /// Default `200`.
+    pub seasonal_precipitation_amplitude: Q3232,
+    /// Per-unit-latitude temperature lapse: cells at `|lat| = 1`
+    /// (the poles) are colder than the equator by this amount, in
+    /// Kelvin (Q3232). Default `40` — gives a ~40K equator-to-pole
+    /// temperature gradient.
+    pub latitude_temperature_lapse: Q3232,
+}
+
+impl ClimateConfig {
+    /// Default config matching the demo criterion in epic #20:
+    /// season cycles every 1000 ticks; ±15K seasonal swing; 40K
+    /// equator-to-pole lapse.
+    #[must_use]
+    pub fn default_mvp() -> Self {
+        Self {
+            season_period_ticks: 1000,
+            seasonal_temperature_amplitude: Q3232::from_num(15_i32),
+            seasonal_precipitation_amplitude: Q3232::from_num(200_i32),
+            latitude_temperature_lapse: Q3232::from_num(40_i32),
+        }
+    }
+}
+
+/// Effective climate at a tick, after applying seasonal and
+/// latitudinal modifiers to the base values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClimateReading {
+    /// Effective temperature at this tick, in Kelvin (Q3232).
+    pub temperature_kelvin: Q3232,
+    /// Effective precipitation at this tick, in mm/year (Q3232).
+    pub precipitation_mm_per_year: Q3232,
+    /// Which seasonal phase this tick falls in.
+    pub season: Season,
+}
+
+/// Errors returned by the climate model.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum ClimateError {
+    /// `season_period_ticks` was below the four-season minimum.
+    #[error("season_period_ticks must be >= 4; got {0}")]
+    SeasonPeriodTooSmall(u32),
+}
+
+/// Compute the season at a given tick under the supplied config.
+///
+/// `tick % period` is bucketed into four equal quarters. With the
+/// default `period = 1000`, ticks 0..249 are Spring, 250..499 are
+/// Summer, 500..749 are Autumn, 750..999 are Winter, and tick 1000
+/// is Spring again — closing the cycle.
+#[must_use]
+pub fn season_at_tick(tick: u64, season_period: u32) -> Season {
+    debug_assert!(season_period >= 4, "season_period must be >= 4");
+    let period = u64::from(season_period.max(4));
+    let phase = tick % period;
+    // Quarter boundaries: floor((phase * 4) / period). Multiplying
+    // first avoids losing precision for small periods.
+    let quarter = (phase.saturating_mul(4)) / period;
+    match quarter {
+        0 => Season::Spring,
+        1 => Season::Summer,
+        2 => Season::Autumn,
+        _ => Season::Winter,
+    }
+}
+
+/// Triangle wave with period `period` ticks, returning a Q3232 in
+/// `[-1, 1]`. At tick 0 it is exactly 0; at tick `period/4` it is
+/// exactly +1; at tick `period/2` it is 0 again; at tick
+/// `3*period/4` it is exactly -1; at tick `period` it is 0,
+/// completing the cycle.
+///
+/// Pure integer arithmetic — no `sin`, no float, no rounding drift
+/// across cycles. This is the function that satisfies the
+/// closed-cycle invariant.
+fn seasonal_triangle(tick: u64, period: u32) -> Q3232 {
+    debug_assert!(period >= 4, "period must be >= 4");
+    let period = u64::from(period.max(4));
+    let phase = tick % period;
+    // half_period = period / 2; quarter = period / 4.
+    let half = period / 2;
+    let quarter = period / 4;
+
+    // Map phase to a "sawtooth" in [-half, +half] with the apex at
+    // quarter, then divide by quarter to get [-1, +1].
+    //
+    // Phase ranges (assuming period is a multiple of 4 for clarity;
+    // the integer arithmetic still works for non-multiples but the
+    // peak is one tick off):
+    //   [0, quarter):           value rises 0 → +quarter
+    //   [quarter, 3*quarter):   value falls +quarter → -quarter
+    //   [3*quarter, period):    value rises -quarter → 0
+    let signed: i64 = if phase < quarter {
+        // 0 .. quarter
+        phase as i64
+    } else if phase < quarter + half {
+        // quarter .. 3*quarter — descending arm
+        let from_apex = (phase - quarter) as i64;
+        (quarter as i64) - from_apex
+    } else {
+        // 3*quarter .. period — ascending arm
+        let from_trough = (phase - quarter - half) as i64;
+        -(quarter as i64) + from_trough
+    };
+
+    // Convert to Q3232 ratio: signed / quarter.
+    if quarter == 0 {
+        return Q3232::ZERO;
+    }
+    let ratio_bits = (signed << 32) / (quarter as i64);
+    Q3232::from_bits(ratio_bits)
+}
+
+/// Compute the effective climate at a tick.
+///
+/// `abs_latitude` is `|lat|` in `[0, 1]`, where 0 is the equator
+/// and 1 is a pole — matches the latitude returned by
+/// [`crate::archipelago::generate_archipelago`].
+///
+/// Returns the season for downstream UI/labels.
+///
+/// # Errors
+///
+/// * [`ClimateError::SeasonPeriodTooSmall`] when
+///   `config.season_period_ticks < 4`.
+pub fn effective_climate(
+    config: &ClimateConfig,
+    base_temp_kelvin: Q3232,
+    base_precipitation: Q3232,
+    abs_latitude: Q3232,
+    tick: u64,
+) -> Result<ClimateReading, ClimateError> {
+    if config.season_period_ticks < 4 {
+        return Err(ClimateError::SeasonPeriodTooSmall(
+            config.season_period_ticks,
+        ));
+    }
+
+    let season = season_at_tick(tick, config.season_period_ticks);
+    let triangle = seasonal_triangle(tick, config.season_period_ticks);
+
+    // Temperature modifier:
+    //   seasonal: ± amplitude * triangle
+    //   latitudinal: - lapse * abs_latitude  (poles colder)
+    let seasonal_temp = config
+        .seasonal_temperature_amplitude
+        .saturating_mul(triangle);
+    let lapse_temp = config
+        .latitude_temperature_lapse
+        .saturating_mul(abs_latitude);
+    let temperature_kelvin = base_temp_kelvin
+        .saturating_add(seasonal_temp)
+        .saturating_sub(lapse_temp);
+
+    // Precipitation modifier: ± amplitude * triangle (no lapse;
+    // moisture is set per-cell at world gen).
+    let seasonal_precip = config
+        .seasonal_precipitation_amplitude
+        .saturating_mul(triangle);
+    let precipitation_mm_per_year = base_precipitation.saturating_add(seasonal_precip);
+
+    Ok(ClimateReading {
+        temperature_kelvin,
+        precipitation_mm_per_year,
+        season,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn season_cycles_every_period() {
+        // Demo criterion (epic #20): the season cycles every 1000
+        // ticks. tick 0 and tick 1000 must produce the same season.
+        let p = 1000;
+        assert_eq!(season_at_tick(0, p), Season::Spring);
+        assert_eq!(season_at_tick(1000, p), Season::Spring);
+        assert_eq!(season_at_tick(2000, p), Season::Spring);
+    }
+
+    #[test]
+    fn season_order_is_canonical() {
+        let p = 1000;
+        // Quarter boundaries.
+        assert_eq!(season_at_tick(0, p), Season::Spring);
+        assert_eq!(season_at_tick(249, p), Season::Spring);
+        assert_eq!(season_at_tick(250, p), Season::Summer);
+        assert_eq!(season_at_tick(499, p), Season::Summer);
+        assert_eq!(season_at_tick(500, p), Season::Autumn);
+        assert_eq!(season_at_tick(749, p), Season::Autumn);
+        assert_eq!(season_at_tick(750, p), Season::Winter);
+        assert_eq!(season_at_tick(999, p), Season::Winter);
+    }
+
+    #[test]
+    fn season_default_is_spring() {
+        // Avoids "tick 0 looks like a hard winter" when the
+        // simulation hasn't been told about climate yet.
+        assert_eq!(Season::default(), Season::Spring);
+    }
+
+    #[test]
+    fn seasonal_triangle_starts_and_ends_at_zero() {
+        // Closed-cycle invariant: tick 0 and tick `period` both
+        // produce a triangle value of 0, so applying it to any base
+        // value returns the original.
+        let p = 1000;
+        assert_eq!(seasonal_triangle(0, p), Q3232::ZERO);
+        assert_eq!(seasonal_triangle(1000, p), Q3232::ZERO);
+        assert_eq!(seasonal_triangle(2000, p), Q3232::ZERO);
+    }
+
+    #[test]
+    fn seasonal_triangle_peak_is_at_quarter() {
+        let p = 1000;
+        let peak = seasonal_triangle(250, p);
+        assert_eq!(peak, Q3232::ONE);
+    }
+
+    #[test]
+    fn seasonal_triangle_trough_is_at_three_quarters() {
+        let p = 1000;
+        let trough = seasonal_triangle(750, p);
+        assert_eq!(trough, -Q3232::ONE);
+    }
+
+    #[test]
+    fn seasonal_triangle_zero_crossings() {
+        let p = 1000;
+        assert_eq!(seasonal_triangle(0, p), Q3232::ZERO);
+        assert_eq!(seasonal_triangle(500, p), Q3232::ZERO);
+    }
+
+    #[test]
+    fn seasonal_triangle_is_pure_function() {
+        let p = 1000;
+        for tick in [0_u64, 100, 250, 500, 750, 999] {
+            let a = seasonal_triangle(tick, p);
+            let b = seasonal_triangle(tick, p);
+            assert_eq!(a, b);
+        }
+    }
+
+    #[test]
+    fn seasonal_triangle_stays_in_range() {
+        let p = 1000;
+        for tick in 0..2000 {
+            let v = seasonal_triangle(tick, p);
+            assert!(
+                v >= -Q3232::ONE && v <= Q3232::ONE,
+                "out of range at tick {tick}: {v:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn effective_climate_returns_base_at_tick_zero_at_equator() {
+        // Tick 0 is the spring equinox (triangle = 0); equator is
+        // |lat| = 0 (no lapse). So effective values equal base.
+        let cfg = ClimateConfig::default_mvp();
+        let r = effective_climate(
+            &cfg,
+            Q3232::from_num(288_i32),
+            Q3232::from_num(1000_i32),
+            Q3232::ZERO,
+            0,
+        )
+        .unwrap();
+        assert_eq!(r.temperature_kelvin, Q3232::from_num(288_i32));
+        assert_eq!(r.precipitation_mm_per_year, Q3232::from_num(1000_i32));
+        assert_eq!(r.season, Season::Spring);
+    }
+
+    #[test]
+    fn effective_climate_returns_base_after_one_full_cycle() {
+        // Closed-cycle invariant: tick 0 and tick `period` produce
+        // identical readings.
+        let cfg = ClimateConfig::default_mvp();
+        let base_temp = Q3232::from_num(283_i32);
+        let base_precip = Q3232::from_num(750_i32);
+        let lat = Q3232::from_num(0.3_f64);
+        let r0 = effective_climate(&cfg, base_temp, base_precip, lat, 0).unwrap();
+        let r1000 = effective_climate(&cfg, base_temp, base_precip, lat, 1000).unwrap();
+        assert_eq!(r0.temperature_kelvin, r1000.temperature_kelvin);
+        assert_eq!(
+            r0.precipitation_mm_per_year,
+            r1000.precipitation_mm_per_year
+        );
+        assert_eq!(r0.season, r1000.season);
+    }
+
+    #[test]
+    fn effective_climate_summer_peak_is_warmer_than_base() {
+        let cfg = ClimateConfig::default_mvp();
+        let base_temp = Q3232::from_num(288_i32);
+        // Tick 250 = summer solstice (triangle = +1) → +amplitude K.
+        let r = effective_climate(&cfg, base_temp, Q3232::ZERO, Q3232::ZERO, 250).unwrap();
+        assert_eq!(r.season, Season::Summer);
+        assert_eq!(
+            r.temperature_kelvin,
+            base_temp.saturating_add(cfg.seasonal_temperature_amplitude),
+        );
+    }
+
+    #[test]
+    fn effective_climate_winter_trough_is_colder_than_base() {
+        let cfg = ClimateConfig::default_mvp();
+        let base_temp = Q3232::from_num(288_i32);
+        // Tick 750 = winter solstice (triangle = -1) → -amplitude K.
+        let r = effective_climate(&cfg, base_temp, Q3232::ZERO, Q3232::ZERO, 750).unwrap();
+        assert_eq!(r.season, Season::Winter);
+        assert_eq!(
+            r.temperature_kelvin,
+            base_temp.saturating_sub(cfg.seasonal_temperature_amplitude),
+        );
+    }
+
+    #[test]
+    fn effective_climate_pole_is_colder_than_equator() {
+        // At the same tick, |lat| = 1.0 should be `lapse` colder
+        // than |lat| = 0.0.
+        let cfg = ClimateConfig::default_mvp();
+        let base_temp = Q3232::from_num(288_i32);
+        let r_eq = effective_climate(&cfg, base_temp, Q3232::ZERO, Q3232::ZERO, 0).unwrap();
+        let r_pole = effective_climate(&cfg, base_temp, Q3232::ZERO, Q3232::ONE, 0).unwrap();
+        assert_eq!(
+            r_eq.temperature_kelvin
+                .saturating_sub(r_pole.temperature_kelvin),
+            cfg.latitude_temperature_lapse,
+        );
+    }
+
+    #[test]
+    fn effective_climate_is_deterministic_across_calls() {
+        let cfg = ClimateConfig::default_mvp();
+        let a = effective_climate(
+            &cfg,
+            Q3232::from_num(290_i32),
+            Q3232::from_num(800_i32),
+            Q3232::from_num(0.5_f64),
+            123,
+        )
+        .unwrap();
+        let b = effective_climate(
+            &cfg,
+            Q3232::from_num(290_i32),
+            Q3232::from_num(800_i32),
+            Q3232::from_num(0.5_f64),
+            123,
+        )
+        .unwrap();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn rejects_season_period_below_four() {
+        let mut cfg = ClimateConfig::default_mvp();
+        cfg.season_period_ticks = 3;
+        let err = effective_climate(&cfg, Q3232::from_num(288_i32), Q3232::ZERO, Q3232::ZERO, 0)
+            .unwrap_err();
+        assert!(matches!(err, ClimateError::SeasonPeriodTooSmall(3)));
+    }
+}
