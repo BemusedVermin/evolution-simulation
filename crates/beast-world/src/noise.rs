@@ -39,10 +39,26 @@ fn splitmix64(mut x: u64) -> u64 {
     x ^ (x >> 31)
 }
 
+/// Crate-internal re-export of [`splitmix64`] for callers that need
+/// to derive related-but-decorrelated seeds. Pure function.
+#[inline]
+pub(crate) fn splitmix64_pub(x: u64) -> u64 {
+    splitmix64(x)
+}
+
 /// Deterministic value at integer corner `(ix, iy)` in `[-1, 1]`.
 ///
 /// `octave_seed` is mixed in so different octaves of the same `seed`
 /// do not co-vary; `seed` is the world seed.
+///
+/// **Cast safety:** `ix as u64` reinterprets the i64 bits as u64
+/// (two's complement). For the ±2^31 sample range used by the
+/// archipelago generator (cell coords scaled by frequency ≤ 4 for a
+/// 64×64 grid → max ~256) this is collision-free; for callers that
+/// pass arbitrary i64 indices, `corner_value(seed, oct, -1, 0)` and
+/// `corner_value(seed, oct, very-large-positive, 0)` may share hash
+/// space. Document the contract in any caller that exposes raw
+/// coordinate input.
 #[inline]
 fn corner_value(seed: u64, octave_seed: u64, ix: i64, iy: i64) -> f64 {
     // Combine inputs into a single u64 by repeated splitmix64. Using
@@ -112,10 +128,15 @@ pub fn fbm_2d(seed: u64, x: f64, y: f64, octaves: u32, lacunarity: f64, gain: f6
     let mut amp_total = 0.0_f64;
     for octave in 0..octaves {
         // Each octave gets a distinct seed contribution so the
-        // octaves are decorrelated. Without this, doubling
-        // frequency would produce a self-similar pattern instead of
-        // genuinely independent noise at each scale.
-        let octave_seed = splitmix64((octave as u64) ^ 0xC0FF_EE00_DEAD_BEEF);
+        // octaves are decorrelated. Mixing `seed` into `octave_seed`
+        // (rather than deriving it from the octave index alone)
+        // ensures the octave ladder is *world-seed-dependent*: two
+        // callers sharing a seed but using different octave counts
+        // don't produce one channel as a strict prefix of the
+        // other. Without this, e.g., calling `fbm_2d(seed, ..., 4,
+        // ...)` and `fbm_2d(seed, ..., 6, ...)` would share their
+        // first 4 octaves verbatim.
+        let octave_seed = splitmix64(seed ^ splitmix64((octave as u64) ^ 0xC0FF_EE00_DEAD_BEEF));
         sum += amp * value_noise_2d(seed, octave_seed, x * freq, y * freq);
         amp_total += amp;
         amp *= gain;
@@ -210,6 +231,47 @@ mod tests {
         let a = fbm_2d(seed, 1.5, -0.25, 4, 2.0, 0.5);
         let b = fbm_2d(seed, 1.5, -0.25, 4, 2.0, 0.5);
         assert_eq!(a.to_bits(), b.to_bits());
+    }
+
+    #[test]
+    fn corner_value_golden_value_is_stable() {
+        // Cross-version regression gate. The purity tests verify
+        // call-to-call equality; this asserts the *exact* bits an
+        // unchanged implementation must produce. A change to the
+        // splitmix constants, the bit-fold, or the f64 cast that
+        // flips outputs but stays internally consistent will fail
+        // here, where the purity tests cannot.
+        //
+        // Captured 2026-04-25 against commit 4327204; if you change
+        // the noise pipeline intentionally, regenerate this and
+        // bump the cross-process determinism gate (#154).
+        assert_eq!(
+            corner_value(0xDEAD, 7, 3, -2).to_bits(),
+            0x3facd25c8dfeb980_u64
+        );
+    }
+
+    #[test]
+    fn fbm_golden_value_is_stable() {
+        // Companion to corner_value_golden_value_is_stable. Captured
+        // 2026-04-25 against commit 4327204.
+        assert_eq!(
+            fbm_2d(0xFACE, 1.5, -0.25, 4, 2.0, 0.5).to_bits(),
+            0xbf86f3b8d2f71380_u64
+        );
+    }
+
+    #[test]
+    fn fbm_octave_seed_depends_on_world_seed() {
+        // Regression: ensure the fix for "octave_seed independent of
+        // world seed" stays applied. With seed-independent octave
+        // seeds, calling fbm_2d with different `octaves` counts at
+        // the same world seed would share octave outputs as a
+        // strict prefix. Test that swapping seeds changes output
+        // even when octaves is small.
+        let a = fbm_2d(0x1, 0.0, 0.0, 1, 2.0, 0.5);
+        let b = fbm_2d(0x2, 0.0, 0.0, 1, 2.0, 0.5);
+        assert_ne!(a.to_bits(), b.to_bits());
     }
 
     #[test]

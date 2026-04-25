@@ -16,9 +16,15 @@
 //!   `|2 * (y / height) - 1|` — 0 at the equator, 1 at the poles.
 
 use beast_core::Q3232;
+use serde::{Deserialize, Serialize};
 
 /// World-generation parameters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// The (config, seed) pair is the full input to
+/// [`crate::generate_archipelago`]. Both must be persisted together
+/// to reproduce a stored [`crate::Archipelago`] — `WorldConfig`
+/// derives `Serialize`/`Deserialize` for that reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorldConfig {
     /// Number of cells along the X axis. Must be ≥ 1.
     pub width: u32,
@@ -35,8 +41,11 @@ pub struct WorldConfig {
     pub gain: Q3232,
     /// Per-octave frequency multiplier (typical `2.0`).
     pub lacunarity: Q3232,
-    /// Cells with normalised elevation below this are [`crate::BiomeTag::Ocean`].
-    /// Must be in `[0, 1]`.
+    /// Cells with normalised elevation strictly below this are
+    /// [`crate::BiomeTag::Ocean`]. Cells exactly equal to `sea_level`
+    /// fall through to land classification (the asymmetry vs.
+    /// `mountain_threshold`'s strict `>` is documented in
+    /// [`crate::archipelago`]). Must be in `[0, 1]`.
     pub sea_level: Q3232,
     /// Cells with normalised elevation above this become
     /// [`crate::BiomeTag::Mountain`]. Must be > `sea_level` and ≤ `1`.

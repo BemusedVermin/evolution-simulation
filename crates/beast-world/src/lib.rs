@@ -61,4 +61,4 @@ pub mod noise;
 pub use archipelago::{generate_archipelago, Archipelago, GenerationError};
 pub use biome_tag::BiomeTag;
 pub use config::WorldConfig;
-pub use noise::value_noise_2d;
+pub use noise::{fbm_2d, value_noise_2d};

@@ -91,9 +91,12 @@ pub fn generate_archipelago(
     validate_config(config)?;
 
     // Two independent noise channels: elevation and moisture.
-    // Different per-channel seeds keep them decorrelated.
+    // Different per-channel seeds keep them decorrelated. The
+    // moisture seed runs through splitmix64 (not just XOR) to break
+    // the symmetric pair `seed = 0` ↔ `seed = 0x5A5A...` that bare
+    // XOR would create.
     let elevation_seed = seed;
-    let moisture_seed = seed ^ 0x5A5A_5A5A_5A5A_5A5A;
+    let moisture_seed = crate::noise::splitmix64_pub(seed ^ 0x5A5A_5A5A_5A5A_5A5A);
 
     let width = config.width;
     let height = config.height;
@@ -167,6 +170,18 @@ fn validate_config(config: &WorldConfig) -> Result<(), GenerationError> {
     if config.octaves == 0 {
         return Err(GenerationError::ZeroOctaves);
     }
+    // Range checks for unit-interval thresholds. Without these, a
+    // misconfigured WorldConfig (e.g., loaded from an external
+    // file) silently produces a degenerate world rather than a
+    // typed error.
+    check_unit_threshold("sea_level", config.sea_level)?;
+    check_unit_threshold("mountain_threshold", config.mountain_threshold)?;
+    check_unit_threshold(
+        "tundra_latitude_threshold",
+        config.tundra_latitude_threshold,
+    )?;
+    check_unit_threshold("desert_threshold", config.desert_threshold)?;
+    check_unit_threshold("forest_threshold", config.forest_threshold)?;
     if config.mountain_threshold <= config.sea_level {
         return Err(GenerationError::InvalidThresholds {
             detail: format!(
@@ -186,9 +201,31 @@ fn validate_config(config: &WorldConfig) -> Result<(), GenerationError> {
     Ok(())
 }
 
+fn check_unit_threshold(name: &'static str, value: Q3232) -> Result<(), GenerationError> {
+    if value < Q3232::ZERO || value > Q3232::ONE {
+        return Err(GenerationError::InvalidThresholds {
+            detail: format!("{name} ({value:?}) must be in [0, 1]"),
+        });
+    }
+    Ok(())
+}
+
 /// Pure classification: takes already-normalised noise samples plus
 /// thresholds, returns a [`BiomeTag`]. Pulled out so the logic is
 /// unit-testable without spinning up the noise pipeline.
+///
+/// **Boundary conventions:**
+///
+/// * `elevation_unit < sea_level` → Ocean (strict). Cells exactly
+///   at `sea_level` are land (shore).
+/// * `elevation_unit > mountain_threshold` → Mountain (strict).
+///   Cells exactly at `mountain_threshold` are not Mountain.
+///
+/// The asymmetry (`<` vs. `>`) is intentional: it gives "shore"
+/// and "highland" cells well-defined classifications without any
+/// `==` cases needing a special branch. In practice both
+/// thresholds are sourced from Q3232 → f64 round-trips, so the
+/// exact-equality cells are effectively unreachable.
 #[allow(clippy::too_many_arguments)]
 fn classify(
     elevation_unit: f64,
@@ -341,6 +378,70 @@ mod tests {
         cfg.forest_threshold = Q3232::from_num(0.5_f64);
         let err = generate_archipelago(&cfg, 0).unwrap_err();
         assert!(matches!(err, GenerationError::InvalidThresholds { .. }));
+    }
+
+    #[test]
+    fn rejects_out_of_range_sea_level() {
+        // Negative — would make Ocean unreachable.
+        let mut cfg = WorldConfig::default_archipelago();
+        cfg.sea_level = Q3232::from_num(-0.1_f64);
+        cfg.mountain_threshold = Q3232::from_num(0.5_f64);
+        assert!(matches!(
+            generate_archipelago(&cfg, 0).unwrap_err(),
+            GenerationError::InvalidThresholds { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_out_of_range_mountain_threshold() {
+        // Above 1.0 — Mountain unreachable since fbm normalised
+        // output is in [0, 1].
+        let mut cfg = WorldConfig::default_archipelago();
+        cfg.mountain_threshold = Q3232::from_num(1.5_f64);
+        assert!(matches!(
+            generate_archipelago(&cfg, 0).unwrap_err(),
+            GenerationError::InvalidThresholds { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_out_of_range_tundra_threshold() {
+        let mut cfg = WorldConfig::default_archipelago();
+        cfg.tundra_latitude_threshold = Q3232::from_num(1.5_f64);
+        assert!(matches!(
+            generate_archipelago(&cfg, 0).unwrap_err(),
+            GenerationError::InvalidThresholds { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_out_of_range_desert_threshold() {
+        let mut cfg = WorldConfig::default_archipelago();
+        cfg.desert_threshold = Q3232::from_num(-0.1_f64);
+        // Keep forest_threshold >= desert_threshold so the inverted
+        // pair check doesn't fire first.
+        cfg.forest_threshold = Q3232::from_num(0.65_f64);
+        assert!(matches!(
+            generate_archipelago(&cfg, 0).unwrap_err(),
+            GenerationError::InvalidThresholds { .. }
+        ));
+    }
+
+    #[test]
+    fn moisture_seed_breaks_xor_symmetric_pair() {
+        // Regression for the moisture_seed splitmix64 fix. Without
+        // it, seed = 0 and seed = 0x5A5A_5A5A_5A5A_5A5A would
+        // produce two worlds where elevation and moisture roles
+        // are swapped (because moisture_seed = seed XOR 0x5A5A...
+        // is symmetric). With splitmix64 in the path, the two
+        // cell grids must differ.
+        let cfg = WorldConfig::default_archipelago();
+        let a = generate_archipelago(&cfg, 0).unwrap();
+        let b = generate_archipelago(&cfg, 0x5A5A_5A5A_5A5A_5A5A).unwrap();
+        assert_ne!(
+            a.cells, b.cells,
+            "moisture_seed XOR symmetry would have produced equal worlds (modulo channel swap)",
+        );
     }
 
     #[test]

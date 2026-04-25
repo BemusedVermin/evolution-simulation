@@ -19,6 +19,16 @@ use serde::{Deserialize, Serialize};
 /// reads the BiomeKind source and asserts equivalence whenever
 /// beast-ecs is in scope (the test is skipped when beast-ecs is not
 /// a dev-dep, so this crate stays standalone-buildable).
+///
+/// # Ordering contract
+///
+/// `PartialOrd + Ord` are derived from declaration order. New
+/// variants **must be appended at the end** to preserve the sort
+/// order of any `BTreeMap<BiomeTag, _>` consumers. Combined with
+/// `#[non_exhaustive]`, this gives consumers append-only growth
+/// without breaking previously-built `BTreeMap` ordering. The
+/// `ord_is_declaration_order` test locks the *current* order; the
+/// append-only rule is what protects it from being shuffled.
 #[derive(
     Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
