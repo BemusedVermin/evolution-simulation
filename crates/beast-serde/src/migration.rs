@@ -13,7 +13,9 @@
 //!
 //! # How a migration step looks
 //!
-//! ```ignore
+//! ```no_run
+//! use beast_serde::{Migration, MigrationError};
+//!
 //! struct V0_1_0_to_V0_2_0;
 //! impl Migration for V0_1_0_to_V0_2_0 {
 //!     fn from_version(&self) -> &'static str { "0.1.0" }
@@ -27,6 +29,11 @@
 //!     }
 //! }
 //! ```
+//!
+//! `no_run` (rather than `ignore`): the example compiles every CI run
+//! so a future signature change to `Migration` or rename of
+//! `MigrationError::Step` surfaces as a doc-test compile failure
+//! instead of silently rotting. Per PR #139 review (MEDIUM).
 //!
 //! # Determinism
 //!
@@ -142,17 +149,26 @@ impl MigrationRegistry {
     ///   accepts the current `format_version` and it is not the
     ///   target. The version is reported verbatim.
     /// * [`MigrationError::ForwardCompat`] if the input version is
-    ///   *newer* than `current_version` (lexicographic comparison; for
-    ///   the semver ordering we use, this is sufficient as long as
-    ///   versions stay zero-padded). Reported as a distinct variant so
-    ///   tooling can prompt for a binary upgrade rather than mark the
-    ///   save corrupt.
+    ///   *newer* than `current_version`. Comparison goes through
+    ///   [`compare_semver`], which parses both as
+    ///   `MAJOR.MINOR.PATCH` integer triples and orders them
+    ///   numerically — so `0.10.0 > 0.9.0` resolves correctly (the
+    ///   previous lexicographic compare misclassified this as
+    ///   "unknown version" instead of forward-compat).
+    /// * [`MigrationError::CycleDetected`] if a registry contains a
+    ///   cycle (e.g., A→B and B→A both registered honestly). Caught
+    ///   by tracking seen versions in a [`BTreeSet`] for the duration
+    ///   of one `upgrade` call.
     /// * [`MigrationError::Step`] if the step itself returned an
     ///   error.
     /// * [`MigrationError::WrongOutputVersion`] if a step claimed to
     ///   produce version X but the resulting value's `format_version`
     ///   is not X.
     pub fn upgrade(&self, mut value: Value) -> Result<Value, MigrationError> {
+        // Per PR #139 review (HIGH): track seen versions so an A→B→A
+        // cycle in the registry surfaces as a clear error rather than
+        // looping until OOM/stack exhaustion.
+        let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         loop {
             let current = value
                 .get("format_version")
@@ -164,12 +180,19 @@ impl MigrationRegistry {
                 return Ok(value);
             }
 
-            // Forward-compat detection: only declare it when the input
-            // version is strictly greater than the binary's current
-            // version *and* no migration step accepts that input. The
-            // second condition prevents false positives in a future
-            // where the binary supports a downgrade chain.
-            if current.as_str() > self.current_version && !self.by_from.contains_key(&current) {
+            if !seen.insert(current.clone()) {
+                return Err(MigrationError::CycleDetected(current));
+            }
+
+            // Forward-compat detection. Compare numerically via
+            // `compare_semver`; lexicographic compare on strings
+            // misclassifies "0.10.0" vs "0.9.0" (per PR #139 HIGH).
+            // Only declare ForwardCompat when no step accepts the
+            // current input — preserves the original "step exists,
+            // try it" precedence.
+            if compare_semver(&current, self.current_version).is_gt()
+                && !self.by_from.contains_key(&current)
+            {
                 return Err(MigrationError::ForwardCompat {
                     binary: self.current_version,
                     save: current,
@@ -240,6 +263,38 @@ pub enum MigrationError {
         /// Version actually written into the migrated value.
         actual: String,
     },
+
+    /// `upgrade` revisited a `format_version` it had already migrated
+    /// from in this call — the registry contains a cycle (e.g., A→B
+    /// and B→A both registered honestly). The previous step succeeded;
+    /// the cycle is detected on the next iteration.
+    #[error("migration cycle detected at version `{0}` — registry contains conflicting steps")]
+    CycleDetected(String),
+}
+
+/// Compare two semver strings as integer triples. Returns
+/// [`std::cmp::Ordering`] in the natural numeric order: `0.10.0` is
+/// greater than `0.9.0`.
+///
+/// Permissive parser: any component that fails to parse as `u64` is
+/// treated as `0`. Production callers (`MigrationRegistry::upgrade`)
+/// only ever feed in values from `SAVE_FORMAT_VERSION` or registered
+/// migration `from`/`to` strings, both of which are well-formed by
+/// construction. The fallback exists so an upstream rogue
+/// `format_version: "abc.def.ghi"` produces a deterministic ordering
+/// rather than panicking on the load path.
+///
+/// Per PR #139 review (HIGH).
+fn compare_semver(a: &str, b: &str) -> std::cmp::Ordering {
+    fn parts(v: &str) -> [u64; 3] {
+        let mut out = [0u64; 3];
+        for (i, segment) in v.splitn(3, '.').enumerate() {
+            // `splitn(3, '.')` yields at most 3 segments; index 0..=2 is safe.
+            out[i] = segment.parse().unwrap_or(0);
+        }
+        out
+    }
+    parts(a).cmp(&parts(b))
 }
 
 #[cfg(test)]
@@ -296,6 +351,77 @@ mod tests {
             }
             other => panic!("unexpected: {other:?}"),
         }
+    }
+
+    #[test]
+    fn forward_compat_handles_two_digit_minor() {
+        // Per PR #139 review (HIGH): the previous lex compare misclassified
+        // "0.10.0" > "0.9.0" as `false`. Numeric compare gets it right.
+        let r = MigrationRegistry::new("0.9.0");
+        let value = json!({ "format_version": "0.10.0" });
+        match r.upgrade(value).unwrap_err() {
+            MigrationError::ForwardCompat { binary, save } => {
+                assert_eq!(binary, "0.9.0");
+                assert_eq!(save, "0.10.0");
+            }
+            other => panic!("expected ForwardCompat, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cycle_detection_breaks_a_to_b_to_a_loop() {
+        // Per PR #139 review (HIGH): A→B and B→A both registered
+        // honestly create an oscillating chain that `WrongOutputVersion`
+        // does not catch (each step writes the version it promised).
+        // The seen-set guard turns this into `CycleDetected` rather
+        // than spinning forever.
+        struct SetVersion {
+            from: &'static str,
+            to: &'static str,
+        }
+        impl Migration for SetVersion {
+            fn from_version(&self) -> &'static str {
+                self.from
+            }
+            fn to_version(&self) -> &'static str {
+                self.to
+            }
+            fn migrate(&self, mut value: Value) -> Result<Value, MigrationError> {
+                value["format_version"] = json!(self.to);
+                Ok(value)
+            }
+        }
+
+        let mut r = MigrationRegistry::new("0.99.0");
+        r.register(Box::new(SetVersion {
+            from: "0.1.0",
+            to: "0.2.0",
+        }));
+        r.register(Box::new(SetVersion {
+            from: "0.2.0",
+            to: "0.1.0",
+        }));
+
+        let err = r.upgrade(json!({ "format_version": "0.1.0" })).unwrap_err();
+        match err {
+            MigrationError::CycleDetected(v) => {
+                // The cycle is detected when we revisit the entry version.
+                assert_eq!(v, "0.1.0");
+            }
+            other => panic!("expected CycleDetected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compare_semver_orders_numerically() {
+        use std::cmp::Ordering;
+        assert_eq!(compare_semver("0.10.0", "0.9.0"), Ordering::Greater);
+        assert_eq!(compare_semver("0.9.0", "0.10.0"), Ordering::Less);
+        assert_eq!(compare_semver("1.0.0", "1.0.0"), Ordering::Equal);
+        assert_eq!(compare_semver("2.0.0", "1.99.99"), Ordering::Greater);
+        assert_eq!(compare_semver("0.0.10", "0.0.9"), Ordering::Greater);
+        // Permissive: malformed components fall back to 0.
+        assert_eq!(compare_semver("abc.def.ghi", "0.0.0"), Ordering::Equal);
     }
 
     /// Synthetic step used by the multi-step upgrade test below.
