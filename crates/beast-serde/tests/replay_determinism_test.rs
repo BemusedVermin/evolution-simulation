@@ -1,9 +1,9 @@
-//! M2 Determinism milestone gate (S7.6 — issue #134).
+//! In-process M2 determinism gate (S7.6 — issue #134).
 //!
-//! Closing test for Sprint 7. Proves cross-process determinism: a
-//! `SaveFile` re-hydrated into a fresh [`beast_sim::Simulation`]
-//! produces a bit-identical hash trace when run forward — at tick 0,
-//! at mid-run, and against the on-disk path I/O.
+//! Closing test for Sprint 7. Proves that a `SaveFile` re-hydrated
+//! into a fresh [`beast_sim::Simulation`] produces a bit-identical
+//! hash trace when run forward — at tick 0, at mid-run, and against
+//! the on-disk path I/O.
 //!
 //! # Scope
 //!
@@ -17,14 +17,23 @@
 //!
 //! # What this gate is *not*
 //!
-//! * No real input replay: the MVP has no input source, so the
-//!   `ReplayJournal::events` map is empty across the test. Real input
-//!   variants land with the avatar/UI sprints and will extend this
-//!   suite.
-//! * No reflective panic on platform / compiler differences: the
-//!   determinism gate only asserts equality across two runs in the
-//!   same process. Cross-platform reproducibility is a CI concern
-//!   tracked separately.
+//! Both sims run inside the **same OS process**. INVARIANTS §1
+//! describes a cross-process gate (serialize → spawn new process →
+//! load → replay → compare). That is tracked in issue #154 and is the
+//! prerequisite for ticking the audit checklist item
+//! `Determinism CI test: replay divergence causes test failure +
+//! binary diff report`. Today's gate is the in-process slice of M2;
+//! the cross-process slice is deferred.
+//!
+//! Other deferred slices:
+//! * No real input replay — the MVP has no input source, so
+//!   `ReplayJournal::events` is empty across the test. Real input
+//!   variants land with the avatar/UI sprints (S13+) and will extend
+//!   this suite.
+//! * No migration round-trip — the registry is empty until the first
+//!   `format_version` bump; tracked in issue #155.
+//! * No cross-platform reproducibility — CI runs one platform per
+//!   shard; multi-platform replay parity is out of scope for M2.
 
 use beast_channels::ChannelRegistry;
 use beast_core::Q3232;
@@ -39,6 +48,12 @@ use beast_sim::{compute_state_hash, Simulation, SimulationConfig};
 /// Aging system mirroring the one in
 /// `beast-sim/tests/determinism_test.rs`. Defined locally to avoid
 /// publishing a test-only system from beast-sim.
+///
+/// SYNC: keep in step with the `AgingSystem` in
+/// `beast-sim/tests/determinism_test.rs`. M1 (sim-only) and M2
+/// (save-layer) gates assume identical tick behavior; if the beast-sim
+/// copy changes its arithmetic, update this one too or the two
+/// milestones silently drift.
 struct AgingSystem;
 
 impl beast_ecs::System for AgingSystem {
@@ -98,6 +113,10 @@ fn capture_trace(sim: &mut Simulation, ticks: usize) -> Vec<(u64, [u8; 32])> {
 
 #[test]
 fn save_at_tick_zero_then_replay_matches_original_trace() {
+    // 20 creatures × 100 ticks: long enough to surface PRNG drift but
+    // short enough to keep the test under a second. The other tests
+    // use smaller fixtures because they exercise additional layers
+    // (disk I/O, mid-run snapshot logic).
     const TICKS: usize = 100;
     const CREATURES: usize = 20;
     const SEED: u64 = 0xCAFE_F00D_DEAD_BEEF;
@@ -132,6 +151,9 @@ fn save_at_tick_zero_then_replay_matches_original_trace() {
 
 #[test]
 fn mid_run_snapshot_continues_bit_identically() {
+    // 16 creatures: smaller than the tick-0 test so the
+    // build → run → snapshot → load → continue pipeline stays well
+    // under a second even with the extra mid-run save/load step.
     const TOTAL: usize = 100;
     const SNAP_AT: usize = 50;
     const CREATURES: usize = 16;
@@ -143,6 +165,10 @@ fn mid_run_snapshot_continues_bit_identically() {
 
     // Snapshot run: build a fresh sim, advance to SNAP_AT ticks, snapshot.
     let mut sim_pre = build_fixture(SEED, CREATURES);
+    // Advance sim_pre to SNAP_AT; trace intentionally discarded — we
+    // only need the post-tick state to snapshot, not the per-tick
+    // hashes. (`let _` here is not a silenced `Result`; `capture_trace`
+    // returns a `Vec<(u64, [u8; 32])>`.)
     let _ = capture_trace(&mut sim_pre, SNAP_AT);
     let save = save_game(&sim_pre).expect("save");
 
@@ -176,6 +202,12 @@ fn mid_run_snapshot_continues_bit_identically() {
 
 #[test]
 fn on_disk_save_load_round_trip_preserves_replay() {
+    // 5 creatures × 25 ticks: kept small because this test pays for
+    // tempdir creation and disk I/O on top of the simulation work;
+    // the save→load logic is the variable under test, not throughput.
+    // SEED differs from the in-memory tests on purpose so a regression
+    // in tempfile-backed atomic rename surfaces against an independent
+    // PRNG trajectory rather than re-using a hash already covered.
     const TICKS: usize = 25;
     const CREATURES: usize = 5;
     const SEED: u64 = 0x99;
@@ -198,9 +230,11 @@ fn on_disk_save_load_round_trip_preserves_replay() {
 
 #[test]
 fn replay_journal_round_trips_for_seeded_run() {
-    // The MVP has no real input events, so we exercise the journal's
-    // round-trip + ordering guarantees against an empty events map.
-    // When real input variants land, this test grows new tick entries.
+    // The MVP has no real input events, so this test only exercises
+    // the journal's metadata + JSON round-trip against an empty events
+    // map. Per-tick ordering guarantees are unobservable until real
+    // input variants land in S13+; that extension is owned by the
+    // avatar/UI sprints, not this gate.
     let journal = ReplayJournal::new(0xDEAD);
     assert_eq!(journal.format_version, REPLAY_FORMAT_VERSION);
     assert_eq!(journal.world_seed, 0xDEAD);
