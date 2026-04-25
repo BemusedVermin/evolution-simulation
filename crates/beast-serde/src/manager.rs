@@ -34,7 +34,14 @@
 //! [`save_to_path`] writes through a [`tempfile::NamedTempFile`] in the
 //! destination directory and then `persist`s atomically over the target.
 //! A crash mid-write leaves the temp file behind but never corrupts the
-//! existing save — the rename is atomic on every supported platform.
+//! existing save — **as long as the temp file and the target reside on
+//! the same filesystem volume**. Per PR #136 review (HIGH): cross-volume
+//! paths (Linux symlink across mounts; Windows junction across volumes)
+//! cause `rename(2)` to return `EXDEV` on Linux or `MoveFileEx` to fall
+//! back to copy+delete on Windows — both surface as
+//! [`ManagerError::Io`]. The temp file is always created via
+//! [`tempfile::NamedTempFile::new_in(parent)`] so callers passing a
+//! plain path against a single mount point never see this case.
 
 use std::fs;
 use std::io;
@@ -119,9 +126,17 @@ const PRIMITIVE_FINGERPRINT_MAGIC: &[u8; 4] = b"PRF1";
 ///
 /// * Magic bytes are `PRF1` instead of `CRF1`, so identical-shaped
 ///   channel and primitive registries never produce equal fingerprints.
-/// * Only `id` and `provenance` participate — the primitive's
-///   `category` is treated like the channel's `family` (a stable
-///   semantic tag).
+/// * Only `id`, `category`, and `provenance` participate — those are
+///   the manifest-stable semantic identity. Tuning fields
+///   (`cost_function`, `merge_strategy`, `parameter_schema`,
+///   `composition_compatibility`) deliberately do **not** affect the
+///   fingerprint, parallel to `ChannelRegistry::fingerprint`'s
+///   exclusion of sigma/composition hooks. **Per-emission instance
+///   fields on `PrimitiveEffect` (`body_site`, `activation_cost`,
+///   `source_channels`) are also excluded by design — they are runtime
+///   data, not registry identity.** Per PR #136 review (MEDIUM): a
+///   future drive-by adding any of these to the fingerprint would
+///   silently invalidate every existing save.
 ///
 /// Today the only callers are the save layer; if other crates need this
 /// helper, hoist it into `beast-primitives` to keep the contract on the
@@ -319,16 +334,23 @@ pub fn load_game(
 }
 
 /// Pack the specs `(id, gen)` pair into a single `u64`. Layout:
-/// `(gen.id() as u32) << 32 | id`. This is byte-stable for any specs
-/// version that keeps the inherent `id() -> u32` and `gen().id() ->
-/// i32` shapes — the existing determinism hash relies on the same
-/// guarantee (see `beast-sim::determinism::absorb_entity_header`).
+/// `(id as u64) << 32 | (gen as u32 as u64)`. The `id` lives in the
+/// HIGH bits so a numerical sort over packed keys matches `specs::Entity`'s
+/// derived `Ord`, which compares `id` first, then `gen`. Per PR #136
+/// review (HIGH): the previous gen-high packing diverged from specs
+/// `Ord`, which would silently break entity-allocator parity the moment
+/// entity deletion lands and a low-id slot gets reused at gen=2.
+///
+/// Byte-stable for any specs version that keeps the inherent
+/// `id() -> u32` and `gen().id() -> i32` shapes — the existing
+/// determinism hash relies on the same guarantee
+/// (see `beast-sim::determinism::absorb_entity_header`).
 fn pack_entity_key(entity: beast_ecs::Entity) -> u64 {
     let id = u64::from(entity.id());
     // `gen().id()` is `i32` (positive after first allocation). Cast to
-    // u32 first to avoid sign-extension into the high bits.
+    // u32 first to avoid sign-extension into the low half.
     let gen = u64::from(entity.gen().id() as u32);
-    (gen << 32) | id
+    (id << 32) | gen
 }
 
 fn marker_to_wire(marker: MarkerKind) -> SerializedMarker {
@@ -393,6 +415,11 @@ fn build_entity(sim: &mut Simulation, record: &SerializedEntity) -> beast_ecs::E
     if let Some(s) = record.species {
         builder = builder.with(s);
     }
+    // `record` is borrowed immutably; the genome must be cloned to
+    // hand ownership to the builder. This is the only heap allocation
+    // in `build_entity` — every other component is `Copy`. Per PR #136
+    // review (LOW): noting it explicitly to deter future drive-by
+    // clones from creeping into the per-entity restore path.
     if let Some(g) = record.genome.clone() {
         builder = builder.with(g);
     }
@@ -527,6 +554,10 @@ mod tests {
     // Helper: load_game returns Result<Simulation, _> and `Simulation`
     // does not derive `Debug`, so `expect_err` is unavailable. Match
     // on the result directly instead.
+    //
+    // `#[track_caller]` so a panic blames the test that called this
+    // helper, not the helper's own line. Per PR #136 review (MEDIUM).
+    #[track_caller]
     fn expect_load_err(result: Result<Simulation, ManagerError>, msg: &str) -> ManagerError {
         match result {
             Err(e) => e,
