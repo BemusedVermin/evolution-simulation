@@ -21,9 +21,12 @@ beast-primitives = { workspace = true }
 # in this crate. Per PR #135 review: removed the redundant direct dep
 # to avoid version-skew risk if `beast-ecs` and `beast-genome` diverge.
 beast-ecs = { workspace = true }
+beast-sim = { workspace = true }
+blake3 = { workspace = true }
 bincode = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tempfile = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

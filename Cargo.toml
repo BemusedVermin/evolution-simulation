@@ -78,6 +78,11 @@ beast-serde = { path = "crates/beast-serde" }
 # Dev-only
 proptest = "1.5"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+# S7.2 (#130) — atomic save-to-path uses a sibling temp file then rename;
+# tempfile gives us a cross-platform NamedTempFile with persist(), and
+# the test suites use it for tempdir() fixtures. Runtime dep on
+# beast-serde, dev dep elsewhere.
+tempfile = "3"
 
 [profile.release]
 lto = "thin"
