@@ -9,11 +9,13 @@
 //! components additionally derive `Serialize`/`Deserialize` so the save
 //! path (S7) can round-trip them without further plumbing.
 
+pub mod biome;
 pub mod markers;
 pub mod physiology;
 pub mod spatial;
 pub mod traits;
 
+pub use biome::{BiomeCell, BiomeKind};
 pub use markers::{Agent, Biome, Creature, Faction, Pathogen, Settlement};
 pub use physiology::{Age, DevelopmentalStage, HealthState, Mass, Species};
 pub use spatial::{Position, Velocity};
@@ -41,6 +43,8 @@ pub fn register_all(world: &mut crate::EcsWorld) {
 
     world.register_component::<GenomeComponent>();
     world.register_component::<PhenotypeComponent>();
+
+    world.register_component::<BiomeCell>();
 }
 
 #[cfg(test)]
@@ -89,5 +93,6 @@ mod tests {
         is_dense::<Species>();
         is_dense::<GenomeComponent>();
         is_dense::<PhenotypeComponent>();
+        is_dense::<BiomeCell>();
     }
 }
