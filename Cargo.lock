@@ -200,9 +200,12 @@ dependencies = [
  "beast-core",
  "beast-ecs",
  "beast-primitives",
+ "beast-sim",
  "bincode",
+ "blake3",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
 ]
 
