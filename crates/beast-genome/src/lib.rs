@@ -26,6 +26,7 @@ pub mod lineage;
 pub mod modifier;
 pub mod mutation;
 pub mod save;
+pub mod starter;
 
 pub use body_site::BodyVector;
 pub use channel_vector::ChannelVector;
@@ -38,4 +39,8 @@ pub use modifier::{Modifier, ModifierEffect};
 pub use mutation::{apply_mutations, mutate_point, mutate_regulatory};
 pub use save::{
     load_genome_from_json, save_genome_to_json, GenomeSave, SaveLoadError, SAVE_FORMAT_VERSION,
+};
+pub use starter::{
+    build_starter_genome, StarterError, StarterGeneSpec, StarterSpec, FOREST_OMNIVORE,
+    GRASSLAND_GRAZER, STARTER_SPECIES, TUNDRA_ENDOTHERM,
 };
