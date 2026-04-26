@@ -34,8 +34,13 @@ pub mod blueprint;
 pub mod directive;
 pub(crate) mod pipeline;
 
+// Sprite atlas: id → Rect lookup loaded from a JSON manifest. Pure-Rust;
+// the GPU-upload step lands alongside the SDL renderers in S9.3 / S9.4.
+pub mod sprite;
+
 pub use blueprint::CreatureBlueprint;
 pub use directive::{ColorSpec, DirectiveParams, VisualDirective};
 pub use error::{RenderError, Result};
 pub use pipeline::compile_blueprint;
 pub use renderer::{Renderer, WindowConfig};
+pub use sprite::{AtlasError, Rect, SpriteAtlas, SpriteId};

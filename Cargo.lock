@@ -209,6 +209,9 @@ dependencies = [
  "beast-core",
  "beast-interpreter",
  "sdl3",
+ "serde",
+ "serde_json",
+ "tempfile",
  "thiserror",
 ]
 

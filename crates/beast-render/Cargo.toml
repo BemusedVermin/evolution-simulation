@@ -32,12 +32,17 @@ headless = []
 # input contract). Both are pure-Rust deps — no SDL coupling.
 beast-core = { workspace = true }
 beast-interpreter = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dependencies.sdl3]
 workspace = true
 optional = true
 features = ["build-from-source-static"]
+
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [[example]]
 # `required-features = ["sdl"]` makes cargo refuse to build this binary
