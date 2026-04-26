@@ -33,9 +33,10 @@ use serde::{Deserialize, Serialize};
 ///
 /// | Range | Reserved for |
 /// |-------|--------------|
-/// | `0..=8` | Production subsystems (Genetics, Phenotype, …, Testing). |
+/// | `0..=7` | Allocated production subsystems (Genetics, Phenotype, Physics, Combat, Physiology, Ecology, Worldgen, Chronicler). |
+/// | `8` | `Testing` — sim never runs against this slot, but it lives in the low-discriminant range so test setup pays bounded `long_jump` cost. |
 /// | `9..=4095` | Future production subsystems — pick the lowest unused. |
-/// | `4096..=u16::MAX` | Test-only / scratch slots. Free to renumber, but `long_jump` is called once per discriminant unit at split, so very large values cost startup latency. |
+/// | `4096..=u16::MAX` | Future test-only / scratch slots. Free to renumber, but `long_jump` is called once per discriminant unit at split, so very large values cost startup latency. |
 ///
 /// **Adding a new production variant**: pick the lowest unused
 /// discriminant in the production range (currently 9), assign it

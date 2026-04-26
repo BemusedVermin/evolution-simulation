@@ -139,10 +139,12 @@ pub fn inv_lerp_q3232(a: Q3232, b: Q3232, v: Q3232) -> Q3232 {
 /// silently.
 #[allow(clippy::float_arithmetic)]
 pub fn gaussian_q3232(rng: &mut Prng, mean: Q3232, stddev: Q3232) -> Q3232 {
-    // SAFETY (determinism): see the function doc — this gate fires at
-    // compile time on any target_arch we have not audited for IEEE-754
-    // bit-exact `ln`/`sqrt`/`cos`/`mul_add`. Adding a new arch means
-    // bringing up cross-target replay coverage first (#154).
+    // Determinism gate: this fires at compile time on any
+    // target_arch we have not audited for IEEE-754 bit-exact
+    // `ln`/`sqrt`/`cos`/`mul_add`. Adding a new arch means bringing
+    // up cross-target replay coverage first (#154). The `// SAFETY:`
+    // prefix is intentionally avoided — the crate `#![forbid(unsafe_code)]`
+    // and there is no unsafe-block invariant being documented.
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     compile_error!(
         "gaussian_q3232 is only audited for cross-process determinism on \
