@@ -63,11 +63,19 @@ impl BiomeKind {
     /// unused integer; an existing variant's number must never change
     /// without a determinism-gate review (see the type-level docs).
     ///
+    /// **Visibility**: `pub(crate)` because the integer is an
+    /// implementation detail of the `Ord` impl. Exposing it publicly
+    /// would invite downstream code to snapshot the integers (e.g.,
+    /// in a save format), which would freeze them as a public API
+    /// contract — directly contradicting this method's "must never
+    /// change" docs. Use `Ord` / `PartialOrd` for ordering and the
+    /// snake-case strings from [`Self::as_str`] for stable
+    /// persistence; reach for the integer only inside this crate.
+    ///
     /// Pinned per-variant by
     /// [`tests::ordinal_is_pinned_per_variant`]; pinned globally by
     /// [`tests::biome_kind_ord_is_declaration_order`].
-    #[must_use]
-    pub fn ordinal(self) -> u8 {
+    pub(crate) fn ordinal(self) -> u8 {
         match self {
             BiomeKind::Ocean => 0,
             BiomeKind::Forest => 1,

@@ -233,8 +233,24 @@ mod tests {
                 e0.gen()
             );
         } else {
-            // New index — e_fresh and e1's relative order is purely by
-            // index, which we've already checked above.
+            // New index — assert the index-then-generation rule
+            // explicitly: `e_fresh` and `e1` must compare strictly
+            // by index. If specs ever silently re-derives `Ord` to
+            // tiebreak on generation first, an `e_fresh` with the
+            // same generation as `e1` but a higher index would still
+            // sort correctly here, so this is the load-bearing check.
+            assert_ne!(
+                e_fresh.id(),
+                e1.id(),
+                "fresh entity index unexpectedly collided with e1"
+            );
+            let by_id = e_fresh.id().cmp(&e1.id());
+            let by_ord = e_fresh.cmp(&e1);
+            assert_eq!(
+                by_id, by_ord,
+                "Ord disagrees with index-only ordering: \
+                 e_fresh={e_fresh:?}, e1={e1:?}"
+            );
         }
     }
 
