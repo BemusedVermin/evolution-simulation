@@ -35,6 +35,19 @@ pub struct PrimitiveEffect {
     /// emitted concurrently for different sites without collapsing.
     pub body_site: Option<BodySite>,
     /// Channel ids that composed to produce this emission.
+    ///
+    /// **Ordering contract**: callers must populate this in
+    /// lexicographic ascending order. Determinism gates and any
+    /// downstream Chronicler / save-layer hashing treat this as a
+    /// canonical sequence, so the same emission produced by two
+    /// independent code paths must yield the same byte sequence.
+    /// The phenotype interpreter satisfies this contract by
+    /// iterating its hook map (a `BTreeMap`) and pushing channel
+    /// ids in iteration order, which is sorted by definition.
+    /// New producers should either (a) build via a `BTreeSet<String>`
+    /// then `into_iter().collect()`, or (b) call
+    /// `source_channels.sort()` before constructing the
+    /// `PrimitiveEffect`.
     pub source_channels: Vec<String>,
     /// Parameter values, keyed by parameter name.
     pub parameters: BTreeMap<String, Q3232>,
