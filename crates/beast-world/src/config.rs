@@ -63,6 +63,15 @@ pub struct WorldConfig {
     pub forest_threshold: Q3232,
 }
 
+impl Default for WorldConfig {
+    /// Delegates to [`WorldConfig::default_archipelago`] so generic
+    /// code that uses `T: Default` or `..Default::default()`
+    /// struct-update syntax works.
+    fn default() -> Self {
+        Self::default_archipelago()
+    }
+}
+
 impl WorldConfig {
     /// A reasonable default config for a 64×64 archipelago.
     ///

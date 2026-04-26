@@ -32,18 +32,11 @@
 /// `Xoshiro256PlusPlus::seed_from_u64` so behaviour is consistent
 /// with the rest of the project's PRNG infrastructure.
 #[inline]
-fn splitmix64(mut x: u64) -> u64 {
+pub(crate) fn splitmix64(mut x: u64) -> u64 {
     x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
     x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     x = (x ^ (x >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
     x ^ (x >> 31)
-}
-
-/// Crate-internal re-export of [`splitmix64`] for callers that need
-/// to derive related-but-decorrelated seeds. Pure function.
-#[inline]
-pub(crate) fn splitmix64_pub(x: u64) -> u64 {
-    splitmix64(x)
 }
 
 /// Deterministic value at integer corner `(ix, iy)` in `[-1, 1]`.
@@ -92,6 +85,21 @@ fn smoothstep(t: f64) -> f64 {
 ///
 /// `octave_seed` is mixed in so multiple octaves drawn from the same
 /// world seed remain decorrelated.
+///
+/// # Coordinate range
+///
+/// The internal corner hash reinterprets each integer coordinate as
+/// a `u64` via two's complement. Within roughly `±2^31` this is
+/// collision-free; well-large-positive vs small-negative `i64`
+/// coordinates can alias to the same hash bucket outside that band.
+/// The archipelago generator stays comfortably inside the safe band
+/// (a 64×64 grid scaled by typical `frequency` values produces corner
+/// indices of at most a few hundred), but callers that pass arbitrary
+/// `i64`-magnitude coordinates — e.g., raw tile indices in a much
+/// larger world — should normalise their input into `±2^31` first.
+/// `frequency` itself is unbounded (only `> 0` is enforced by
+/// `validate_config`); the bound here is on the **product** of
+/// `frequency` and the maximum traversed integer coordinate.
 #[inline]
 pub fn value_noise_2d(seed: u64, octave_seed: u64, x: f64, y: f64) -> f64 {
     let ix = x.floor() as i64;
@@ -121,6 +129,12 @@ pub fn value_noise_2d(seed: u64, octave_seed: u64, x: f64, y: f64) -> f64 {
 /// `2.0`). `gain` is the per-octave amplitude multiplier (typical
 /// `0.5`). Output is normalised to `[-1, 1]` based on the maximum
 /// possible amplitude sum.
+///
+/// # Coordinate range
+///
+/// Inherits the same `±2^31` coordinate-hash safety bound as
+/// [`value_noise_2d`]. Callers passing arbitrary `i64`-scale
+/// coordinates should normalise first.
 pub fn fbm_2d(seed: u64, x: f64, y: f64, octaves: u32, lacunarity: f64, gain: f64) -> f64 {
     let mut sum = 0.0_f64;
     let mut amp = 1.0_f64;

@@ -96,7 +96,7 @@ pub fn generate_archipelago(
     // the symmetric pair `seed = 0` ↔ `seed = 0x5A5A...` that bare
     // XOR would create.
     let elevation_seed = seed;
-    let moisture_seed = crate::noise::splitmix64_pub(seed ^ 0x5A5A_5A5A_5A5A_5A5A);
+    let moisture_seed = crate::noise::splitmix64(seed ^ 0x5A5A_5A5A_5A5A_5A5A);
 
     let width = config.width;
     let height = config.height;
@@ -170,6 +170,15 @@ fn validate_config(config: &WorldConfig) -> Result<(), GenerationError> {
     if config.octaves == 0 {
         return Err(GenerationError::ZeroOctaves);
     }
+    // Noise-shape parameters must be strictly positive. A zero
+    // `frequency` collapses every cell onto the same lattice
+    // point (constant map); zero `gain` stalls fBm after one
+    // octave; non-positive `lacunarity` flips frequency direction
+    // each octave producing a subtle deterministic bias that's
+    // hard to diagnose from a degenerate map alone.
+    check_positive("frequency", config.frequency)?;
+    check_positive("gain", config.gain)?;
+    check_positive("lacunarity", config.lacunarity)?;
     // Range checks for unit-interval thresholds. Without these, a
     // misconfigured WorldConfig (e.g., loaded from an external
     // file) silently produces a degenerate world rather than a
@@ -205,6 +214,15 @@ fn check_unit_threshold(name: &'static str, value: Q3232) -> Result<(), Generati
     if value < Q3232::ZERO || value > Q3232::ONE {
         return Err(GenerationError::InvalidThresholds {
             detail: format!("{name} ({value:?}) must be in [0, 1]"),
+        });
+    }
+    Ok(())
+}
+
+fn check_positive(name: &'static str, value: Q3232) -> Result<(), GenerationError> {
+    if value <= Q3232::ZERO {
+        return Err(GenerationError::InvalidThresholds {
+            detail: format!("{name} ({value:?}) must be > 0"),
         });
     }
     Ok(())
@@ -360,6 +378,70 @@ mod tests {
             generate_archipelago(&cfg, 0).unwrap_err(),
             GenerationError::ZeroOctaves
         ));
+    }
+
+    #[test]
+    fn rejects_zero_frequency() {
+        let mut cfg = WorldConfig::default_archipelago();
+        cfg.frequency = Q3232::ZERO;
+        assert!(matches!(
+            generate_archipelago(&cfg, 0).unwrap_err(),
+            GenerationError::InvalidThresholds { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_zero_gain() {
+        let mut cfg = WorldConfig::default_archipelago();
+        cfg.gain = Q3232::ZERO;
+        assert!(matches!(
+            generate_archipelago(&cfg, 0).unwrap_err(),
+            GenerationError::InvalidThresholds { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_negative_lacunarity() {
+        let mut cfg = WorldConfig::default_archipelago();
+        cfg.lacunarity = -Q3232::ONE;
+        assert!(matches!(
+            generate_archipelago(&cfg, 0).unwrap_err(),
+            GenerationError::InvalidThresholds { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_negative_frequency() {
+        // Per PR #170 review: `Q3232` is signed, configs can come from
+        // external files, and a negative `frequency` inverts the
+        // lattice traversal direction. The predicate already rejects
+        // it; this test locks in the rejection so a future drive-by
+        // that loosens `check_positive` to `value == ZERO` fails loud.
+        let mut cfg = WorldConfig::default_archipelago();
+        cfg.frequency = -Q3232::ONE;
+        assert!(matches!(
+            generate_archipelago(&cfg, 0).unwrap_err(),
+            GenerationError::InvalidThresholds { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_negative_gain() {
+        // Per PR #170 review: a negative `gain` amplifies rather than
+        // attenuates successive fbm octaves, causing the output to
+        // diverge instead of converge. Same lock-in rationale as
+        // `rejects_negative_frequency`.
+        let mut cfg = WorldConfig::default_archipelago();
+        cfg.gain = -Q3232::ONE;
+        assert!(matches!(
+            generate_archipelago(&cfg, 0).unwrap_err(),
+            GenerationError::InvalidThresholds { .. }
+        ));
+    }
+
+    #[test]
+    fn world_config_default_matches_default_archipelago() {
+        assert_eq!(WorldConfig::default(), WorldConfig::default_archipelago());
     }
 
     #[test]

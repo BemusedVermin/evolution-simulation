@@ -37,8 +37,11 @@
 //!
 //! 1. **Elevation** = sum of 4 octaves of value noise, normalised to
 //!    `[-1, 1]`. Higher = more land.
-//! 2. **Moisture** = single octave of independent value noise (uses a
-//!    different `octave_seed`).
+//! 2. **Moisture** = sum of `config.octaves` octaves of value noise
+//!    (same fBm shape as elevation, with a different per-channel
+//!    seed derived deterministically from the world `seed` via
+//!    `splitmix64(seed ^ MAGIC)` — only the world `seed` needs to
+//!    be persisted to reproduce both channels).
 //! 3. **Latitude** = `|y / height - 0.5| * 2`, in `[0, 1]` — 0 at the
 //!    equator, 1 at the poles. Used to gate tundra.
 //! 4. **Classification**:
