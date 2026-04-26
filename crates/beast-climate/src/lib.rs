@@ -105,7 +105,12 @@ impl Season {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClimateConfig {
     /// Length of one full season cycle in simulation ticks. Default
-    /// `1000`. Must be ≥ 4 (one tick per season minimum).
+    /// `1000`. **Must be a multiple of 4 and at least 4** so the
+    /// triangle wave's quarter boundaries land on integer ticks (one
+    /// tick per season minimum). Validated by every entry point —
+    /// constructing `ClimateConfig` with an invalid value compiles
+    /// but the first call to [`effective_climate`] / [`season_at_tick`]
+    /// returns / panics on [`ClimateError::SeasonPeriodTooSmall`].
     pub season_period_ticks: u32,
     /// Peak temperature deviation from base, in Kelvin (Q3232).
     /// Default `15` — a moderate seasonal swing.
@@ -270,7 +275,10 @@ pub fn next_season_change_tick(tick: u64, season_period: u32) -> u64 {
 ///
 /// # Panics
 ///
-/// Panics if `season_period < 4`.
+/// Delegates to [`next_season_change_tick`], so the same validation
+/// applies: panics if `season_period` is below 4 or not a multiple
+/// of 4 (e.g., `period = 6` panics even though it satisfies
+/// the older `< 4` doc text).
 #[must_use]
 pub fn ticks_until_next_season(tick: u64, season_period: u32) -> u64 {
     next_season_change_tick(tick, season_period) - tick
@@ -304,11 +312,15 @@ fn seasonal_triangle(tick: u64, period: u32) -> Q3232 {
     //   [quarter, quarter+half):  descending arm: +quarter → -quarter
     //   [quarter+half, period): ascending arm: -quarter → 0
     //
-    // For periods not divisible by 4, `period/4` truncates and the
-    // ascending and descending arms have unequal lengths — but the
-    // closed-cycle property at ticks 0 and `period` still holds
-    // exactly (both produce signed = 0). The peak is always at
-    // exactly `phase = quarter`, regardless of divisibility.
+    // The `is_valid_season_period` precondition above guarantees
+    // `period % 4 == 0`, so `period/4` is exact and the ascending
+    // and descending arms have equal length — the wave is symmetric
+    // and the closed-cycle invariant (tick 0 == tick `period` == 0)
+    // is bit-exact, not approximate. Periods not divisible by 4 are
+    // rejected at the entry-point validators (`season_at_tick`,
+    // `effective_climate`, `try_season_at_tick`,
+    // `next_season_change_tick`); this `assert!` catches any new
+    // direct caller before it can produce skewed output.
     let signed: i64 = if phase < quarter {
         // 0 .. quarter
         phase as i64
@@ -349,10 +361,12 @@ fn seasonal_triangle(tick: u64, period: u32) -> Q3232 {
 /// `period` reading) holds **only when no intermediate operation
 /// saturates**. That requires:
 ///
-/// * `base_temp_kelvin` not within `seasonal_temperature_amplitude
-///   + latitude_temperature_lapse` of `Q3232::MAX` / `Q3232::MIN`.
-/// * `base_precipitation` not within `seasonal_precipitation_
-///   amplitude` of `Q3232::MAX` / `Q3232::MIN`.
+/// * `base_temp_kelvin` is not within
+///   `seasonal_temperature_amplitude + latitude_temperature_lapse`
+///   of `Q3232::MAX` / `Q3232::MIN`.
+/// * `base_precipitation` is not within
+///   `seasonal_precipitation_amplitude` of `Q3232::MAX` /
+///   `Q3232::MIN`.
 ///
 /// For physical Kelvin / mm-per-year inputs (200..400 K, 0..3000
 /// mm/yr) these bounds are enormous and the invariant always holds.
@@ -671,6 +685,47 @@ mod tests {
     fn try_season_at_tick_returns_error_on_period_below_four() {
         let err = try_season_at_tick(0, 3).unwrap_err();
         assert!(matches!(err, ClimateError::SeasonPeriodTooSmall(3)));
+    }
+
+    #[test]
+    fn season_at_tick_panics_on_period_not_multiple_of_four() {
+        // Per PR #171 review: lock in that the panic arm fires for
+        // period=6 (>= 4 but not divisible). Without this, a future
+        // refactor that forgot the divisibility check could pass the
+        // existing `period=3` panic test silently.
+        let result = std::panic::catch_unwind(|| season_at_tick(0, 6));
+        assert!(
+            result.is_err(),
+            "expected panic on period=6, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn next_season_change_tick_panics_on_period_not_multiple_of_four() {
+        let result = std::panic::catch_unwind(|| next_season_change_tick(0, 6));
+        assert!(result.is_err(), "expected panic, got {result:?}");
+    }
+
+    #[test]
+    fn ticks_until_next_season_panics_on_period_not_multiple_of_four() {
+        // Delegated to next_season_change_tick — must surface the same
+        // panic. Pre-audit the doc said "Panics if season_period < 4"
+        // and `period = 6` would have produced quietly skewed output;
+        // the new validation lifts that into a panic here.
+        let result = std::panic::catch_unwind(|| ticks_until_next_season(0, 6));
+        assert!(
+            result.is_err(),
+            "expected panic on period=6, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn season_at_tick_panics_on_period_zero() {
+        let result = std::panic::catch_unwind(|| season_at_tick(0, 0));
+        assert!(
+            result.is_err(),
+            "expected panic on period=0, got {result:?}"
+        );
     }
 
     #[test]
