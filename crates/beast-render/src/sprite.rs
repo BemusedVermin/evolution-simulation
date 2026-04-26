@@ -36,9 +36,13 @@ use thiserror::Error;
 /// (`"biome.forest"`, `"creature.glyph.elastic"`). The visual pipeline
 /// and renderers reference sprites only via `SpriteId`; pixel
 /// coordinates live in the manifest, never in code.
+///
+/// The inner field is private so future invariants on the id format
+/// (charset, namespace rules) can be enforced in [`Self::new`] without
+/// breaking callers that wrote the value directly.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct SpriteId(pub String);
+pub struct SpriteId(String);
 
 impl SpriteId {
     pub fn new(id: impl Into<String>) -> Self {
@@ -123,11 +127,23 @@ pub enum AtlasError {
     )]
     UnsupportedVersion { path: PathBuf, found: u32 },
 
-    #[error("invalid region for sprite `{id}`: w and h must be positive (got {w}x{h})")]
-    InvalidRegion { id: String, w: i32, h: i32 },
+    #[error("invalid region for sprite `{id}` in {path}: w and h must be positive (got {w}x{h})")]
+    InvalidRegion {
+        path: PathBuf,
+        id: String,
+        w: i32,
+        h: i32,
+    },
 
-    #[error("invalid origin for sprite `{id}`: x and y must be non-negative (got {x},{y})")]
-    InvalidOrigin { id: String, x: i32, y: i32 },
+    #[error(
+        "invalid origin for sprite `{id}` in {path}: x and y must be non-negative (got {x},{y})"
+    )]
+    InvalidOrigin {
+        path: PathBuf,
+        id: String,
+        x: i32,
+        y: i32,
+    },
 
     #[error("duplicate sprite id `{id}` in atlas manifest")]
     DuplicateId { id: String },
@@ -193,6 +209,12 @@ impl SpriteAtlas {
             .map(|p| p.join(&wire.source))
             .unwrap_or_else(|| PathBuf::from(&wire.source));
 
+        // Validation triage order per entry: empty id → non-positive
+        // dimensions → negative origin → duplicate id. The first check
+        // that fails wins; e.g. an entry with both `w=0` and `x=-1`
+        // surfaces `InvalidRegion`. Callers fix one issue at a time, so
+        // a single deterministic error per entry is more useful than a
+        // collected list.
         let mut regions = BTreeMap::new();
         for entry in wire.entries {
             if entry.id.is_empty() {
@@ -202,6 +224,7 @@ impl SpriteAtlas {
             }
             if entry.w <= 0 || entry.h <= 0 {
                 return Err(AtlasError::InvalidRegion {
+                    path: path.to_path_buf(),
                     id: entry.id,
                     w: entry.w,
                     h: entry.h,
@@ -209,16 +232,19 @@ impl SpriteAtlas {
             }
             if entry.x < 0 || entry.y < 0 {
                 return Err(AtlasError::InvalidOrigin {
+                    path: path.to_path_buf(),
                     id: entry.id,
                     x: entry.x,
                     y: entry.y,
                 });
             }
-            let id = SpriteId::new(entry.id.clone());
-            if regions.contains_key(&id) {
+            // Duplicate-id check first so the success path can move
+            // `entry.id` into `SpriteId::new` instead of cloning it.
+            if regions.contains_key(&SpriteId::new(&entry.id)) {
                 return Err(AtlasError::DuplicateId { id: entry.id });
             }
-            regions.insert(id, Rect::new(entry.x, entry.y, entry.w, entry.h));
+            let rect = Rect::new(entry.x, entry.y, entry.w, entry.h);
+            regions.insert(SpriteId::new(entry.id), rect);
         }
 
         Ok(Self {

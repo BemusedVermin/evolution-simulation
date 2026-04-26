@@ -8,13 +8,23 @@
 
 use beast_render::{Rect, SpriteAtlas, SpriteId};
 
+/// Walk up from `crates/beast-render` until we find the workspace
+/// root. Asserts that the resolved directory contains a `Cargo.toml`,
+/// so a future move of the crate produces a useful failure instead of
+/// silently pointing at the wrong place.
 fn workspace_root() -> std::path::PathBuf {
     let crate_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    crate_dir
+    let candidate = crate_dir
         .ancestors()
         .nth(2)
         .expect("workspace root is two levels up from the crate manifest")
-        .to_path_buf()
+        .to_path_buf();
+    debug_assert!(
+        candidate.join("Cargo.toml").is_file(),
+        "expected workspace Cargo.toml at {}",
+        candidate.display()
+    );
+    candidate
 }
 
 #[test]
@@ -62,7 +72,12 @@ fn shipped_atlas_entries_are_non_overlapping_within_rows() {
     // a typo in `assets/sprites/atlas.json` could silently make two
     // sprites share pixel coordinates and the renderer would draw the
     // wrong glyph. We're not strict about *all* overlap — sprites in
-    // different rows can share x ranges — only same-y rows.
+    // different rows can share x ranges — only same-y rows. NOTE: the
+    // adjacent-pair sweep below catches neighbour collisions only;
+    // non-adjacent sprites on the same row could still overlap if the
+    // grid drifts wildly. Full O(n²) overlap detection is overkill for
+    // a hand-edited fixture; revisit if the atlas grows past ~50
+    // entries or starts admitting sprites at arbitrary positions.
     let path = workspace_root().join("assets/sprites/atlas.json");
     let atlas = SpriteAtlas::load(&path).expect("load");
 
