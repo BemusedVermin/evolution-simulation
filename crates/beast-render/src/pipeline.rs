@@ -53,32 +53,16 @@ use crate::directive::{
 // throughout. Reviewers: any new f64 literal in this module should be a
 // design-doc-derived constant; flag any value that comes from sim state.
 //
-// ---------------------------------------------------------------------------
-// Channel id literals
-// ---------------------------------------------------------------------------
-//
-// The pipeline reads phenotype channels by string id. The id strings are
-// declared up front so a typo turns into a compile error rather than a
-// silent zero. They mirror the canonical channel manifest naming.
+// Channel id literals + the `ch()` helper live in `crate::channels` so
+// `animation.rs` and this module read the same constants. A rename of
+// any channel id is a single-file edit; a typo turns into a compile
+// error rather than a silent zero.
 
-const CH_ELASTIC_DEFORMATION: &str = "elastic_deformation";
-const CH_STRUCTURAL_RIGIDITY: &str = "structural_rigidity";
-const CH_MASS_DENSITY: &str = "mass_density";
-const CH_METABOLIC_RATE: &str = "metabolic_rate";
-const CH_SURFACE_FRICTION: &str = "surface_friction";
-const CH_KINETIC_FORCE: &str = "kinetic_force";
-const CH_LIGHT_EMISSION: &str = "light_emission";
-const CH_CHEMICAL_OUTPUT: &str = "chemical_output";
-const CH_THERMAL_OUTPUT: &str = "thermal_output";
-
-/// Read a global channel value, defaulting to `Q3232::ZERO` when absent.
-fn ch(phenotype: &ResolvedPhenotype, name: &str) -> Q3232 {
-    phenotype
-        .global_channels
-        .get(name)
-        .copied()
-        .unwrap_or(Q3232::ZERO)
-}
+use crate::channels::{
+    ch, CH_CHEMICAL_OUTPUT, CH_ELASTIC_DEFORMATION, CH_KINETIC_FORCE, CH_LIGHT_EMISSION,
+    CH_MASS_DENSITY, CH_METABOLIC_RATE, CH_STRUCTURAL_RIGIDITY, CH_SURFACE_FRICTION,
+    CH_THERMAL_OUTPUT,
+};
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -106,6 +90,7 @@ pub fn compile_blueprint(
     let surfaces = apply_surface_details(&volumes, &directives);
     let materials = assign_materials(&volumes, &directives, &biome_color);
     let effects = attach_effects(&volumes, phenotype);
+    let animations = crate::animation::rig_animations(&skeleton, phenotype);
 
     let metadata = BlueprintMetadata {
         bounding_box: bounding_box_for(&skeleton, &volumes),
@@ -118,6 +103,7 @@ pub fn compile_blueprint(
         surfaces,
         materials,
         effects,
+        animations,
         metadata,
     }
 }

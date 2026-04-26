@@ -28,6 +28,9 @@ pub struct CreatureBlueprint {
     pub surfaces: Vec<SurfaceDetail>,
     pub materials: Vec<MaterialRegion>,
     pub effects: Vec<AttachedEffect>,
+    /// Animation rig — locomotion / idle / damage / death clips. See
+    /// [`crate::animation`].
+    pub animations: crate::animation::AnimationSet,
     pub metadata: BlueprintMetadata,
 }
 

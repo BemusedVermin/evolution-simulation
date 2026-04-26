@@ -51,6 +51,10 @@ tempfile = { workspace = true }
 name = "window"
 required-features = ["sdl"]
 
+[[example]]
+name = "animation"
+required-features = ["sdl"]
+
 [lints.rust]
 # Forbid `unsafe { ... }` blocks unless they carry a `// SAFETY:` comment
 # explaining the FFI invariant. We use `deny` rather than `forbid` so a
