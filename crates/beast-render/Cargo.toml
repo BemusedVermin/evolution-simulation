@@ -1,0 +1,46 @@
+[package]
+name = "beast-render"
+description = "SDL3-backed rendering layer for the Beast Evolution Game. Renders simulation snapshots; never feeds values back into sim state."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = true
+
+[features]
+# Default to the real SDL3 backend. CI / unit tests / determinism gates use
+# `--no-default-features --features headless` so the workspace builds on
+# machines that don't have SDL3 native libs handy.
+default = ["sdl"]
+# Pulls in the `sdl3` crate with build-from-source-static so we link a
+# vendored, statically-built copy of SDL3 — no runtime DLL hunt, no system
+# package required. Build prerequisite: a working C toolchain + cmake on
+# PATH (MSVC on Windows, clang/gcc elsewhere).
+sdl = ["dep:sdl3"]
+# Compiles the public API without linking SDL3. The `Renderer` facade in
+# this mode is a no-op stub used by tests and headless integration runs.
+headless = []
+
+[dependencies]
+beast-core = { workspace = true }
+thiserror = { workspace = true }
+
+[dependencies.sdl3]
+workspace = true
+optional = true
+features = ["build-from-source-static"]
+
+[lints.rust]
+# unsafe_code is allowed here because SDL3 is a thin C wrapper. Any unsafe
+# block must carry a `// SAFETY:` comment explaining the FFI invariant.
+unsafe_code = "warn"
+
+[lints.clippy]
+# Render code can use floats for camera/perspective math; the determinism
+# contract only applies to sim state. We rely on rust-reviewer + INVARIANTS
+# §1 to keep render-derived values from leaking back into sim.

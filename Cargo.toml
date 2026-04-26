@@ -12,6 +12,7 @@ members = [
     "crates/beast-serde",
     "crates/beast-world",
     "crates/beast-climate",
+    "crates/beast-render",
 ]
 
 [workspace.package]
@@ -75,6 +76,15 @@ winnow = "0.7"
 # stop depending on the derived impl.
 specs = { version = "~0.20", default-features = false, features = ["parallel"] }
 
+# S9.1 (#182) — SDL3 Rust bindings. We pin the minor (0.18) and let the
+# `beast-render` crate opt into `build-from-source-static` so the workspace
+# vendors and statically links a known-good SDL3 build instead of relying
+# on a system shared library. Build prerequisite: `cmake` + a C toolchain
+# on PATH (MSVC on Windows, clang/gcc elsewhere). CI builds that don't
+# need rendering use `beast-render` with `--no-default-features --features
+# headless` to skip the native build entirely.
+sdl3 = { version = "0.18", default-features = false }
+
 beast-core = { path = "crates/beast-core" }
 beast-manifest = { path = "crates/beast-manifest" }
 beast-channels = { path = "crates/beast-channels" }
@@ -86,6 +96,7 @@ beast-sim = { path = "crates/beast-sim" }
 beast-serde = { path = "crates/beast-serde" }
 beast-world = { path = "crates/beast-world" }
 beast-climate = { path = "crates/beast-climate" }
+beast-render = { path = "crates/beast-render" }
 
 # Dev-only
 proptest = "1.5"
