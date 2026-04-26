@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "source": "atlas.png",
+  "entries": [
+    { "id": "biome.ocean",    "x":   0, "y":   0, "w": 32, "h": 32 },
+    { "id": "biome.forest",   "x":  32, "y":   0, "w": 32, "h": 32 },
+    { "id": "biome.plains",   "x":  64, "y":   0, "w": 32, "h": 32 },
+    { "id": "biome.desert",   "x":  96, "y":   0, "w": 32, "h": 32 },
+    { "id": "biome.mountain", "x": 128, "y":   0, "w": 32, "h": 32 },
+    { "id": "biome.tundra",   "x": 160, "y":   0, "w": 32, "h": 32 },
+
+    { "id": "creature.glyph.default",   "x":   0, "y":  32, "w": 16, "h": 16 },
+    { "id": "creature.glyph.grazer",    "x":  16, "y":  32, "w": 16, "h": 16 },
+    { "id": "creature.glyph.omnivore",  "x":  32, "y":  32, "w": 16, "h": 16 },
+    { "id": "creature.glyph.endotherm", "x":  48, "y":  32, "w": 16, "h": 16 },
+
+    { "id": "ui.selection_ring",     "x":   0, "y":  64, "w": 24, "h": 24 },
+    { "id": "ui.encounter.shadow",   "x":  24, "y":  64, "w": 32, "h":  8 }
+  ]
+}
