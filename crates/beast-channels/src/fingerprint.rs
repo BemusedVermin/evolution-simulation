@@ -85,6 +85,20 @@ const fn family_tag(family: ChannelFamily) -> &'static str {
 }
 
 fn write_len_prefixed(hasher: &mut blake3::Hasher, bytes: &[u8]) {
+    // The fingerprint inputs (channel id, family tag, provenance
+    // string) all flow through the JSON-Schema validator before
+    // reaching this point. The schema's regex constraints on `id`
+    // and `provenance` cap them at well under u32::MAX bytes (id is
+    // snake_case ≤ ~64 chars; provenance is bounded by the
+    // `genesis:<parent>:<u64>` shape). Family tags are the
+    // hand-written `family_tag` strings above, also short. The
+    // `expect` cannot fire on schema-validated input; if a future
+    // mod loader skips validation it should add its own
+    // `maxLength` check before calling fingerprint().
+    //
+    // Tracker for an explicit schema-level `maxLength` constraint
+    // (belt-and-suspenders): not yet open — file before the mod
+    // loader lands.
     let len = u32::try_from(bytes.len()).expect("channel metadata length exceeds u32::MAX");
     hasher.update(&len.to_le_bytes());
     hasher.update(bytes);

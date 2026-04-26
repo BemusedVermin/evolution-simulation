@@ -127,11 +127,24 @@ pub fn evaluate_hook(hook: &CompositionHook, other: Q3232) -> HookOutcome {
             gate_open: true,
         },
         CompositionKind::Threshold => {
-            let t = hook.threshold.unwrap_or_else(|| {
-                unreachable!(
-                    "CompositionHook {{ kind: Threshold, threshold: None }} violates the invariant — threshold is required for Threshold/Gating kinds and is enforced at load time"
-                )
-            });
+            // The schema-validated load path always sets `threshold`
+            // for Threshold/Gating kinds, but `CompositionHook` is a
+            // public struct with public fields — external callers
+            // (mods, integration tests, fuzzers) can construct a
+            // hook with `threshold: None`. We choose **neutral**
+            // (no-op) over `unreachable!()`-panic so a misconstructed
+            // hook degrades gracefully instead of crashing the tick
+            // loop. `debug_assert!` still surfaces the bug in
+            // development builds.
+            let Some(t) = hook.threshold else {
+                debug_assert!(
+                    false,
+                    "CompositionHook {{ kind: Threshold, threshold: None }} — \
+                     load-time validation should have rejected this. \
+                     Returning NEUTRAL in release.",
+                );
+                return HookOutcome::NEUTRAL;
+            };
             if other >= t {
                 HookOutcome {
                     delta: hook.coefficient * other,
@@ -147,11 +160,16 @@ pub fn evaluate_hook(hook: &CompositionHook, other: Q3232) -> HookOutcome {
             }
         }
         CompositionKind::Gating => {
-            let t = hook.threshold.unwrap_or_else(|| {
-                unreachable!(
-                    "CompositionHook {{ kind: Gating, threshold: None }} violates the invariant — threshold is required for Threshold/Gating kinds and is enforced at load time"
-                )
-            });
+            // Same neutral-fallback rationale as Threshold above.
+            let Some(t) = hook.threshold else {
+                debug_assert!(
+                    false,
+                    "CompositionHook {{ kind: Gating, threshold: None }} — \
+                     load-time validation should have rejected this. \
+                     Returning NEUTRAL in release.",
+                );
+                return HookOutcome::NEUTRAL;
+            };
             let open = other >= t;
             HookOutcome {
                 delta: Q3232::ZERO,
@@ -239,23 +257,36 @@ mod tests {
         }
     }
 
-    // The loader enforces that hooks of Threshold/Gating kind carry a
-    // threshold value. If a hand-constructed hook violates the invariant,
-    // we panic loudly rather than silently defaulting to Q3232::ZERO (which
-    // would make every Threshold gate always fire and every Gating gate
-    // always open, a subtle semantic bug). The two tests below lock in that
-    // behaviour so future refactors can't silently regress it.
+    // Pre-audit behaviour: a hand-constructed Threshold/Gating hook
+    // with `threshold: None` panicked via `unreachable!()`. The audit
+    // (PR #168, see also #36) flagged this as a panic-on-public-input
+    // hazard. The new contract: in release builds the hook returns
+    // `HookOutcome::NEUTRAL` (no-op) and in debug builds a
+    // `debug_assert!` fires to surface the misconstruction. Both tests
+    // below lock in the new contract.
     #[test]
-    #[should_panic(expected = "threshold is required for Threshold/Gating kinds")]
-    fn threshold_without_threshold_value_panics() {
+    fn threshold_without_threshold_value_returns_neutral_in_release() {
+        // In `cargo test` (which builds with debug_assertions enabled
+        // by default) the debug_assert in the hot path fires before
+        // we reach the NEUTRAL return. Wrap in catch_unwind so the
+        // test survives both debug and release configurations.
         let invalid = hook(CompositionKind::Threshold, 1.0, None);
-        let _ = evaluate_hook(&invalid, q(0.5));
+        let result = std::panic::catch_unwind(|| evaluate_hook(&invalid, q(0.5)));
+        if cfg!(debug_assertions) {
+            assert!(result.is_err(), "debug_assert should panic in dev builds");
+        } else {
+            assert_eq!(result.unwrap(), HookOutcome::NEUTRAL);
+        }
     }
 
     #[test]
-    #[should_panic(expected = "threshold is required for Threshold/Gating kinds")]
-    fn gating_without_threshold_value_panics() {
+    fn gating_without_threshold_value_returns_neutral_in_release() {
         let invalid = hook(CompositionKind::Gating, 1.0, None);
-        let _ = evaluate_hook(&invalid, q(0.5));
+        let result = std::panic::catch_unwind(|| evaluate_hook(&invalid, q(0.5)));
+        if cfg!(debug_assertions) {
+            assert!(result.is_err(), "debug_assert should panic in dev builds");
+        } else {
+            assert_eq!(result.unwrap(), HookOutcome::NEUTRAL);
+        }
     }
 }
