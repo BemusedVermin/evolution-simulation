@@ -416,7 +416,7 @@ pub fn validate_save_json(json: &serde_json::Value) -> Result<()>;
 - `SpriteAtlas` (texture atlas, sprite lookup)
 - `VisualDirective` (per-entity: mesh_id, color, particles, animation)
 
-**Dependencies**: `beast-core`, `beast-sim`, `sdl3-sys`
+**Dependencies**: `beast-core`, `beast-sim`, `sdl3` (with `build-from-source-static` so SDL3 is vendored + statically linked; `cmake` + a C toolchain required at build time)
 
 **Modules**:
 ```rust

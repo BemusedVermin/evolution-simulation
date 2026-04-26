@@ -1,0 +1,58 @@
+[package]
+name = "beast-render"
+description = "SDL3-backed rendering layer for the Beast Evolution Game. Renders simulation snapshots; never feeds values back into sim state."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = true
+
+[features]
+# Default to the real SDL3 backend. CI / unit tests / determinism gates use
+# `--no-default-features --features headless` so the workspace builds on
+# machines that don't have SDL3 native libs handy.
+default = ["sdl"]
+# Pulls in the `sdl3` crate with build-from-source-static so we link a
+# vendored, statically-built copy of SDL3 — no runtime DLL hunt, no system
+# package required. Build prerequisite: a working C toolchain + cmake on
+# PATH (MSVC on Windows, clang/gcc elsewhere).
+sdl = ["dep:sdl3"]
+# Compiles the public API without linking SDL3. The `Renderer` facade in
+# this mode is a no-op stub used by tests and headless integration runs.
+headless = []
+
+[dependencies]
+# `beast-core` will land here when sim → render bridges (Q3232 conversion,
+# entity-id sorting helpers) are needed by the world-map renderer. Keeping
+# it out for S9.1 — `cargo` flags unused workspace deps and the rest of
+# the L0 crates are wired in story-by-story.
+thiserror = { workspace = true }
+
+[dependencies.sdl3]
+workspace = true
+optional = true
+features = ["build-from-source-static"]
+
+[[example]]
+# `required-features = ["sdl"]` makes cargo refuse to build this binary
+# when the SDL backend isn't enabled, so the example doc comment's promise
+# matches the actual cargo behavior.
+name = "window"
+required-features = ["sdl"]
+
+[lints.rust]
+# Forbid `unsafe { ... }` blocks unless they carry a `// SAFETY:` comment
+# explaining the FFI invariant. We use `deny` rather than `forbid` so a
+# specific call site can opt back in via `#[allow(unsafe_code)]` with a
+# justification — that's still loud in code review.
+unsafe_code = "deny"
+
+[lints.clippy]
+# Render code can use floats for camera/perspective math; the determinism
+# contract only applies to sim state. We rely on rust-reviewer + INVARIANTS
+# §1 to keep render-derived values from leaking back into sim.
