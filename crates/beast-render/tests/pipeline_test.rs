@@ -22,6 +22,7 @@
 //!   `DirectiveParams::*` variant.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 use beast_core::{BodySite, Q3232};
 use beast_interpreter::{LifeStage, ResolvedPhenotype};
@@ -373,20 +374,38 @@ fn luminous_glow_attaches_glow_and_thermal_effects() {
     );
 }
 
+fn stable_hash<T: Hash>(value: &T) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
+}
+
 #[test]
 fn pipeline_is_deterministic() {
     let phenotype = elastic_worm();
     let directives = one_of_every_directive();
     let biome = neutral_biome_color();
-    let a = compile_blueprint(&phenotype, &directives, biome.clone(), "fixture");
-    let b = compile_blueprint(&phenotype, &directives, biome.clone(), "fixture");
+
+    // Same call twice in this process — exercises the equality contract.
+    let a = compile_blueprint(&phenotype, &directives, biome, "fixture");
+    let b = compile_blueprint(&phenotype, &directives, biome, "fixture");
     assert_eq!(
         a, b,
         "two compiles of identical input must produce equal blueprints"
     );
 
-    // Hash equality via Debug-format fingerprint — the type derives
-    // PartialEq + Hash but `format!` is human-readable for diffs.
+    // `Hash` over the derived structure pins byte-level structural
+    // equality. Determinism has to hold across processes; if any
+    // implementation detail of the pipeline ever introduced
+    // process-local state (HashMap iteration order, allocator address,
+    // PRNG, etc.) this assertion would fail in flaky-test fashion.
+    assert_eq!(
+        stable_hash(&a),
+        stable_hash(&b),
+        "Hash of two compiles diverged — pipeline has non-deterministic output"
+    );
+
+    // Debug-format fingerprint as a human-readable diagnostic.
     let af = format!("{a:#?}");
     let bf = format!("{b:#?}");
     assert_eq!(af, bf, "Debug formats diverged across compiles");

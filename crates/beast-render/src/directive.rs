@@ -166,7 +166,7 @@ pub enum AppendageKind {
 /// `Inflate` parameters: scale a volume up or down.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Inflate {
-    /// Scale multiplier, expected in [Q3232::lit("0.8"), Q3232::lit("2.0")].
+    /// Scale multiplier; the design doc expects values in `[0.8, 2.0]`.
     pub scale: Q3232,
 }
 
@@ -208,7 +208,7 @@ pub struct Colorize {
 ///
 /// `hue == None` is the **biome-color sentinel** described in §4.4: the
 /// material-assignment substage substitutes the biome's dominant color.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ColorSpec {
     /// Hue in degrees [0, 360]. `None` = use biome color (sentinel).
     pub hue: Option<Q3232>,

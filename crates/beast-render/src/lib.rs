@@ -25,13 +25,14 @@
 pub(crate) mod error;
 pub(crate) mod renderer;
 
-// Visual pipeline — pure-Rust, deterministic. Public so downstream
-// crates can call `compile_blueprint`. The blueprint + directive types
-// are also exported so the eventual interpreter Stage 4 emitter can
-// build directives without depending on a private API.
+// Visual-pipeline modules. `blueprint` and `directive` are public so
+// downstream crates (and the eventual interpreter Stage 4 emitter) can
+// see the IR + output types. `pipeline` itself is crate-private — its
+// only public surface is [`compile_blueprint`] re-exported below — to
+// keep substage helpers from leaking into anyone's API.
 pub mod blueprint;
 pub mod directive;
-pub mod pipeline;
+pub(crate) mod pipeline;
 
 pub use blueprint::CreatureBlueprint;
 pub use directive::{ColorSpec, DirectiveParams, VisualDirective};

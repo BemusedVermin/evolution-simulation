@@ -14,7 +14,6 @@
 //! See `documentation/systems/10_procgen_visual_pipeline.md` §4 for the
 //! authoritative algorithm.
 
-use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use beast_core::{BodySite, Q3232};
@@ -30,6 +29,30 @@ use crate::directive::{
     ColorSpec, DirectiveParams, Distribution, ProtrusionShape, SurfaceRegion, VisualDirective,
 };
 
+// ---------------------------------------------------------------------------
+// PIPELINE NUMERIC INVARIANT
+// ---------------------------------------------------------------------------
+//
+// Although INVARIANTS §1 forbids floats on the sim path, this module uses
+// `Q3232::from_num(<decimal>_f64)` to declare *constant* coefficients
+// pulled from the design doc (e.g. `0.3 + mass*0.7`, segment-count
+// formula multipliers, channel thresholds). The conversion is performed
+// at function-call time, not on every operation — the resulting Q3232
+// value is then used in saturating fixed-point arithmetic. Same input
+// channel + same constant → same Q3232 across processes and platforms,
+// because:
+//
+//  1. The decimal literal itself is parsed deterministically by rustc
+//     at compile time into an IEEE 754 f64.
+//  2. `I32F32::saturating_from_num::<f64>` rounds toward zero with no
+//     platform-specific behaviour: the implementation in `fixed` is
+//     bit-by-bit shift + sign + saturate, identical on every target.
+//
+// We do NOT permit float values that depend on simulation state (e.g. a
+// channel value cast to f64 then back). Channel reads stay in Q3232
+// throughout. Reviewers: any new f64 literal in this module should be a
+// design-doc-derived constant; flag any value that comes from sim state.
+//
 // ---------------------------------------------------------------------------
 // Channel id literals
 // ---------------------------------------------------------------------------
@@ -118,6 +141,27 @@ fn canonicalise(directives: &[VisualDirective]) -> Vec<VisualDirective> {
 // ---------------------------------------------------------------------------
 
 fn build_skeleton(phenotype: &ResolvedPhenotype, _directives: &[VisualDirective]) -> BoneTree {
+    let plan = derive_body_plan(phenotype);
+    let mut bones: Vec<Bone> = Vec::new();
+    build_spine(&plan, &mut bones);
+    build_limb_pairs(&plan, &mut bones);
+    BoneTree { bones }
+}
+
+/// Numeric body-plan summary derived from the phenotype's channel
+/// values. Pulled out of `build_skeleton` so spine and limb construction
+/// share one well-named struct instead of a long argument list.
+struct BodyPlan {
+    segment_count: u32,
+    base_thickness: Q3232,
+    flexibility: Q3232,
+    limb_count: u32,
+    limb_length: Q3232,
+    limb_thickness: Q3232,
+    rigidity: Q3232,
+}
+
+fn derive_body_plan(phenotype: &ResolvedPhenotype) -> BodyPlan {
     let elasticity = ch(phenotype, CH_ELASTIC_DEFORMATION);
     let rigidity = ch(phenotype, CH_STRUCTURAL_RIGIDITY);
     let mass = ch(phenotype, CH_MASS_DENSITY);
@@ -136,13 +180,10 @@ fn build_skeleton(phenotype: &ResolvedPhenotype, _directives: &[VisualDirective]
         Q3232::from_num(0.3_f64).saturating_add(mass.saturating_mul(Q3232::from_num(0.7_f64)));
 
     // Spine flexibility: clamp(elasticity*0.8 - rigidity*0.5, 0.05, 0.95)
-    let flexibility = clamp_q3232(
-        elasticity
-            .saturating_mul(Q3232::from_num(0.8_f64))
-            .saturating_sub(rigidity.saturating_mul(Q3232::from_num(0.5_f64))),
-        Q3232::from_num(0.05_f64),
-        Q3232::from_num(0.95_f64),
-    );
+    let flexibility = elasticity
+        .saturating_mul(Q3232::from_num(0.8_f64))
+        .saturating_sub(rigidity.saturating_mul(Q3232::from_num(0.5_f64)))
+        .clamp(Q3232::from_num(0.05_f64), Q3232::from_num(0.95_f64));
 
     // Limb count: clamp((friction*0.4 + (1-elasticity)*0.3 + speed*0.3)*6, 0, 8).
     let limb_potential = friction
@@ -155,15 +196,30 @@ fn build_skeleton(phenotype: &ResolvedPhenotype, _directives: &[VisualDirective]
         .saturating_add(speed.saturating_mul(Q3232::from_num(0.3_f64)));
     let limb_count_raw = limb_potential.saturating_mul(Q3232::from_num(6));
     let mut limb_count = clamp_to_u32(limb_count_raw, 0, 8);
-    // Bilateral symmetry: prefer even limb counts.
     if limb_count % 2 == 1 {
+        // Bilateral symmetry: round up to the next even count.
         limb_count = (limb_count + 1).min(8);
     }
 
-    let mut bones: Vec<Bone> = Vec::new();
+    let limb_length = Q3232::from_num(0.3_f64)
+        .saturating_add(kinetic.saturating_mul(Q3232::from_num(0.5_f64)))
+        .saturating_add(speed.saturating_mul(Q3232::from_num(0.3_f64)));
+    let limb_thickness =
+        Q3232::from_num(0.15_f64).saturating_add(rigidity.saturating_mul(Q3232::from_num(0.2_f64)));
 
-    // Build the spine.
-    let head_length = base_thickness.saturating_mul(Q3232::from_num(1.5_f64));
+    BodyPlan {
+        segment_count,
+        base_thickness,
+        flexibility,
+        limb_count,
+        limb_length,
+        limb_thickness,
+        rigidity,
+    }
+}
+
+fn build_spine(plan: &BodyPlan, bones: &mut Vec<Bone>) {
+    let head_length = plan.base_thickness.saturating_mul(Q3232::from_num(1.5_f64));
     bones.push(Bone {
         id: 0,
         name: "core_head".to_string(),
@@ -171,7 +227,7 @@ fn build_skeleton(phenotype: &ResolvedPhenotype, _directives: &[VisualDirective]
         local_position: Vec3::ZERO,
         local_rotation: Q3232::ZERO,
         length: head_length,
-        thickness: base_thickness,
+        thickness: plan.base_thickness,
         tags: vec![BoneTag::Core, BoneTag::Head],
         constraints: JointConstraint {
             min_angle: Q3232::from_num(-15),
@@ -182,47 +238,44 @@ fn build_skeleton(phenotype: &ResolvedPhenotype, _directives: &[VisualDirective]
     });
 
     let mut prev_length = head_length;
-    for i in 1..segment_count {
+    let max_segment_angle = plan.flexibility.saturating_mul(Q3232::from_num(30));
+    for i in 1..plan.segment_count {
         let mut tags = vec![BoneTag::Core];
-        if i == segment_count - 1 {
+        if i == plan.segment_count - 1 {
             tags.push(BoneTag::Tail);
         }
-        let segment_length = base_thickness.saturating_mul(
+        let segment_length = plan.base_thickness.saturating_mul(
             Q3232::from_num(2)
                 .saturating_sub(Q3232::from_num(i).saturating_mul(Q3232::from_num(0.1_f64))),
         );
-        let segment_thickness = base_thickness.saturating_mul(
+        let segment_thickness = plan.base_thickness.saturating_mul(
             Q3232::ONE.saturating_sub(Q3232::from_num(i).saturating_mul(Q3232::from_num(0.05_f64))),
         );
-        let parent = i - 1;
-        let max_angle = flexibility.saturating_mul(Q3232::from_num(30));
         bones.push(Bone {
             id: i,
             name: format!("core_{i}"),
-            parent_id: Some(parent),
+            parent_id: Some(i - 1),
             local_position: Vec3::new(prev_length, Q3232::ZERO, Q3232::ZERO),
             local_rotation: Q3232::ZERO,
             length: segment_length,
             thickness: segment_thickness,
             tags,
             constraints: JointConstraint {
-                min_angle: max_angle.saturating_mul(Q3232::from_num(-1)),
-                max_angle,
-                stiffness: Q3232::ONE.saturating_sub(flexibility),
+                min_angle: max_segment_angle.saturating_mul(Q3232::from_num(-1)),
+                max_angle: max_segment_angle,
+                stiffness: Q3232::ONE.saturating_sub(plan.flexibility),
                 preferred: Q3232::ZERO,
             },
         });
         prev_length = segment_length;
     }
+}
 
-    // Limbs: attach pairs to the second-segment if present, else the head.
-    let limb_anchor: u32 = if segment_count >= 2 { 1 } else { 0 };
-    let pair_count = limb_count / 2;
-    let limb_length = Q3232::from_num(0.3_f64)
-        .saturating_add(kinetic.saturating_mul(Q3232::from_num(0.5_f64)))
-        .saturating_add(speed.saturating_mul(Q3232::from_num(0.3_f64)));
-    let limb_thickness =
-        Q3232::from_num(0.15_f64).saturating_add(rigidity.saturating_mul(Q3232::from_num(0.2_f64)));
+fn build_limb_pairs(plan: &BodyPlan, bones: &mut Vec<Bone>) {
+    // Limbs attach to the second segment if there is one (so they sit
+    // off the head); otherwise they go straight on the head.
+    let limb_anchor: u32 = if plan.segment_count >= 2 { 1 } else { 0 };
+    let pair_count = plan.limb_count / 2;
 
     for pair_idx in 0..pair_count {
         for side in 0..2u32 {
@@ -231,9 +284,9 @@ fn build_skeleton(phenotype: &ResolvedPhenotype, _directives: &[VisualDirective]
             // Mirror Y position: left = +y, right = -y. Side magnitude
             // proportional to base thickness so limbs sit on the body.
             let y = if side == 0 {
-                base_thickness
+                plan.base_thickness
             } else {
-                base_thickness.saturating_mul(Q3232::from_num(-1))
+                plan.base_thickness.saturating_mul(Q3232::from_num(-1))
             };
             bones.push(Bone {
                 id,
@@ -241,21 +294,19 @@ fn build_skeleton(phenotype: &ResolvedPhenotype, _directives: &[VisualDirective]
                 parent_id: Some(limb_anchor),
                 local_position: Vec3::new(Q3232::ZERO, y, Q3232::ZERO),
                 local_rotation: Q3232::ZERO,
-                length: limb_length,
-                thickness: limb_thickness,
+                length: plan.limb_length,
+                thickness: plan.limb_thickness,
                 tags: vec![BoneTag::Limb, BoneTag::LimbTip, BoneTag::Symmetric],
                 constraints: JointConstraint {
                     min_angle: Q3232::from_num(-60),
                     max_angle: Q3232::from_num(60),
                     stiffness: Q3232::from_num(0.3_f64)
-                        .saturating_add(rigidity.saturating_mul(Q3232::from_num(0.5_f64))),
+                        .saturating_add(plan.rigidity.saturating_mul(Q3232::from_num(0.5_f64))),
                     preferred: Q3232::ZERO,
                 },
             });
         }
     }
-
-    BoneTree { bones }
 }
 
 // ---------------------------------------------------------------------------
@@ -271,13 +322,13 @@ fn shape_volumes(
     let rigidity = ch(phenotype, CH_STRUCTURAL_RIGIDITY);
 
     // Inflate scales keyed by body region. Multiple Inflate directives
-    // for the same region multiply.
-    let mut inflate_by_region: BTreeMap<BodySiteKey, Q3232> = BTreeMap::new();
+    // for the same region multiply. `BodySite` derives `Ord` (see
+    // `beast-core/src/body_site.rs`) so we can key the BTreeMap on it
+    // directly.
+    let mut inflate_by_region: BTreeMap<BodySite, Q3232> = BTreeMap::new();
     for d in directives {
         if let DirectiveParams::Inflate(p) = &d.params {
-            let entry = inflate_by_region
-                .entry(BodySiteKey(d.body_region))
-                .or_insert(Q3232::ONE);
+            let entry = inflate_by_region.entry(d.body_region).or_insert(Q3232::ONE);
             *entry = entry.saturating_mul(p.scale);
         }
     }
@@ -369,7 +420,7 @@ fn scale_shape(shape: VolumeShape, scale: Q3232) -> VolumeShape {
     }
 }
 
-fn inflate_for_bone(bone: &Bone, inflate_by_region: &BTreeMap<BodySiteKey, Q3232>) -> Q3232 {
+fn inflate_for_bone(bone: &Bone, inflate_by_region: &BTreeMap<BodySite, Q3232>) -> Q3232 {
     // Region resolution priority: Core/Tail/Head from tags, then Global
     // catch-all on BodySite::Global.
     let region = if bone.tags.contains(&BoneTag::Head) {
@@ -394,34 +445,14 @@ fn inflate_for_bone(bone: &Bone, inflate_by_region: &BTreeMap<BodySiteKey, Q3232
     };
 
     let direct = inflate_by_region
-        .get(&BodySiteKey(region))
+        .get(&region)
         .copied()
         .unwrap_or(Q3232::ONE);
     let global = inflate_by_region
-        .get(&BodySiteKey(BodySite::Global))
+        .get(&BodySite::Global)
         .copied()
         .unwrap_or(Q3232::ONE);
     direct.saturating_mul(global)
-}
-
-// `BodySite` doesn't implement `Ord` for its enum yet (`derive` order is
-// not the canonical site sort order). Wrap it in a newtype with a manual
-// `Ord` derived from variant declaration order, so `BTreeMap` stays
-// deterministic.
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct BodySiteKey(BodySite);
-
-impl PartialOrd for BodySiteKey {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for BodySiteKey {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // BodySite already derives Ord — reuse it.
-        self.0.cmp(&other.0)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -596,12 +627,11 @@ fn assign_materials(
         let base_color = resolve_color(&c.base_color, biome_color);
         let pattern = c.pattern.map(|pattern| PatternOverlay {
             pattern,
-            color_a: base_color.clone(),
+            color_a: base_color,
             color_b: c
                 .pattern_color_secondary
-                .as_ref()
-                .map(|c| resolve_color(c, biome_color))
-                .unwrap_or_else(|| base_color.clone()),
+                .map(|c| resolve_color(&c, biome_color))
+                .unwrap_or(base_color),
             scale: Q3232::from_num(0.3_f64),
             contrast: c.contrast,
         });
@@ -627,7 +657,7 @@ fn assign_materials(
                 roughness: Q3232::from_num(0.2_f64),
                 metallic: Q3232::ZERO,
                 subsurface: Q3232::from_num(0.1_f64),
-                emission: c.emission.as_ref().map(|e| resolve_color(e, biome_color)),
+                emission: c.emission.map(|e| resolve_color(&e, biome_color)),
                 emission_power: c.emission_intensity,
                 pattern,
             },
@@ -640,7 +670,7 @@ fn assign_materials(
 
 fn resolve_color(src: &ColorSpec, biome_color: &ColorSpec) -> ColorSpec {
     match src.hue {
-        Some(_) => src.clone(),
+        Some(_) => *src,
         None => ColorSpec {
             hue: biome_color.hue,
             saturation: src.saturation,
@@ -780,16 +810,6 @@ fn bounding_box_for(skeleton: &BoneTree, volumes: &[Volume]) -> Aabb {
 // ---------------------------------------------------------------------------
 // Math helpers
 // ---------------------------------------------------------------------------
-
-fn clamp_q3232(value: Q3232, min: Q3232, max: Q3232) -> Q3232 {
-    if value < min {
-        min
-    } else if value > max {
-        max
-    } else {
-        value
-    }
-}
 
 fn clamp_to_u32(value: Q3232, lo: u32, hi: u32) -> u32 {
     // Round-half-to-even isn't required here — channel ratios are
