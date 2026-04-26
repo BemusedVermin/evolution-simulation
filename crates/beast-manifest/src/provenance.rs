@@ -27,7 +27,15 @@ pub struct ProvenanceParseError(pub String);
 /// `"mod:foo"`, `"genesis:foo:123"`). Keeping the string form canonical
 /// means save files are self-describing and round-trippable without a
 /// separate enum tag.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// `PartialOrd`/`Ord` are derived (declaration order: Core < Mod < Genesis,
+/// with within-variant ordering by string then `generation`) so
+/// `Provenance` can key a `BTreeMap` or live in a `BTreeSet` without an
+/// allocation. The ordering is stable and deterministic — it does not
+/// match `to_schema_string` lexicographic order, which is intentional:
+/// callers that want lexicographic UI display should sort by the
+/// rendered string explicitly.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Provenance {
     /// A canonical entry shipped by the core game.
     Core,

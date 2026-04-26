@@ -27,7 +27,13 @@ pub struct DuplicateId(pub String);
 /// Implementors expose a unique id and a grouping key used for the
 /// secondary index. [`Self::Group`] must be `Ord + Copy` so the registry
 /// can BTreeMap-index it.
-pub trait Manifest {
+///
+/// `Clone` is a supertrait because [`SortedRegistry`] derives `Clone`
+/// and stores `M` by value in its internal `BTreeMap`. Without
+/// `Clone` here, `SortedRegistry::clone()` would fail at the call
+/// site rather than at the trait impl, which is a confusing
+/// diagnostic.
+pub trait Manifest: Clone {
     /// Type of the grouping key (e.g. `ChannelFamily`, `PrimitiveCategory`).
     type Group: Ord + Copy;
 
