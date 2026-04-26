@@ -1,0 +1,29 @@
+[package]
+name = "beast-climate"
+description = "Deterministic climate model (seasons, temperature, precipitation) for the Beast Evolution Game."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = true
+
+[dependencies]
+beast-core = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+# Climate runs on the sim path: every value flows through Q3232.
+# No floats — the seasonal triangle wave is exact integer arithmetic
+# by design (see crate-level docs).
+float_arithmetic = "deny"

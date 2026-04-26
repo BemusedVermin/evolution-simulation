@@ -113,6 +113,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "beast-climate"
+version = "0.1.0"
+dependencies = [
+ "beast-core",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "beast-core"
 version = "0.1.0"
 dependencies = [
@@ -223,6 +232,16 @@ dependencies = [
  "blake3",
  "proptest",
  "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "beast-world"
+version = "0.1.0"
+dependencies = [
+ "beast-core",
+ "serde",
+ "serde_json",
  "thiserror",
 ]
 
