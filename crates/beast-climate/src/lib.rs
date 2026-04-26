@@ -158,8 +158,14 @@ pub struct ClimateReading {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum ClimateError {
-    /// `season_period_ticks` was below the four-season minimum.
-    #[error("season_period_ticks must be >= 4; got {0}")]
+    /// `season_period_ticks` was below the four-season minimum or
+    /// not a multiple of four. The triangle wave's quarter
+    /// boundaries (`period/4`, `period/2`, `3*period/4`, `period`)
+    /// only land on integer tick positions when `period % 4 == 0`;
+    /// other periods produce slightly skewed peak/trough positions
+    /// that violate the wave's symmetry contract documented in
+    /// `seasonal_triangle`.
+    #[error("season_period_ticks must be a multiple of 4 and >= 4; got {0}")]
     SeasonPeriodTooSmall(u32),
     /// `abs_latitude` was outside `[0, 1]` — the contract for the
     /// equator-to-pole normalised coordinate. Out-of-range values
@@ -178,15 +184,15 @@ pub enum ClimateError {
 ///
 /// # Panics
 ///
-/// Panics in both debug and release if `season_period < 4`. This
-/// matches the `effective_climate` validation contract — both
-/// entry points reject the same range of bad inputs. Use
-/// [`try_season_at_tick`] for fallible callers.
+/// Panics in both debug and release if `season_period` is below 4
+/// or not a multiple of 4. This matches the `effective_climate`
+/// validation contract — both entry points reject the same range
+/// of bad inputs. Use [`try_season_at_tick`] for fallible callers.
 #[must_use]
 pub fn season_at_tick(tick: u64, season_period: u32) -> Season {
     assert!(
-        season_period >= 4,
-        "season_period must be >= 4; got {season_period}",
+        is_valid_season_period(season_period),
+        "season_period must be a multiple of 4 and >= 4; got {season_period}",
     );
     season_at_tick_unchecked(tick, season_period)
 }
@@ -196,12 +202,22 @@ pub fn season_at_tick(tick: u64, season_period: u32) -> Season {
 ///
 /// # Errors
 ///
-/// * [`ClimateError::SeasonPeriodTooSmall`] when `season_period < 4`.
+/// * [`ClimateError::SeasonPeriodTooSmall`] when `season_period`
+///   is below 4 or not a multiple of 4.
+#[must_use = "the Result reports validation failure — at minimum check it with `?`"]
 pub fn try_season_at_tick(tick: u64, season_period: u32) -> Result<Season, ClimateError> {
-    if season_period < 4 {
+    if !is_valid_season_period(season_period) {
         return Err(ClimateError::SeasonPeriodTooSmall(season_period));
     }
     Ok(season_at_tick_unchecked(tick, season_period))
+}
+
+/// Whether a given `season_period_ticks` value passes the wave-shape
+/// preconditions: at least 4 ticks (one per season) AND a multiple
+/// of 4 so the quarter boundaries land on integer ticks.
+#[inline]
+const fn is_valid_season_period(period: u32) -> bool {
+    period >= 4 && period % 4 == 0
 }
 
 #[inline]
@@ -228,13 +244,13 @@ fn season_at_tick_unchecked(tick: u64, season_period: u32) -> Season {
 ///
 /// # Panics
 ///
-/// Panics if `season_period < 4`. Same contract as
-/// [`season_at_tick`].
+/// Panics if `season_period` is below 4 or not a multiple of 4.
+/// Same contract as [`season_at_tick`].
 #[must_use]
 pub fn next_season_change_tick(tick: u64, season_period: u32) -> u64 {
     assert!(
-        season_period >= 4,
-        "season_period must be >= 4; got {season_period}",
+        is_valid_season_period(season_period),
+        "season_period must be a multiple of 4 and >= 4; got {season_period}",
     );
     let period = u64::from(season_period);
     let phase = tick % period;
@@ -270,7 +286,10 @@ pub fn ticks_until_next_season(tick: u64, season_period: u32) -> u64 {
 /// across cycles. This is the function that satisfies the
 /// closed-cycle invariant.
 fn seasonal_triangle(tick: u64, period: u32) -> Q3232 {
-    assert!(period >= 4, "period must be >= 4; got {period}");
+    assert!(
+        is_valid_season_period(period),
+        "period must be a multiple of 4 and >= 4; got {period}",
+    );
     let period = u64::from(period);
     let phase = tick % period;
     // half_period = period / 2; quarter = period / 4.
@@ -323,10 +342,28 @@ fn seasonal_triangle(tick: u64, period: u32) -> Q3232 {
 ///
 /// Returns the season for downstream UI/labels.
 ///
+/// # Closed-cycle invariant precondition
+///
+/// All temperature / precipitation arithmetic uses Q3232 saturating
+/// ops. The closed-cycle invariant (tick `0` reading equals tick
+/// `period` reading) holds **only when no intermediate operation
+/// saturates**. That requires:
+///
+/// * `base_temp_kelvin` not within `seasonal_temperature_amplitude
+///   + latitude_temperature_lapse` of `Q3232::MAX` / `Q3232::MIN`.
+/// * `base_precipitation` not within `seasonal_precipitation_
+///   amplitude` of `Q3232::MAX` / `Q3232::MIN`.
+///
+/// For physical Kelvin / mm-per-year inputs (200..400 K, 0..3000
+/// mm/yr) these bounds are enormous and the invariant always holds.
+/// Synthetic test inputs near the Q3232 extremes will silently
+/// break the invariant — this is by design (saturating ops are
+/// determinism-preserving but not invariant-preserving).
+///
 /// # Errors
 ///
 /// * [`ClimateError::SeasonPeriodTooSmall`] when
-///   `config.season_period_ticks < 4`.
+///   `config.season_period_ticks` is below 4 or not a multiple of 4.
 /// * [`ClimateError::AbsLatitudeOutOfRange`] when `abs_latitude`
 ///   is outside `[0, 1]`. Out-of-range values would produce
 ///   physically nonsensical (saturated) temperatures, so the model
@@ -339,7 +376,7 @@ pub fn effective_climate(
     abs_latitude: Q3232,
     tick: u64,
 ) -> Result<ClimateReading, ClimateError> {
-    if config.season_period_ticks < 4 {
+    if !is_valid_season_period(config.season_period_ticks) {
         return Err(ClimateError::SeasonPeriodTooSmall(
             config.season_period_ticks,
         ));
@@ -573,6 +610,25 @@ mod tests {
         let err = effective_climate(&cfg, Q3232::from_num(288_i32), Q3232::ZERO, Q3232::ZERO, 0)
             .unwrap_err();
         assert!(matches!(err, ClimateError::SeasonPeriodTooSmall(3)));
+    }
+
+    #[test]
+    fn rejects_season_period_not_multiple_of_four() {
+        // Period = 5 satisfies the >= 4 minimum but the triangle-wave
+        // quarter boundaries don't land on integer ticks (period/4
+        // truncates), producing skewed peak/trough positions. The
+        // pre-audit code accepted this; the new validation rejects.
+        let mut cfg = ClimateConfig::default_mvp();
+        cfg.season_period_ticks = 5;
+        let err = effective_climate(&cfg, Q3232::from_num(288_i32), Q3232::ZERO, Q3232::ZERO, 0)
+            .unwrap_err();
+        assert!(matches!(err, ClimateError::SeasonPeriodTooSmall(5)));
+    }
+
+    #[test]
+    fn try_season_at_tick_rejects_period_not_multiple_of_four() {
+        let err = try_season_at_tick(0, 6).unwrap_err();
+        assert!(matches!(err, ClimateError::SeasonPeriodTooSmall(6)));
     }
 
     #[test]
