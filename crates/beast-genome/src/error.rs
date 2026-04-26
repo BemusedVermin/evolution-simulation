@@ -56,6 +56,17 @@ pub enum GenomeError {
         /// Offending tag, as `u64`.
         tag: u64,
     },
+
+    /// A genome accumulated more than `u32::MAX` genes — the
+    /// `Modifier::target_gene_index` field can no longer address every
+    /// gene. Practically impossible at MVP gene counts; the variant
+    /// exists so `Genome::validate` can return an error rather than
+    /// panic via `expect()`.
+    #[error("genome size {len} exceeds u32::MAX — Modifier::target_gene_index can't address it")]
+    GenomeTooLarge {
+        /// The offending gene count.
+        len: usize,
+    },
 }
 
 /// Convenience `Result` alias for genome-crate errors.

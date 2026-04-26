@@ -32,6 +32,7 @@ pub fn mutate_point(gene: &mut TraitGene, params: &GenomeParams, rng: &mut Prng)
     mutate_silencing(gene, params, rng);
 }
 
+/// Drift `effect.magnitude` by N(0, σ), reflect-clamped to `[0, 1]`.
 fn mutate_magnitude(gene: &mut TraitGene, params: &GenomeParams, rng: &mut Prng) {
     if rng.next_q3232_unit() < params.point_mutation_rate {
         let delta = gaussian_q3232(rng, Q3232::ZERO, params.point_mutation_sigma);
@@ -39,6 +40,8 @@ fn mutate_magnitude(gene: &mut TraitGene, params: &GenomeParams, rng: &mut Prng)
     }
 }
 
+/// Drift every channel-vector entry by N(0, σ); intentionally unbounded
+/// (clamping happens downstream in the interpreter).
 fn mutate_channels(gene: &mut TraitGene, params: &GenomeParams, rng: &mut Prng) {
     if rng.next_q3232_unit() < params.channel_shift_rate {
         for ch in &mut gene.effect.channel {
@@ -48,6 +51,8 @@ fn mutate_channels(gene: &mut TraitGene, params: &GenomeParams, rng: &mut Prng) 
     }
 }
 
+/// Drift `body_site.surface_vs_internal` and `body_site.body_region`
+/// independently by N(0, σ), each reflect-clamped to `[0, 1]`.
 fn mutate_body_site(gene: &mut TraitGene, params: &GenomeParams, rng: &mut Prng) {
     if rng.next_q3232_unit() < params.body_site_drift_rate {
         let delta_s = gaussian_q3232(rng, Q3232::ZERO, params.body_site_drift_sigma);
@@ -59,6 +64,7 @@ fn mutate_body_site(gene: &mut TraitGene, params: &GenomeParams, rng: &mut Prng)
     }
 }
 
+/// Flip `enabled` (gene silencing toggle) with probability `silencing_toggle_rate`.
 fn mutate_silencing(gene: &mut TraitGene, params: &GenomeParams, rng: &mut Prng) {
     if rng.next_q3232_unit() < params.silencing_toggle_rate {
         gene.enabled = !gene.enabled;
@@ -121,17 +127,27 @@ pub fn mutate_regulatory(
 /// count (`original_len`) stable.
 pub fn apply_mutations(genome: &mut Genome, current_tick: TickCounter, rng: &mut Prng) {
     let original_len = genome.genes.len();
-    let params = genome.params.clone();
-    for i in 0..original_len {
-        mutate_point(&mut genome.genes[i], &params, rng);
+    // Split-borrow the genome so `params` can be borrowed
+    // immutably while `genes` is borrowed mutably — avoids the
+    // 272-byte `GenomeParams` clone that the previous revision
+    // paid on every creature, every tick. Soundness: this is the
+    // textbook field-disjoint-borrow pattern; rustc allows it
+    // because the two fields are stored in disjoint memory.
+    let Genome { params, genes } = genome;
+    for (i, gene) in genes.iter_mut().take(original_len).enumerate() {
+        mutate_point(gene, params, rng);
         // Safe cast: `Genome::validate` caps genome length at `u32::MAX`.
         let source = u32::try_from(i).expect("genome length exceeds u32::MAX");
-        mutate_regulatory(&mut genome.genes[i], source, original_len, &params, rng);
+        mutate_regulatory(gene, source, original_len, params, rng);
     }
     mutate_duplicate(genome, current_tick, rng);
     mutate_duplication_rate(genome, rng);
 }
 
+/// With probability `regulatory_add_rate`, push a new [`Modifier`]
+/// onto `gene.regulatory` targeting a uniformly random other gene.
+/// No-ops when `genome_len < 2` (the only valid target is `source`
+/// itself, and self-loops are forbidden by [`Genome::validate`]).
 fn try_add_modifier(
     gene: &mut TraitGene,
     source: u32,
@@ -162,6 +178,8 @@ fn try_add_modifier(
     });
 }
 
+/// With probability `regulatory_remove_rate`, drop a uniformly random
+/// existing [`Modifier`] from `gene.regulatory`. No-op on empty lists.
 fn try_remove_modifier(gene: &mut TraitGene, params: &GenomeParams, rng: &mut Prng) {
     if rng.next_q3232_unit() >= params.regulatory_remove_rate {
         return;
@@ -174,6 +192,10 @@ fn try_remove_modifier(gene: &mut TraitGene, params: &GenomeParams, rng: &mut Pr
     gene.regulatory.remove(idx);
 }
 
+/// With probability `regulatory_mutate_rate`, drift a uniformly chosen
+/// modifier's `strength` by N(0, σ) reflect-clamped to `[-1, 1]`, and
+/// independently with probability `regulatory_effect_type_flip_prob`
+/// swap its `effect_type` for one of the other two variants.
 fn try_mutate_modifier(gene: &mut TraitGene, params: &GenomeParams, rng: &mut Prng) {
     if rng.next_q3232_unit() >= params.regulatory_mutate_rate {
         return;
@@ -193,6 +215,7 @@ fn try_mutate_modifier(gene: &mut TraitGene, params: &GenomeParams, rng: &mut Pr
     }
 }
 
+/// Uniformly draw one of the three [`ModifierEffect`] variants.
 fn draw_effect_type(rng: &mut Prng) -> ModifierEffect {
     match rng.gen_range_u64(0, 3) {
         0 => ModifierEffect::Activate,

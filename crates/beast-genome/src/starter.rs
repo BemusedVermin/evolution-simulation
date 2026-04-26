@@ -121,7 +121,8 @@ pub struct StarterGeneSpec {
 /// Only `Serialize` is derived — `Deserialize` would require
 /// owning every `&'static str`, which is out of scope for a static
 /// blueprint. Tooling that needs to *read* spec JSON should
-/// deserialise into a separate owned-string mirror type.
+/// deserialise into a separate owned-string mirror type. Issue
+/// #173 tracks the design.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct StarterSpec {
     /// Snake-case identifier, also used as the species name.
@@ -877,6 +878,12 @@ mod tests {
         // The unification refactor that collapses `BiomeTag` and
         // `BiomeKind` (tracked in the S8 epic) will replace this
         // hand-maintained mirror with a real type lock-in.
+        //
+        // Issue #172 tracks the cross-test against
+        // `beast_ecs::components::BiomeKind` (requires a
+        // `BiomeKind::ALL` const + dev-dep on beast-ecs). Until that
+        // lands, this test catches typos in starter `home_biome_tag`
+        // values but not BiomeKind renames or new variants.
         const KNOWN: &[&str] = &["ocean", "forest", "plains", "desert", "mountain", "tundra"];
         for spec in STARTER_SPECIES {
             assert!(

@@ -174,9 +174,8 @@ impl Genome {
                 });
             }
 
-            let src_u32 = u32::try_from(src_idx).expect(
-                "genome size exceeds u32::MAX — Modifier::target_gene_index can't address this",
-            );
+            let src_u32 =
+                u32::try_from(src_idx).map_err(|_| GenomeError::GenomeTooLarge { len })?;
             for m in &gene.regulatory {
                 if (m.target_gene_index as usize) >= len {
                     return Err(GenomeError::ModifierIndexOutOfBounds {
