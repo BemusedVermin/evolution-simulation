@@ -24,10 +24,22 @@ use serde::{Deserialize, Serialize};
 /// Enumeration of per-subsystem PRNG streams. Each variant corresponds to
 /// exactly one independent `Prng` instance in the simulation.
 ///
-/// **Adding a new variant**: append only — never reorder, never remove. The
-/// discriminant drives the `long_jump` count used to derive the stream, so
-/// reordering would shuffle every subsystem's stream and break replay
-/// compatibility with all existing saves.
+/// # Discriminant layout (the stable contract)
+///
+/// The numeric **discriminant value** is the stable identifier — *not* the
+/// position in source order. The discriminant drives [`Stream::jumps`],
+/// which feeds `Xoshiro256PlusPlus::long_jump`, so changing a discriminant
+/// reseeds the stream and breaks every shipping save.
+///
+/// | Range | Reserved for |
+/// |-------|--------------|
+/// | `0..=8` | Production subsystems (Genetics, Phenotype, …, Testing). |
+/// | `9..=4095` | Future production subsystems — pick the lowest unused. |
+/// | `4096..=u16::MAX` | Test-only / scratch slots. Free to renumber, but `long_jump` is called once per discriminant unit at split, so very large values cost startup latency. |
+///
+/// **Adding a new production variant**: pick the lowest unused
+/// discriminant in the production range (currently 9), assign it
+/// explicitly with `= N`, and never reorder existing variants in source.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(u16)]
 pub enum Stream {
@@ -48,7 +60,10 @@ pub enum Stream {
     /// Chronicler sampling and clustering randomness.
     Chronicler = 7,
     /// Explicit testing stream — never used by the live simulation.
-    Testing = 0xFFFF,
+    /// Kept in the low-discriminant range so test setup pays bounded
+    /// `long_jump` cost (8 invocations) rather than the ~65k that the
+    /// previous `0xFFFF` slot would have triggered.
+    Testing = 8,
 }
 
 impl Stream {

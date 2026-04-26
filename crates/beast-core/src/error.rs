@@ -16,11 +16,11 @@ use thiserror::Error;
 pub enum Error {
     /// Fixed-point conversion failed (value out of Q32.32 range).
     #[error("fixed-point conversion out of range: {0}")]
-    FixedPointRange(String),
+    FixedPointRange(&'static str),
 
     /// PRNG seeding or stream-splitting failed.
     #[error("prng error: {0}")]
-    Prng(String),
+    Prng(&'static str),
 
     /// Invariant violation in `beast-core` — indicates a programmer bug, not a
     /// recoverable runtime condition.

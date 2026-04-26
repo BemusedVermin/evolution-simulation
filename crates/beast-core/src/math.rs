@@ -127,8 +127,29 @@ pub fn inv_lerp_q3232(a: Q3232, b: Q3232, v: Q3232) -> Q3232 {
 /// let delta = (sample - mean).saturating_abs();
 /// assert!(delta <= Q3232::from_num(16_i32));
 /// ```
+///
+/// # Cross-target determinism
+///
+/// The closed-form result depends on IEEE-754 `ln`, `sqrt`, `cos` and a
+/// fused multiply-add. Bit-for-bit equality holds across `x86_64` and
+/// `aarch64` with default rounding mode; this is locked in by the
+/// `target_arch`-gated `compile_error!` below. To port to a new target,
+/// add it to the gate (and bring up cross-target replay coverage in
+/// the determinism gate, issue #154) so a regression cannot land
+/// silently.
 #[allow(clippy::float_arithmetic)]
 pub fn gaussian_q3232(rng: &mut Prng, mean: Q3232, stddev: Q3232) -> Q3232 {
+    // SAFETY (determinism): see the function doc — this gate fires at
+    // compile time on any target_arch we have not audited for IEEE-754
+    // bit-exact `ln`/`sqrt`/`cos`/`mul_add`. Adding a new arch means
+    // bringing up cross-target replay coverage first (#154).
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    compile_error!(
+        "gaussian_q3232 is only audited for cross-process determinism on \
+         x86_64 and aarch64. To support another target, add it to the cfg \
+         gate after extending the cross-target replay determinism job in \
+         issue #154."
+    );
     // Draw two uniforms in (0, 1]. Box–Muller requires u1 > 0 because of ln.
     // We shift the standard [0, 1) draw by one ULP worth (2^-53) so that
     // u1 is strictly positive. This biases the distribution by a negligible
