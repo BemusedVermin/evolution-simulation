@@ -76,7 +76,10 @@ impl fmt::Display for EntityId {
 /// respected even in bootstrap code.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EntityIdAllocator {
-    next: u32,
+    /// `pub(crate)` so external callers can't bypass `alloc()` /
+    /// `is_exhausted()` by struct-literal construction. The internal
+    /// tests fast-forward by setting this directly.
+    pub(crate) next: u32,
 }
 
 impl EntityIdAllocator {
