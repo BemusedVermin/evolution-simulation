@@ -27,10 +27,11 @@ sdl = ["dep:sdl3"]
 headless = []
 
 [dependencies]
-# `beast-core` will land here when sim → render bridges (Q3232 conversion,
-# entity-id sorting helpers) are needed by the world-map renderer. Keeping
-# it out for S9.1 — `cargo` flags unused workspace deps and the rest of
-# the L0 crates are wired in story-by-story.
+# Q3232 + BodySite + general L0 utilities are read all over the visual
+# pipeline; the interpreter dep brings ResolvedPhenotype (the pipeline's
+# input contract). Both are pure-Rust deps — no SDL coupling.
+beast-core = { workspace = true }
+beast-interpreter = { workspace = true }
 thiserror = { workspace = true }
 
 [dependencies.sdl3]
