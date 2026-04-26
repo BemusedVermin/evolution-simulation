@@ -89,12 +89,17 @@ fn smoothstep(t: f64) -> f64 {
 /// # Coordinate range
 ///
 /// The internal corner hash reinterprets each integer coordinate as
-/// a `u64` via two's complement. Within roughly `±2^31` (the range
-/// the archipelago generator uses, with frequency ≤ 64) this is
-/// collision-free. Callers that pass arbitrary `i64`-magnitude
-/// coordinates (e.g., raw tile indices in a much larger world) may
-/// hit hash collisions between very-large-positive and small-
-/// negative coordinates and should normalise their input first.
+/// a `u64` via two's complement. Within roughly `±2^31` this is
+/// collision-free; well-large-positive vs small-negative `i64`
+/// coordinates can alias to the same hash bucket outside that band.
+/// The archipelago generator stays comfortably inside the safe band
+/// (a 64×64 grid scaled by typical `frequency` values produces corner
+/// indices of at most a few hundred), but callers that pass arbitrary
+/// `i64`-magnitude coordinates — e.g., raw tile indices in a much
+/// larger world — should normalise their input into `±2^31` first.
+/// `frequency` itself is unbounded (only `> 0` is enforced by
+/// `validate_config`); the bound here is on the **product** of
+/// `frequency` and the maximum traversed integer coordinate.
 #[inline]
 pub fn value_noise_2d(seed: u64, octave_seed: u64, x: f64, y: f64) -> f64 {
     let ix = x.floor() as i64;

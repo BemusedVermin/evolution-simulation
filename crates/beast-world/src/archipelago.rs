@@ -411,6 +411,35 @@ mod tests {
     }
 
     #[test]
+    fn rejects_negative_frequency() {
+        // Per PR #170 review: `Q3232` is signed, configs can come from
+        // external files, and a negative `frequency` inverts the
+        // lattice traversal direction. The predicate already rejects
+        // it; this test locks in the rejection so a future drive-by
+        // that loosens `check_positive` to `value == ZERO` fails loud.
+        let mut cfg = WorldConfig::default_archipelago();
+        cfg.frequency = -Q3232::ONE;
+        assert!(matches!(
+            generate_archipelago(&cfg, 0).unwrap_err(),
+            GenerationError::InvalidThresholds { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_negative_gain() {
+        // Per PR #170 review: a negative `gain` amplifies rather than
+        // attenuates successive fbm octaves, causing the output to
+        // diverge instead of converge. Same lock-in rationale as
+        // `rejects_negative_frequency`.
+        let mut cfg = WorldConfig::default_archipelago();
+        cfg.gain = -Q3232::ONE;
+        assert!(matches!(
+            generate_archipelago(&cfg, 0).unwrap_err(),
+            GenerationError::InvalidThresholds { .. }
+        ));
+    }
+
+    #[test]
     fn world_config_default_matches_default_archipelago() {
         assert_eq!(WorldConfig::default(), WorldConfig::default_archipelago());
     }
