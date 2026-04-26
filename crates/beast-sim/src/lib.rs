@@ -47,7 +47,6 @@ pub mod error;
 pub mod schedule;
 pub mod simulation;
 pub mod spawner;
-pub mod tick;
 
 pub use budget::TickResult;
 pub use determinism::compute_state_hash;
