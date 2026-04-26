@@ -131,19 +131,26 @@ pub fn evaluate_hook(hook: &CompositionHook, other: Q3232) -> HookOutcome {
             // for Threshold/Gating kinds, but `CompositionHook` is a
             // public struct with public fields — external callers
             // (mods, integration tests, fuzzers) can construct a
-            // hook with `threshold: None`. We choose **neutral**
-            // (no-op) over `unreachable!()`-panic so a misconstructed
-            // hook degrades gracefully instead of crashing the tick
-            // loop. `debug_assert!` still surfaces the bug in
-            // development builds.
+            // hook with `threshold: None`. Fail-safe behaviour is
+            // **closed gate, zero contribution**: callers AND-gate
+            // `gate_open` across hooks to decide channel expression,
+            // so a missing-threshold hook must NOT silently enable
+            // expression (`HookOutcome::NEUTRAL`'s `gate_open: true`
+            // would do exactly that — opposite of fail-safe).
+            // `debug_assert!` still surfaces the misconstruction in
+            // development builds; release degrades to closed-gate.
             let Some(t) = hook.threshold else {
                 debug_assert!(
                     false,
                     "CompositionHook {{ kind: Threshold, threshold: None }} — \
                      load-time validation should have rejected this. \
-                     Returning NEUTRAL in release.",
+                     Falling back to closed gate in release.",
                 );
-                return HookOutcome::NEUTRAL;
+                return HookOutcome {
+                    delta: Q3232::ZERO,
+                    factor: Q3232::ONE,
+                    gate_open: false,
+                };
             };
             if other >= t {
                 HookOutcome {
@@ -160,15 +167,19 @@ pub fn evaluate_hook(hook: &CompositionHook, other: Q3232) -> HookOutcome {
             }
         }
         CompositionKind::Gating => {
-            // Same neutral-fallback rationale as Threshold above.
+            // Same closed-gate fallback as Threshold above.
             let Some(t) = hook.threshold else {
                 debug_assert!(
                     false,
                     "CompositionHook {{ kind: Gating, threshold: None }} — \
                      load-time validation should have rejected this. \
-                     Returning NEUTRAL in release.",
+                     Falling back to closed gate in release.",
                 );
-                return HookOutcome::NEUTRAL;
+                return HookOutcome {
+                    delta: Q3232::ZERO,
+                    factor: Q3232::ONE,
+                    gate_open: false,
+                };
             };
             let open = other >= t;
             HookOutcome {
@@ -260,33 +271,54 @@ mod tests {
     // Pre-audit behaviour: a hand-constructed Threshold/Gating hook
     // with `threshold: None` panicked via `unreachable!()`. The audit
     // (PR #168, see also #36) flagged this as a panic-on-public-input
-    // hazard. The new contract: in release builds the hook returns
-    // `HookOutcome::NEUTRAL` (no-op) and in debug builds a
-    // `debug_assert!` fires to surface the misconstruction. Both tests
-    // below lock in the new contract.
+    // hazard. New contract: debug builds panic via `debug_assert!`,
+    // release builds degrade to **closed-gate, zero-contribution**.
+    //
+    // The two contracts are tested separately by cfg-gating: the
+    // `should_panic` debug tests run under `cargo test` (default
+    // debug profile); the closed-gate release tests run under
+    // `cargo test --release`. CI must run both — neither half
+    // proves the other.
+
+    #[cfg(debug_assertions)]
     #[test]
-    fn threshold_without_threshold_value_returns_neutral_in_release() {
-        // In `cargo test` (which builds with debug_assertions enabled
-        // by default) the debug_assert in the hot path fires before
-        // we reach the NEUTRAL return. Wrap in catch_unwind so the
-        // test survives both debug and release configurations.
+    #[should_panic(expected = "load-time validation should have rejected this")]
+    fn threshold_without_threshold_value_panics_in_debug() {
         let invalid = hook(CompositionKind::Threshold, 1.0, None);
-        let result = std::panic::catch_unwind(|| evaluate_hook(&invalid, q(0.5)));
-        if cfg!(debug_assertions) {
-            assert!(result.is_err(), "debug_assert should panic in dev builds");
-        } else {
-            assert_eq!(result.unwrap(), HookOutcome::NEUTRAL);
-        }
+        let _ = evaluate_hook(&invalid, q(0.5));
     }
 
+    #[cfg(debug_assertions)]
     #[test]
-    fn gating_without_threshold_value_returns_neutral_in_release() {
+    #[should_panic(expected = "load-time validation should have rejected this")]
+    fn gating_without_threshold_value_panics_in_debug() {
         let invalid = hook(CompositionKind::Gating, 1.0, None);
-        let result = std::panic::catch_unwind(|| evaluate_hook(&invalid, q(0.5)));
-        if cfg!(debug_assertions) {
-            assert!(result.is_err(), "debug_assert should panic in dev builds");
-        } else {
-            assert_eq!(result.unwrap(), HookOutcome::NEUTRAL);
-        }
+        let _ = evaluate_hook(&invalid, q(0.5));
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn threshold_without_threshold_value_closes_gate_in_release() {
+        let invalid = hook(CompositionKind::Threshold, 1.0, None);
+        let outcome = evaluate_hook(&invalid, q(0.5));
+        assert_eq!(outcome.delta, Q3232::ZERO);
+        assert_eq!(outcome.factor, Q3232::ONE);
+        assert!(
+            !outcome.gate_open,
+            "missing-threshold fallback must close the gate (fail-safe)"
+        );
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn gating_without_threshold_value_closes_gate_in_release() {
+        let invalid = hook(CompositionKind::Gating, 1.0, None);
+        let outcome = evaluate_hook(&invalid, q(0.5));
+        assert_eq!(outcome.delta, Q3232::ZERO);
+        assert_eq!(outcome.factor, Q3232::ONE);
+        assert!(
+            !outcome.gate_open,
+            "missing-threshold fallback must close the gate (fail-safe)"
+        );
     }
 }

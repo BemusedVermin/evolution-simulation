@@ -127,6 +127,10 @@ impl ChannelRegistry {
     pub fn fingerprint(&self) -> RegistryFingerprint {
         let mut hasher = blake3::Hasher::new();
         hasher.update(FINGERPRINT_MAGIC);
+        // Schema-bounded — see `write_len_prefixed` above. Channel
+        // count is bounded by per-mod id quotas plus the global
+        // registry policy enforced at load time, never approaching
+        // u32::MAX in any plausible deployment.
         let count = u32::try_from(self.len()).expect("registry size exceeds u32::MAX");
         hasher.update(&count.to_le_bytes());
         for (_id, manifest) in self.iter() {
