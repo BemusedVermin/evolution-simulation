@@ -65,7 +65,15 @@ winnow = "0.7"
 # available for embarrassingly-parallel per-entity reads. The scheduler
 # (S6) will still serialise stages — parallelism only happens within a
 # stage, and only for read-only access paths.
-specs = { version = "0.20", default-features = false, features = ["parallel"] }
+#
+# DETERMINISM-CRITICAL: the version is pinned to exactly 0.20.x because
+# `SortedEntityIndex` (`crates/beast-ecs/src/entity_id.rs`) relies on
+# `specs::Entity` deriving `Ord` over `(index, generation)` in that
+# field order. A patch release that reorders the fields would silently
+# break replay determinism. Issue #175 tracks migrating
+# `SortedEntityIndex` to `BTreeSet<u32>` keyed on `Entity::id()` so we
+# stop depending on the derived impl.
+specs = { version = "~0.20", default-features = false, features = ["parallel"] }
 
 beast-core = { path = "crates/beast-core" }
 beast-manifest = { path = "crates/beast-manifest" }

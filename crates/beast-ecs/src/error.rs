@@ -25,6 +25,22 @@ pub enum EcsError {
         /// Opaque message returned by the system.
         message: String,
     },
+    /// A [`crate::components::PhenotypeComponent::try_new`] caller
+    /// passed an effect list that was not sorted by
+    /// `(primitive_id, body_site)`. The interpreter emits sorted
+    /// output by contract; this error exists for callers that build
+    /// phenotypes outside the interpreter (tests, save-loaders) so
+    /// the determinism invariant is enforced in release builds.
+    #[error(
+        "phenotype effects out of order at index {index}: \
+         downstream systems hash phenotypes in visit order, so an \
+         unsorted list breaks INVARIANTS §1 (deterministic iteration)"
+    )]
+    PhenotypeNotSorted {
+        /// Zero-based position of the first out-of-order pair (the
+        /// effect at `index + 1` was less than the effect at `index`).
+        index: usize,
+    },
 }
 
 /// Crate-level `Result` alias. Every public API that can fail uses this.

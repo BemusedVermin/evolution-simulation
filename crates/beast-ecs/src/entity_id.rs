@@ -56,6 +56,21 @@ impl MarkerKind {
 /// `Join` iteration order is a `specs` implementation detail, while
 /// this index makes the ordering contract ours.
 ///
+/// # DETERMINISM-CRITICAL
+///
+/// `BTreeSet<Entity>`'s iteration order is what makes
+/// [`Self::entities_of`] / [`Self::iter_all`] deterministic, and that
+/// order rests on the `Ord` impl `specs` derives for [`Entity`] over
+/// `(id, gen)` in field-declaration order. That impl is **not** part
+/// of `specs`'s public API contract — a future `specs` release that
+/// reorders or replaces those fields would silently break replay
+/// determinism. The workspace `Cargo.toml` therefore pins `specs` to
+/// the `~0.20` range (`>= 0.20.0, < 0.21.0`); the
+/// [`tests::specs_entity_ord_sorts_by_index_then_generation`] test
+/// fails loudly if a patch release ever changes the ordering. Issue
+/// #175 tracks migrating to `BTreeSet<u32>` keyed on `Entity::id()`
+/// so the determinism guarantee no longer depends on a derived impl.
+///
 /// # Maintenance contract
 ///
 /// Callers update the index by hand at entity creation / destruction.
@@ -218,8 +233,24 @@ mod tests {
                 e0.gen()
             );
         } else {
-            // New index — e_fresh and e1's relative order is purely by
-            // index, which we've already checked above.
+            // New index — assert the index-then-generation rule
+            // explicitly: `e_fresh` and `e1` must compare strictly
+            // by index. If specs ever silently re-derives `Ord` to
+            // tiebreak on generation first, an `e_fresh` with the
+            // same generation as `e1` but a higher index would still
+            // sort correctly here, so this is the load-bearing check.
+            assert_ne!(
+                e_fresh.id(),
+                e1.id(),
+                "fresh entity index unexpectedly collided with e1"
+            );
+            let by_id = e_fresh.id().cmp(&e1.id());
+            let by_ord = e_fresh.cmp(&e1);
+            assert_eq!(
+                by_id, by_ord,
+                "Ord disagrees with index-only ordering: \
+                 e_fresh={e_fresh:?}, e1={e1:?}"
+            );
         }
     }
 
