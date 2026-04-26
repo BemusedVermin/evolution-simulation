@@ -20,8 +20,10 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-pub mod error;
-pub mod renderer;
+// Modules are crate-private; consumers should depend on the re-exports
+// below so they don't couple to internal module paths.
+pub(crate) mod error;
+pub(crate) mod renderer;
 
 pub use error::{RenderError, Result};
 pub use renderer::{Renderer, WindowConfig};

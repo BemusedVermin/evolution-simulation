@@ -27,7 +27,10 @@ sdl = ["dep:sdl3"]
 headless = []
 
 [dependencies]
-beast-core = { workspace = true }
+# `beast-core` will land here when sim → render bridges (Q3232 conversion,
+# entity-id sorting helpers) are needed by the world-map renderer. Keeping
+# it out for S9.1 — `cargo` flags unused workspace deps and the rest of
+# the L0 crates are wired in story-by-story.
 thiserror = { workspace = true }
 
 [dependencies.sdl3]
@@ -35,10 +38,19 @@ workspace = true
 optional = true
 features = ["build-from-source-static"]
 
+[[example]]
+# `required-features = ["sdl"]` makes cargo refuse to build this binary
+# when the SDL backend isn't enabled, so the example doc comment's promise
+# matches the actual cargo behavior.
+name = "window"
+required-features = ["sdl"]
+
 [lints.rust]
-# unsafe_code is allowed here because SDL3 is a thin C wrapper. Any unsafe
-# block must carry a `// SAFETY:` comment explaining the FFI invariant.
-unsafe_code = "warn"
+# Forbid `unsafe { ... }` blocks unless they carry a `// SAFETY:` comment
+# explaining the FFI invariant. We use `deny` rather than `forbid` so a
+# specific call site can opt back in via `#[allow(unsafe_code)]` with a
+# justification — that's still loud in code review.
+unsafe_code = "deny"
 
 [lints.clippy]
 # Render code can use floats for camera/perspective math; the determinism

@@ -144,8 +144,15 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
+      # Coverage excludes beast-render's SDL backend for the same reason
+      # the lint-and-test job does (Linux runner doesn't yet have the
+      # X11/Wayland system deps SDL3 needs). The headless backend is
+      # included so the public API surface still gets covered.
       - name: cargo llvm-cov (summary)
-        run: cargo llvm-cov --workspace --all-targets --locked --summary-only --no-fail-fast
+        run: cargo llvm-cov --workspace --exclude beast-render --all-targets --locked --summary-only --no-fail-fast
+
+      - name: cargo llvm-cov beast-render (headless)
+        run: cargo llvm-cov -p beast-render --no-default-features --features headless --all-targets --locked --no-report
 
       - name: cargo llvm-cov (JSON summary artifact)
         run: cargo llvm-cov report --json --summary-only --output-path coverage-summary.json

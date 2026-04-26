@@ -13,7 +13,7 @@ use crate::error::{RenderError, Result};
 
 /// Caller-supplied window settings. Fields use `u32` (no negatives) and
 /// `String` so consumers don't need to know SDL3's types.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowConfig {
     pub title: String,
     pub width: u32,
@@ -47,14 +47,15 @@ mod sdl_backend {
     use sdl3::{render::WindowCanvas, video::Window, EventPump, Sdl, VideoSubsystem};
 
     pub struct Renderer {
-        // Field order matters for drop: canvas must drop before window,
-        // window before video, video before sdl. Rust drops in declaration
-        // order, so we keep the most-derived field first.
+        // Field drop order matters: rust drops fields top-to-bottom, so
+        // anything that holds an SDL3 handle must come before the
+        // subsystem / context that owns it. The Window itself is consumed
+        // by `into_canvas()`; the resulting `WindowCanvas` is what we
+        // hold onto, and it must drop before the video subsystem (which
+        // must drop before the top-level Sdl context).
         canvas: WindowCanvas,
         event_pump: EventPump,
         config: WindowConfig,
-        // Held so the Window stays alive — the canvas borrows from it
-        // internally via SDL refcounting.
         _video: VideoSubsystem,
         _sdl: Sdl,
     }
@@ -182,10 +183,10 @@ mod tests {
     }
 
     #[test]
-    fn window_config_is_clone() {
+    fn window_config_is_clone_and_eq() {
         let cfg = WindowConfig::default();
         let cfg2 = cfg.clone();
-        assert_eq!(cfg.width, cfg2.width);
+        assert_eq!(cfg, cfg2);
     }
 
     #[cfg(all(not(feature = "sdl"), feature = "headless"))]
