@@ -349,4 +349,18 @@ mod tests {
         let exp = Q3232::from(-100_i32);
         assert_eq!(q_pow(base, exp), None);
     }
+
+    #[test]
+    fn pow_negative_base_exp_outside_i32_range_rejected() {
+        // Per PR #169 review (MEDIUM): the new `i32::try_from` rejection
+        // path on the integer-rounded exponent had no dedicated test —
+        // the underflow path above exercises a different `None` branch.
+        // `i32::MAX as i64 + 1` is comfortably representable as Q3232
+        // (its integer part fits the upper 32 bits), so the round-trip
+        // check `i32::try_from(rounded)` is the load-bearing rejection.
+        let large_exp_i64: i64 = i32::MAX as i64 + 1;
+        let base = Q3232::from(-2_i32);
+        let exp = Q3232::from_num(large_exp_i64 as f64);
+        assert_eq!(q_pow(base, exp), None);
+    }
 }
