@@ -77,13 +77,14 @@ pub enum SaveLoadError {
     /// The hex-formatted fingerprints are included so the mismatch is
     /// diagnosable from a log paste without needing the original file.
     #[error(
-        "registry fingerprint mismatch: save was written against registry {actual}, current registry is {expected}"
+        "registry fingerprint mismatch: save was written against registry \
+         {saved_fingerprint}, current registry is {current_fingerprint}"
     )]
     RegistryMismatch {
-        /// Hex of the active registry's fingerprint.
-        expected: String,
-        /// Hex of the fingerprint stored in the save.
-        actual: String,
+        /// Hex of the registry the save was written against.
+        saved_fingerprint: String,
+        /// Hex of the registry the simulation is currently using.
+        current_fingerprint: String,
     },
 
     /// The genome payload passed deserialization but failed structural
@@ -132,8 +133,8 @@ pub fn load_genome_from_json(
     let current = registry.fingerprint();
     if current != envelope.registry_fingerprint {
         return Err(SaveLoadError::RegistryMismatch {
-            expected: current.to_hex(),
-            actual: envelope.registry_fingerprint.to_hex(),
+            saved_fingerprint: envelope.registry_fingerprint.to_hex(),
+            current_fingerprint: current.to_hex(),
         });
     }
 
