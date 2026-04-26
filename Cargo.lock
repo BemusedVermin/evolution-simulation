@@ -206,6 +206,8 @@ dependencies = [
 name = "beast-render"
 version = "0.1.0"
 dependencies = [
+ "beast-core",
+ "beast-interpreter",
  "sdl3",
  "thiserror",
 ]
