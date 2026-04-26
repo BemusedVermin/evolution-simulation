@@ -127,6 +127,18 @@ pub fn mutate_regulatory(
 /// count (`original_len`) stable.
 pub fn apply_mutations(genome: &mut Genome, current_tick: TickCounter, rng: &mut Prng) {
     let original_len = genome.genes.len();
+    // Bounds check once, then cheap-cast inside the per-creature
+    // loop. `Genome::validate` already caps `genes.len()` at
+    // `u32::MAX` (the `GenomeTooLarge` error path), so this is a
+    // belt-and-braces assertion rather than a runtime check we
+    // expect to ever fire — but turning the per-iteration
+    // `expect()` into a one-time `debug_assert!` keeps the hot
+    // path branch-free in release. See PR #174 review for context.
+    debug_assert!(
+        original_len <= u32::MAX as usize,
+        "Genome::validate must reject genomes with > u32::MAX genes \
+         before they reach apply_mutations"
+    );
     // Split-borrow the genome so `params` can be borrowed
     // immutably while `genes` is borrowed mutably — avoids the
     // 272-byte `GenomeParams` clone that the previous revision
@@ -136,8 +148,10 @@ pub fn apply_mutations(genome: &mut Genome, current_tick: TickCounter, rng: &mut
     let Genome { params, genes } = genome;
     for (i, gene) in genes.iter_mut().take(original_len).enumerate() {
         mutate_point(gene, params, rng);
-        // Safe cast: `Genome::validate` caps genome length at `u32::MAX`.
-        let source = u32::try_from(i).expect("genome length exceeds u32::MAX");
+        // `i < original_len <= u32::MAX` from the debug_assert above,
+        // so the truncating cast is lossless. Avoids per-iteration
+        // try_from + expect on every creature, every tick.
+        let source = i as u32;
         mutate_regulatory(gene, source, original_len, params, rng);
     }
     mutate_duplicate(genome, current_tick, rng);
