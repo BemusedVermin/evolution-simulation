@@ -203,6 +203,45 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[test]
+    fn ord_is_declaration_order_with_within_variant_lexicographic() {
+        // Locks the canonical sort order documented on `Provenance`.
+        // A reorder of variants in the source enum (or a derive change)
+        // would shift `BTreeMap<Provenance, _>` iteration and break
+        // any consumer that snapshots the order — including replay
+        // fingerprints. This test fails on first compile if either
+        // happens.
+        assert!(Provenance::Core < Provenance::Mod("a".to_owned()));
+        assert!(
+            Provenance::Mod("a".to_owned())
+                < Provenance::Genesis {
+                    parent: "p".to_owned(),
+                    generation: 0,
+                }
+        );
+        // Within Mod, lexicographic by id.
+        assert!(Provenance::Mod("a".to_owned()) < Provenance::Mod("b".to_owned()));
+        // Within Genesis, lexicographic by parent then numeric by generation.
+        assert!(
+            Provenance::Genesis {
+                parent: "a".to_owned(),
+                generation: 99,
+            } < Provenance::Genesis {
+                parent: "b".to_owned(),
+                generation: 0,
+            }
+        );
+        assert!(
+            Provenance::Genesis {
+                parent: "a".to_owned(),
+                generation: 1,
+            } < Provenance::Genesis {
+                parent: "a".to_owned(),
+                generation: 2,
+            }
+        );
+    }
+
     proptest! {
         // Any schema-conformant `mod:<id>` round-trips through parse.
         #[test]

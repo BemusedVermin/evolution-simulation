@@ -33,6 +33,10 @@ pub struct DuplicateId(pub String);
 /// `Clone` here, `SortedRegistry::clone()` would fail at the call
 /// site rather than at the trait impl, which is a confusing
 /// diagnostic.
+///
+/// Current implementors: `beast_channels::ChannelManifest` and
+/// `beast_primitives::PrimitiveManifest` (both already derive
+/// `Clone`).
 pub trait Manifest: Clone {
     /// Type of the grouping key (e.g. `ChannelFamily`, `PrimitiveCategory`).
     type Group: Ord + Copy;
