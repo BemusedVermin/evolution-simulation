@@ -106,6 +106,7 @@ pub fn compile_blueprint(
     let surfaces = apply_surface_details(&volumes, &directives);
     let materials = assign_materials(&volumes, &directives, &biome_color);
     let effects = attach_effects(&volumes, phenotype);
+    let animations = crate::animation::rig_animations(&skeleton, phenotype);
 
     let metadata = BlueprintMetadata {
         bounding_box: bounding_box_for(&skeleton, &volumes),
@@ -118,6 +119,7 @@ pub fn compile_blueprint(
         surfaces,
         materials,
         effects,
+        animations,
         metadata,
     }
 }

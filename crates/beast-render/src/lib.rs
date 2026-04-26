@@ -30,6 +30,7 @@ pub(crate) mod renderer;
 // see the IR + output types. `pipeline` itself is crate-private — its
 // only public surface is [`compile_blueprint`] re-exported below — to
 // keep substage helpers from leaking into anyone's API.
+pub mod animation;
 pub mod blueprint;
 pub mod directive;
 pub(crate) mod pipeline;
@@ -38,6 +39,10 @@ pub(crate) mod pipeline;
 // the GPU-upload step lands alongside the SDL renderers in S9.3 / S9.4.
 pub mod sprite;
 
+pub use animation::{
+    rig_animations, AnimationClip, AnimationSet, Animator, BoneRotation, BoneTrack, Easing,
+    Keyframe, LocomotionStyle, PoseFrame,
+};
 pub use blueprint::CreatureBlueprint;
 pub use directive::{ColorSpec, DirectiveParams, VisualDirective};
 pub use error::{RenderError, Result};
