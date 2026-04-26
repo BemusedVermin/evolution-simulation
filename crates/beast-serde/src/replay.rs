@@ -330,6 +330,28 @@ mod tests {
     }
 
     #[test]
+    fn from_json_with_non_string_format_version_falls_through_to_typed_parser() {
+        // Per PR #179 review (MEDIUM): the two-phase from_json uses
+        // `value.get("format_version").and_then(|v| v.as_str())`, which
+        // returns `None` for a non-string value (e.g. integer 1). That
+        // skips the version-check phase and falls through to the typed
+        // serde_json::from_value, which then fails with a `Json` (type
+        // mismatch) rather than `UnsupportedVersion`. Lock in this
+        // fall-through so a future refactor that swaps the
+        // `if let Some(v)` for an unconditional check doesn't silently
+        // change the error variant.
+        let j = ReplayJournal::new(0);
+        let mut tampered: serde_json::Value = serde_json::from_str(&j.to_json().unwrap()).unwrap();
+        tampered["format_version"] = serde_json::json!(1); // numeric, not a string
+        let bad = serde_json::to_string(&tampered).unwrap();
+        let err = ReplayJournal::from_json(&bad).expect_err("non-string version should fail");
+        assert!(
+            matches!(err, ReplayError::Json(_)),
+            "expected ReplayError::Json (type mismatch), got {err:?}"
+        );
+    }
+
+    #[test]
     fn input_event_uses_tagged_kind_field_in_json() {
         // Locks in the wire format: a future variant sees `"kind":
         // "<snake_case>"` consistently. Hand-edited replay-fixtures

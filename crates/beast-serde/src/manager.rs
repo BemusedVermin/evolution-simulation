@@ -363,6 +363,15 @@ pub fn load_game(
     // `to_json` — both halves are guards, not redundancy.
     let mut sorted = file.entities;
     sorted.sort_by_key(|e| e.id);
+    // Intentional asymmetry with `SaveFile::assert_entities_sorted`'s
+    // release-visible `assert!`: the producer-side check guards an
+    // *invariant* (a save with out-of-order entities is malformed and
+    // would produce non-deterministic bytes), so it must fire in
+    // release. This loader-side check guards the stdlib `sort_by_key`
+    // contract — if `sorted.sort_by_key` ever returned an unsorted
+    // slice the entire toolchain has bigger problems, and
+    // `debug_assert!` is enough to catch a regression in tests
+    // without paying the linear-scan cost on every load.
     debug_assert!(
         sorted.windows(2).all(|w| w[0].id <= w[1].id),
         "post-sort entities must be ascending — sort_by_key contract violated?"
@@ -843,6 +852,40 @@ mod tests {
 
         // And the clean save_to_path must still pass validation +
         // write the file (regression guard for the wired-in path).
+        save_to_path(&sim, &path).unwrap();
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn save_to_path_with_custom_validator_blocks_real_write() {
+        // Per PR #179 review (MEDIUM): the existing
+        // save_to_path_with_validator_rejects_forbidden_extras_without_writing
+        // test inlines validate-then-write rather than calling the wired
+        // function, so it doesn't exercise the actual `?` propagation
+        // from validator into ManagerError. This test calls the real
+        // entry point with a custom validator that rejects an extras key
+        // that `save_game` always emits (well, doesn't — but a custom
+        // forbidden prefix that catches a normal envelope key works).
+        //
+        // We register `current_tick` as a forbidden literal so the
+        // wired-in path will reject *any* save (the field is always
+        // present). The on-disk file must remain absent.
+        let sim = fixture(17, 1);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("custom-rejected.bsv");
+
+        let validator = crate::SaveValidator::new().with_forbidden("current_tick");
+        let result = save_to_path_with_validator(&sim, &path, &validator);
+        assert!(
+            matches!(result, Err(ManagerError::Validator(_))),
+            "expected ManagerError::Validator, got {result:?}"
+        );
+        assert!(
+            !path.exists(),
+            "save_to_path_with_validator must not write the file when validation fails"
+        );
+
+        // Sanity: the same simulation passes the default validator.
         save_to_path(&sim, &path).unwrap();
         assert!(path.exists());
     }
