@@ -32,6 +32,7 @@ pub(crate) mod renderer;
 // keep substage helpers from leaking into anyone's API.
 pub mod animation;
 pub mod blueprint;
+pub(crate) mod channels;
 pub mod directive;
 pub(crate) mod pipeline;
 

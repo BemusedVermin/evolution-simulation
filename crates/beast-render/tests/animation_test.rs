@@ -67,6 +67,19 @@ fn quadruped_walker() -> ResolvedPhenotype {
     ])
 }
 
+fn biped_walker() -> ResolvedPhenotype {
+    // Mid elasticity / rigidity + low friction + low speed → limb
+    // potential ≈ (0.1*0.4 + 0.7*0.3 + 0.2*0.3)*6 = 1.74 → limb_count=2.
+    phenotype_with(&[
+        ("elastic_deformation", 0.3),
+        ("structural_rigidity", 0.3),
+        ("mass_density", 0.4),
+        ("metabolic_rate", 0.2),
+        ("surface_friction", 0.1),
+        ("kinetic_force", 0.5),
+    ])
+}
+
 fn neutral_biome() -> ColorSpec {
     ColorSpec::rgb(
         Q3232::from_num(120_i32),
@@ -126,6 +139,14 @@ fn quadruped_walker_picks_quadruped_walk() {
     let bp = compile_blueprint(&phenotype, &no_directives(), neutral_biome(), "quadruped");
     let style = beast_render::animation::pick_locomotion_style(&bp.skeleton, &phenotype);
     assert_eq!(style, LocomotionStyle::QuadrupedWalk);
+}
+
+#[test]
+fn biped_walker_picks_biped_walk() {
+    let phenotype = biped_walker();
+    let bp = compile_blueprint(&phenotype, &no_directives(), neutral_biome(), "biped");
+    let style = beast_render::animation::pick_locomotion_style(&bp.skeleton, &phenotype);
+    assert_eq!(style, LocomotionStyle::BipedWalk);
 }
 
 #[test]

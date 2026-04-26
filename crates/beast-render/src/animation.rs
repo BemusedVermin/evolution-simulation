@@ -24,6 +24,18 @@ use beast_core::Q3232;
 use beast_interpreter::ResolvedPhenotype;
 
 use crate::blueprint::{Bone, BoneTag, BoneTree};
+use crate::channels::{ch, CH_ELASTIC_DEFORMATION, CH_METABOLIC_RATE, CH_STRUCTURAL_RIGIDITY};
+
+// ---------------------------------------------------------------------------
+// ANIMATION NUMERIC INVARIANT
+// ---------------------------------------------------------------------------
+//
+// All `Q3232::from_num(<decimal>_f64)` calls below are compile-time
+// design-doc-derived constants — see the matching block in
+// `pipeline.rs` for the full rationale. New f64 literals here must be
+// constants, not values that flow from sim state.
+//
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Types
@@ -191,13 +203,15 @@ fn sample_track(track: &BoneTrack, t: Q3232) -> BoneRotation {
         };
     }
 
-    let mut a_idx = 0;
-    for i in 0..last_idx {
-        if track.keyframes[i].time <= t && t <= track.keyframes[i + 1].time {
-            a_idx = i;
-            break;
-        }
-    }
+    // partition_point returns the first index whose time is strictly
+    // greater than `t`; subtract one to get the predecessor (`a`). The
+    // `t <= keyframes[0].time` and `t >= keyframes[last].time` guards
+    // above mean partition_point can't return 0 or `len`, so the
+    // saturating_sub is defensive but not strictly necessary.
+    let a_idx = track
+        .keyframes
+        .partition_point(|kf| kf.time <= t)
+        .saturating_sub(1);
     let a = &track.keyframes[a_idx];
     let b = &track.keyframes[a_idx + 1];
 
@@ -261,18 +275,6 @@ fn apply_easing(alpha: Q3232, easing: Easing) -> Q3232 {
 // ---------------------------------------------------------------------------
 // Locomotion-style decision
 // ---------------------------------------------------------------------------
-
-const CH_ELASTIC_DEFORMATION: &str = "elastic_deformation";
-const CH_STRUCTURAL_RIGIDITY: &str = "structural_rigidity";
-const CH_METABOLIC_RATE: &str = "metabolic_rate";
-
-fn ch(phenotype: &ResolvedPhenotype, name: &str) -> Q3232 {
-    phenotype
-        .global_channels
-        .get(name)
-        .copied()
-        .unwrap_or(Q3232::ZERO)
-}
 
 /// Pick a locomotion style from channel ratios + skeleton topology.
 ///
@@ -359,15 +361,19 @@ fn build_locomotion_clip(
 
     match style {
         LocomotionStyle::SinuousWave => {
-            // Each core bone gets a sinusoidal swing offset by its
-            // index. Approximated with two keyframes per quarter-cycle
-            // (5 keyframes total spanning duration), so the
-            // determinism contract doesn't need a real sin().
+            // Each core bone gets a sinusoidal swing of equal
+            // amplitude, time-shifted by its index so the spine
+            // ripples like a travelling wave. 0.1 of clip duration
+            // per bone gives a roughly visible undulation; clamped
+            // to <1.0 so the offset wraps within one cycle.
+            const PHASE_PER_BONE: f64 = 0.1;
             for (i, bone) in core_bones(skeleton).enumerate() {
-                let phase = Q3232::from_num(i as u32).saturating_mul(Q3232::from_num(15));
+                let raw_fraction =
+                    Q3232::from_num(i as u32).saturating_mul(Q3232::from_num(PHASE_PER_BONE));
+                let phase_fraction = raw_fraction.clamp(Q3232::ZERO, Q3232::from_num(0.9_f64));
                 tracks.push(BoneTrack {
                     bone_id: bone.id,
-                    keyframes: sinusoid_keyframes(duration, Q3232::from_num(20), phase),
+                    keyframes: sinusoid_keyframes(duration, Q3232::from_num(20), phase_fraction),
                 });
             }
         }
@@ -516,44 +522,46 @@ fn build_death_clip(skeleton: &BoneTree) -> AnimationClip {
 // Keyframe-pattern helpers
 // ---------------------------------------------------------------------------
 
-/// Five-keyframe sinusoid approximation: starts at 0, peaks at +amp at
-/// quarter, returns to 0 at half, troughs at -amp at three-quarters,
-/// back to 0 at end. `phase` shifts the rotation magnitude (degrees).
-fn sinusoid_keyframes(duration: Q3232, amplitude: Q3232, phase: Q3232) -> Vec<Keyframe> {
+/// Five-keyframe sinusoid approximation: starts at 0, peaks at
+/// +amplitude at quarter-cycle, returns to 0 at half, troughs at
+/// -amplitude at three-quarters, back to 0 at end.
+///
+/// `phase_fraction` shifts the *time* of every keyframe by
+/// `phase_fraction * duration`, then wraps modulo duration. This is
+/// the travelling-wave behaviour the design doc calls for: every bone
+/// in the spine sees the same amplitude, only offset in time so the
+/// whole spine ripples.
+fn sinusoid_keyframes(duration: Q3232, amplitude: Q3232, phase_fraction: Q3232) -> Vec<Keyframe> {
     let q = duration.saturating_mul(Q3232::from_num(0.25_f64));
-    let amp_with_phase = amplitude.saturating_add(phase);
-    vec![
-        Keyframe {
-            time: Q3232::ZERO,
-            rotation: Q3232::ZERO,
+    let phase_t = phase_fraction.saturating_mul(duration);
+    // Times in the unshifted clip, paired with their target rotation.
+    let pattern = [
+        (Q3232::ZERO, Q3232::ZERO),
+        (q, amplitude),
+        (q.saturating_mul(Q3232::from_num(2)), Q3232::ZERO),
+        (
+            q.saturating_mul(Q3232::from_num(3)),
+            amplitude.saturating_mul(Q3232::from_num(-1)),
+        ),
+        (duration, Q3232::ZERO),
+    ];
+
+    let mut keyframes: Vec<Keyframe> = pattern
+        .iter()
+        .map(|(t, rotation)| Keyframe {
+            time: wrap_time(t.saturating_add(phase_t), duration),
+            rotation: *rotation,
             scale: Q3232::ONE,
             easing: Easing::EaseInOut,
-        },
-        Keyframe {
-            time: q,
-            rotation: amp_with_phase,
-            scale: Q3232::ONE,
-            easing: Easing::EaseInOut,
-        },
-        Keyframe {
-            time: q.saturating_mul(Q3232::from_num(2)),
-            rotation: Q3232::ZERO,
-            scale: Q3232::ONE,
-            easing: Easing::EaseInOut,
-        },
-        Keyframe {
-            time: q.saturating_mul(Q3232::from_num(3)),
-            rotation: amp_with_phase.saturating_mul(Q3232::from_num(-1)),
-            scale: Q3232::ONE,
-            easing: Easing::EaseInOut,
-        },
-        Keyframe {
-            time: duration,
-            rotation: Q3232::ZERO,
-            scale: Q3232::ONE,
-            easing: Easing::Linear,
-        },
-    ]
+        })
+        .collect();
+    // Re-sort by time so the keyframe list stays monotonic after the
+    // phase wrap. Stable sort + Q3232::Ord both deterministic.
+    keyframes.sort_by(|a, b| a.time.cmp(&b.time));
+    if let Some(last) = keyframes.last_mut() {
+        last.easing = Easing::Linear;
+    }
+    keyframes
 }
 
 /// Stride keyframes: lift at 25%, plant at 75%, recover by end.
@@ -728,5 +736,57 @@ mod tests {
         assert_eq!(apply_easing(Q3232::ONE, Easing::EaseOut), Q3232::ONE);
         assert_eq!(apply_easing(Q3232::ZERO, Easing::EaseInOut), Q3232::ZERO);
         assert_eq!(apply_easing(Q3232::ONE, Easing::EaseInOut), Q3232::ONE);
+    }
+
+    #[test]
+    fn ease_in_out_is_continuous_at_half() {
+        // Both branches of EaseInOut converge on 0.5 at α = 0.5.
+        let half = Q3232::from_num(0.5_f64);
+        assert_eq!(apply_easing(half, Easing::EaseInOut), half);
+    }
+
+    #[test]
+    fn ease_in_out_below_half_is_lower_than_linear() {
+        // Quadratic ease-in: 2α² < α for α in (0, 0.5).
+        let alpha = Q3232::from_num(0.25_f64);
+        let eased = apply_easing(alpha, Easing::EaseInOut);
+        assert!(
+            eased < alpha,
+            "EaseInOut at α=0.25 should be below 0.25, got {eased:?}"
+        );
+    }
+
+    #[test]
+    fn ease_in_out_above_half_is_higher_than_linear() {
+        // Quadratic ease-out: 1 - 2(1-α)² > α for α in (0.5, 1).
+        let alpha = Q3232::from_num(0.75_f64);
+        let eased = apply_easing(alpha, Easing::EaseInOut);
+        assert!(
+            eased > alpha,
+            "EaseInOut at α=0.75 should be above 0.75, got {eased:?}"
+        );
+    }
+
+    #[test]
+    fn sinusoid_keyframes_phase_zero_starts_at_origin() {
+        let kfs = sinusoid_keyframes(Q3232::ONE, Q3232::from_num(20), Q3232::ZERO);
+        assert_eq!(kfs[0].time, Q3232::ZERO);
+        assert_eq!(kfs[0].rotation, Q3232::ZERO);
+    }
+
+    #[test]
+    fn sinusoid_keyframes_amplitude_constant_across_phases() {
+        // Phase shifts must NOT scale the amplitude — every phase
+        // should produce the same min/max rotation, just at different
+        // times in the clip.
+        let amp = Q3232::from_num(20);
+        let no_phase = sinusoid_keyframes(Q3232::ONE, amp, Q3232::ZERO);
+        let half_phase = sinusoid_keyframes(Q3232::ONE, amp, Q3232::from_num(0.5_f64));
+        let max_no_phase = no_phase.iter().map(|k| k.rotation).max().unwrap();
+        let max_half_phase = half_phase.iter().map(|k| k.rotation).max().unwrap();
+        assert_eq!(
+            max_no_phase, max_half_phase,
+            "phase shift must not change amplitude"
+        );
     }
 }

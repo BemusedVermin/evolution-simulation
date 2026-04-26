@@ -14,7 +14,7 @@
 fn main() -> beast_render::Result<()> {
     use std::collections::BTreeMap;
 
-    use beast_core::{BodySite, Q3232};
+    use beast_core::Q3232;
     use beast_interpreter::{LifeStage, ResolvedPhenotype};
     use beast_render::{compile_blueprint, directive::ColorSpec, Animator, Renderer, WindowConfig};
     use sdl3::{event::Event, keyboard::Keycode, pixels::Color};
@@ -52,9 +52,6 @@ fn main() -> beast_render::Result<()> {
         .first()
         .ok_or_else(|| beast_render::RenderError::Sdl("no walk clip".into()))?;
     let animator = Animator::new(walk_clip);
-
-    let _ = phenotype; // tagged so the borrow doesn't outlive blueprint
-    let _ = BodySite::Global; // import side-effect to silence unused warning
 
     let mut renderer = Renderer::new(WindowConfig {
         title: "beast-render: S9.6 animation demo".to_string(),
