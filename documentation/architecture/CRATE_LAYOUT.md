@@ -317,9 +317,8 @@ pub mod entity_id;         // Deterministic entity ID generation
 
 **Modules**:
 ```rust
-pub mod simulation;        // Simulation struct, game loop
+pub mod simulation;        // Simulation struct, game loop, tick orchestration
 pub mod schedule;          // SystemSchedule, system ordering
-pub mod tick;              // Per-tick orchestration
 pub mod budget;            // Performance budget tracking
 pub mod determinism;       // State hash, sorted iteration helper
 ```
