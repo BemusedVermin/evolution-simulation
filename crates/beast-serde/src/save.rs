@@ -34,7 +34,8 @@ use std::collections::BTreeMap;
 use beast_channels::RegistryFingerprint;
 use beast_core::prng::Prng;
 use beast_ecs::components::{
-    Age, DevelopmentalStage, GenomeComponent, HealthState, Mass, Position, Species, Velocity,
+    Age, DevelopmentalStage, GenomeComponent, HealthState, Mass, PhenotypeComponent, Position,
+    Species, Velocity,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -141,14 +142,21 @@ impl SaveFile {
         serde_json::to_string(self).map_err(SaveError::Json)
     }
 
-    /// Debug-only sanity: `entities` must be sorted by `id` for the
-    /// save to be deterministic. Producers (today only
+    /// Sanity check: `entities` must be sorted by `id` for the save to
+    /// be deterministic. Producers (today only
     /// `crate::manager::save_game`) build the vec from a `BTreeMap`
     /// so the invariant holds by construction; this guard catches
-    /// future hand-built fixtures or out-of-band manipulation. Per
-    /// PR #135 review.
+    /// future hand-built fixtures or out-of-band manipulation.
+    ///
+    /// Audit finding #68 (MEDIUM): the previous `debug_assert!` form
+    /// disappeared in release builds, leaving a hand-built
+    /// `SaveFile` with out-of-order entities to silently produce a
+    /// non-deterministic on-disk byte stream. A panic on release is
+    /// the right tradeoff: the only callers are inside this crate and
+    /// the cost of a single linear scan over the entity vec is
+    /// negligible compared to the bincode encoding it precedes.
     fn assert_entities_sorted(&self) {
-        debug_assert!(
+        assert!(
             self.entities.windows(2).all(|w| w[0].id <= w[1].id),
             "SaveFile::entities must be sorted ascending by id; found out-of-order entry"
         );
@@ -234,6 +242,14 @@ pub struct SerializedEntity {
     pub species: Option<Species>,
     /// Genome, when present.
     pub genome: Option<GenomeComponent>,
+    /// Phenotype, when present (added by audit fix #67 — previously
+    /// the round-trip dropped phenotypes, which made loaded sims
+    /// hash differently from the originals for any entity that had
+    /// emitted primitive effects in the captured tick). The
+    /// interpreter could rebuild this from the genome on load, but
+    /// only at the cost of a full Stage-2 re-run; persisting it
+    /// directly keeps the loader pure I/O.
+    pub phenotype: Option<PhenotypeComponent>,
     /// Per-entity opaque scratch data the save layer doesn't yet model.
     /// Reserved for forward-compatible additions in S8+; today this is
     /// always an empty map.
@@ -318,6 +334,7 @@ mod tests {
                     stage: Some(DevelopmentalStage::Adult),
                     species: Some(Species::new(3)),
                     genome: None,
+                    phenotype: None,
                     extras: BTreeMap::new(),
                 },
                 SerializedEntity {
@@ -331,6 +348,7 @@ mod tests {
                     stage: None,
                     species: None,
                     genome: None,
+                    phenotype: None,
                     extras: BTreeMap::new(),
                 },
             ],

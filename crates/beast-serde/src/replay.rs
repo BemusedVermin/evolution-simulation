@@ -136,20 +136,40 @@ impl ReplayJournal {
 
     /// Restore a journal from JSON produced by [`Self::to_json`].
     ///
+    /// Two-phase deserialize: first parse to `serde_json::Value` and
+    /// inspect the `format_version` field, *then* deserialise into the
+    /// strongly-typed [`ReplayJournal`]. This means an oversized
+    /// future-version journal short-circuits before the full typed
+    /// parse, mirroring `SaveFile::load_game`'s ordering and avoiding
+    /// the "burn N MB of allocation only to reject the version field"
+    /// failure mode flagged by audit finding #72.
+    ///
     /// # Errors
     ///
-    /// Returns [`ReplayError::Json`] on parse failure or unknown fields
-    /// (the envelope uses `deny_unknown_fields`). Returns
-    /// [`ReplayError::UnsupportedVersion`] if the parsed
-    /// `format_version` does not match [`REPLAY_FORMAT_VERSION`].
+    /// Returns [`ReplayError::Json`] on parse failure (either the
+    /// initial `Value` parse or the typed parse). Returns
+    /// [`ReplayError::UnsupportedVersion`] if the `format_version`
+    /// field is present and not equal to [`REPLAY_FORMAT_VERSION`];
+    /// the typed parse does not run in that case.
     pub fn from_json(s: &str) -> Result<Self, ReplayError> {
-        let journal: ReplayJournal = serde_json::from_str(s).map_err(ReplayError::Json)?;
-        if journal.format_version != REPLAY_FORMAT_VERSION {
-            return Err(ReplayError::UnsupportedVersion {
-                expected: REPLAY_FORMAT_VERSION,
-                found: journal.format_version,
-            });
+        // Phase 1: parse to a generic Value and check the version
+        // field. Cheap relative to the typed parse for large journals
+        // and short-circuits the version mismatch path before the
+        // typed deserializer touches the rest of the document.
+        let value: serde_json::Value = serde_json::from_str(s).map_err(ReplayError::Json)?;
+        if let Some(v) = value.get("format_version").and_then(|v| v.as_str()) {
+            if v != REPLAY_FORMAT_VERSION {
+                return Err(ReplayError::UnsupportedVersion {
+                    expected: REPLAY_FORMAT_VERSION,
+                    found: v.to_string(),
+                });
+            }
         }
+        // Phase 2: typed parse. If the version field was absent or
+        // malformed at phase 1 we still go through the typed parser,
+        // which fails with the same error a single-phase parse would
+        // have produced.
+        let journal: ReplayJournal = serde_json::from_value(value).map_err(ReplayError::Json)?;
         Ok(journal)
     }
 }

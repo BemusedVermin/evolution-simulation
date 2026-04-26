@@ -9,7 +9,14 @@
 //! emission. Do **not** reorder variants without updating fixture tests.
 
 /// Canonical body-site enum.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+///
+/// `Serialize` / `Deserialize` use serde's default variant-name
+/// representation. Two equal `BodySite`s round-trip to byte-identical
+/// JSON / bincode, so per-emission `PrimitiveEffect` records that
+/// embed a `body_site` survive the save layer (audit finding #67).
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub enum BodySite {
     /// The creature as a whole (global emissions).
     Global,

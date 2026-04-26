@@ -13,12 +13,13 @@ use specs::{Component, DenseVecStorage};
 
 use crate::error::EcsError;
 
-// NOTE: `PrimitiveEffect` does not currently derive `Serialize` /
-// `Deserialize` (see `beast-primitives`). When S7 adds save/load, the
-// derive there will land in the same PR that re-enables it on
-// [`PhenotypeComponent`]. Until then, `PhenotypeComponent` is save-path
-// opaque — the interpreter re-derives it each tick from the genome, so
-// a save can simply drop the cached phenotype and rebuild.
+// `PrimitiveEffect` derives `Serialize` / `Deserialize` (added in
+// audit fix #67); the per-tick interpreter output is therefore
+// save-path-routable. The `BodySite` field on each effect rides along
+// via `beast_core::BodySite`'s own derive. The save layer
+// (`beast-serde::SerializedEntity::phenotype`) round-trips this
+// component as `Option<PhenotypeComponent>` so loaded sims hash
+// identically to pre-save state.
 
 /// A creature's evolvable genotype. Newtype over [`beast_genome::Genome`]
 /// so the L1 genome crate does not have to know about `specs`.
@@ -78,7 +79,7 @@ impl Component for GenomeComponent {
 /// Stored as a sorted `Vec` rather than a `Set` because ordering
 /// already comes out of the interpreter sorted by `primitive_id`
 /// (emission merges by `(primitive_id, site_id)` and returns sorted).
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PhenotypeComponent {
     /// Primitive effects emitted by Stage 2 for this creature, sorted by
     /// `(primitive_id, site_id)` per the interpreter contract.

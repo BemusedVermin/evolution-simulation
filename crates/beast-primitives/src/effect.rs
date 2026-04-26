@@ -11,6 +11,7 @@
 use std::collections::BTreeMap;
 
 use beast_core::{BodySite, EntityId, Q3232};
+use serde::{Deserialize, Serialize};
 
 use crate::manifest::Provenance;
 
@@ -21,7 +22,7 @@ use crate::manifest::Provenance;
 /// iteration and hashing are order-stable — a prerequisite for the
 /// determinism invariant when effect streams are hashed into per-tick state
 /// digests.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrimitiveEffect {
     /// Primitive manifest id.
     pub primitive_id: String,
