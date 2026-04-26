@@ -1,0 +1,33 @@
+[package]
+name = "beast-world"
+description = "Procedural world generation (archipelago, biomes, climate inputs) for the Beast Evolution Game."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = true
+
+[dependencies]
+beast-core = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+# World gen runs once at init and operates on configuration values
+# (sea level, mountain threshold, noise frequency). It quantises
+# results into BiomeKind tags before any sim-state writes, mirroring
+# how `beast-channels` loads `f64` from JSON manifests and exits to
+# Q3232 at the boundary. `warn` (not `deny`) so the boundary code is
+# allowed but the lint still flags it during review.
+float_arithmetic = "warn"
