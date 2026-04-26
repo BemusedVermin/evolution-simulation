@@ -25,49 +25,17 @@
 
 use beast_core::Q3232;
 use beast_ecs::components::{Age, Creature, Mass, Position};
-use beast_ecs::{Builder, EcsWorld, MarkerKind, Resources, System, SystemStage, WorldExt};
+use beast_ecs::{Builder, MarkerKind, WorldExt};
 use beast_sim::{compute_state_hash, Simulation, SimulationConfig};
 
-/// Q3232 representation of `0.5` — the cell-centre offset applied
-/// when translating a cell coordinate to a world position. Built
-/// from raw bits so no f64 literal appears on the sim path
-/// (`I32F32`'s binary point is after bit 31, so `1 << 31 = 0.5`).
-/// Mirrors `beast_sim::spawner::HALF_CELL` once S8.4 (#163) lands.
-const HALF_CELL: Q3232 = Q3232::from_bits(1_i64 << 31);
+mod common;
+use common::{AgingSystem, HALF_CELL};
 
-/// Trivial aging system mirroring `tests/determinism_test.rs`. Kept
-/// local (not exposed from beast-sim) because the production
-/// physiology module hasn't shipped yet.
-///
-/// SYNC: keep in step with `tests/determinism_test.rs::AgingSystem`
-/// and `crates/beast-serde/tests/replay_determinism_test.rs::AgingSystem`.
-/// All three test fixtures must implement the same arithmetic so the
-/// M1, M2, and S8 stability gates verify the same thing. Issue #165
-/// tracks the build-time enforcement extraction (move into
-/// `tests/common/` short-term, `beast-test-utils` crate long-term).
-struct AgingSystem;
-
-impl System for AgingSystem {
-    fn name(&self) -> &'static str {
-        "starter-survival-aging"
-    }
-    fn stage(&self) -> SystemStage {
-        SystemStage::InputAndAging
-    }
-    fn run(&mut self, world: &mut EcsWorld, resources: &mut Resources) -> beast_ecs::Result<()> {
-        let creatures: Vec<_> = resources
-            .entity_index
-            .entities_of(MarkerKind::Creature)
-            .collect();
-        let mut ages = world.world().write_storage::<Age>();
-        for entity in creatures {
-            if let Some(age) = ages.get_mut(entity) {
-                age.ticks += 1;
-            }
-        }
-        Ok(())
-    }
-}
+// SYNC: `crates/beast-serde/tests/replay_determinism_test.rs::AgingSystem`
+// is the third copy of this fixture that lives in beast-serde because
+// `tests/common/mod.rs` is per-crate. Issue #165 tracks promoting the
+// fixture into a real `beast-test-utils` crate so all three callers
+// share one source of truth.
 
 /// Build a `Simulation` with `n_creatures` placeholder seed
 /// creatures spread uniformly across a `width × height` cell grid.
@@ -83,7 +51,7 @@ impl System for AgingSystem {
 /// ```
 fn build_seeded_population(seed: u64, width: u32, height: u32, n_creatures: usize) -> Simulation {
     let mut sim = Simulation::new(SimulationConfig::empty(seed));
-    sim.register_system(AgingSystem);
+    sim.register_system(AgingSystem::new("starter-survival-aging"));
 
     // Spread n_creatures across the grid in a deterministic stride.
     // A real spawner uses PRNG-rejection placement (S8.4).

@@ -17,39 +17,15 @@
 
 use beast_core::Q3232;
 use beast_ecs::components::{Age, Creature, Mass};
-use beast_ecs::{Builder, EcsWorld, MarkerKind, Resources, System, SystemStage, WorldExt};
+use beast_ecs::{Builder, MarkerKind};
 use beast_sim::{compute_state_hash, Simulation, SimulationConfig};
 
-/// Sequential-pattern aging system (Pattern A). Increments every
-/// creature's `Age.ticks` once per run. Per INVARIANTS §1 the
-/// iteration is via `entity_index`, not `specs::Join`.
-struct AgingSystem;
-
-impl System for AgingSystem {
-    fn name(&self) -> &'static str {
-        "determinism-test-aging"
-    }
-    fn stage(&self) -> SystemStage {
-        SystemStage::InputAndAging
-    }
-    fn run(&mut self, world: &mut EcsWorld, resources: &mut Resources) -> beast_ecs::Result<()> {
-        let creatures: Vec<_> = resources
-            .entity_index
-            .entities_of(MarkerKind::Creature)
-            .collect();
-        let mut ages = world.world().write_storage::<Age>();
-        for entity in creatures {
-            if let Some(age) = ages.get_mut(entity) {
-                age.ticks += 1;
-            }
-        }
-        Ok(())
-    }
-}
+mod common;
+use common::AgingSystem;
 
 fn build_fixture(seed: u64, n_creatures: usize) -> Simulation {
     let mut sim = Simulation::new(SimulationConfig::empty(seed));
-    sim.register_system(AgingSystem);
+    sim.register_system(AgingSystem::new("determinism-test-aging"));
     // Deterministic entity creation: positions derived from index so
     // the world content is a pure function of `(seed, n_creatures)`.
     for i in 0..n_creatures {
