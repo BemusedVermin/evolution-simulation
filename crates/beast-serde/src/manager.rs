@@ -50,8 +50,8 @@ use std::path::Path;
 use beast_channels::{ChannelRegistry, RegistryFingerprint};
 use beast_core::TickCounter;
 use beast_ecs::components::{
-    Age, Creature, DevelopmentalStage, GenomeComponent, HealthState, Mass, Pathogen, Position,
-    Species, Velocity,
+    Age, Creature, DevelopmentalStage, GenomeComponent, HealthState, Mass, Pathogen,
+    PhenotypeComponent, Position, Species, Velocity,
 };
 use beast_ecs::components::{Agent, Biome, Faction, Settlement};
 use beast_ecs::{Builder, MarkerKind, WorldExt};
@@ -112,6 +112,20 @@ pub enum ManagerError {
     /// The on-disk path operation failed.
     #[error("save i/o failed: {0}")]
     Io(#[from] io::Error),
+
+    /// A registry / metadata length exceeded `u32::MAX` while
+    /// computing the primitive-registry fingerprint. Practically
+    /// impossible for any real registry, but mods can construct
+    /// adversarial manifests; this variant exists so the save layer
+    /// reports the failure instead of panicking.
+    #[error("primitive fingerprint overflowed: {0}")]
+    PrimitiveFingerprintOverflow(&'static str),
+
+    /// The pre-write [`crate::SaveValidator`] flagged a forbidden
+    /// key (UI-derived state, mod-specific UI flags, etc.). The save
+    /// was **not** written; the on-disk file is unchanged.
+    #[error("save validator rejected the save: {0}")]
+    Validator(#[from] crate::validator::ValidationError),
 }
 
 /// Magic for the primitive-registry fingerprint. Mirrors `CRF1` for
@@ -141,24 +155,39 @@ const PRIMITIVE_FINGERPRINT_MAGIC: &[u8; 4] = b"PRF1";
 /// Today the only callers are the save layer; if other crates need this
 /// helper, hoist it into `beast-primitives` to keep the contract on the
 /// owning crate.
-pub fn primitive_fingerprint(registry: &PrimitiveRegistry) -> RegistryFingerprint {
+///
+/// # Errors
+///
+/// Returns [`ManagerError::PrimitiveFingerprintOverflow`] when the
+/// registry has more than `u32::MAX` entries, or any single
+/// `id` / `category` / `provenance` string exceeds `u32::MAX`
+/// bytes. Practically unreachable from production-shipped manifests
+/// (a four-billion-entry registry would already OOM); the typed
+/// failure path exists so adversarial mod input can't crash the
+/// save thread via `expect`.
+pub fn primitive_fingerprint(
+    registry: &PrimitiveRegistry,
+) -> Result<RegistryFingerprint, ManagerError> {
     let mut hasher = blake3::Hasher::new();
     hasher.update(PRIMITIVE_FINGERPRINT_MAGIC);
-    let count = u32::try_from(registry.len()).expect("primitive registry exceeds u32::MAX");
+    let count = u32::try_from(registry.len())
+        .map_err(|_| ManagerError::PrimitiveFingerprintOverflow("registry size > u32::MAX"))?;
     hasher.update(&count.to_le_bytes());
     for (id, manifest) in registry.iter() {
-        write_len_prefixed(&mut hasher, id.as_bytes());
-        write_len_prefixed(&mut hasher, category_tag(manifest).as_bytes());
+        write_len_prefixed(&mut hasher, id.as_bytes())?;
+        write_len_prefixed(&mut hasher, category_tag(manifest).as_bytes())?;
         let provenance = manifest.provenance.to_schema_string();
-        write_len_prefixed(&mut hasher, provenance.as_bytes());
+        write_len_prefixed(&mut hasher, provenance.as_bytes())?;
     }
-    RegistryFingerprint(*hasher.finalize().as_bytes())
+    Ok(RegistryFingerprint(*hasher.finalize().as_bytes()))
 }
 
-fn write_len_prefixed(hasher: &mut blake3::Hasher, bytes: &[u8]) {
-    let len = u32::try_from(bytes.len()).expect("primitive metadata length exceeds u32::MAX");
+fn write_len_prefixed(hasher: &mut blake3::Hasher, bytes: &[u8]) -> Result<(), ManagerError> {
+    let len = u32::try_from(bytes.len())
+        .map_err(|_| ManagerError::PrimitiveFingerprintOverflow("metadata length > u32::MAX"))?;
     hasher.update(&len.to_le_bytes());
     hasher.update(bytes);
+    Ok(())
 }
 
 fn category_tag(manifest: &beast_primitives::PrimitiveManifest) -> &'static str {
@@ -198,6 +227,7 @@ pub fn save_game(sim: &Simulation) -> Result<SaveFile, ManagerError> {
     let stages = world.world().read_storage::<DevelopmentalStage>();
     let species = world.world().read_storage::<Species>();
     let genomes = world.world().read_storage::<GenomeComponent>();
+    let phenotypes = world.world().read_storage::<PhenotypeComponent>();
 
     // Group `(MarkerKind, Entity)` pairs by entity so the same entity
     // can carry multiple markers (e.g., a Faction that's also a
@@ -227,6 +257,7 @@ pub fn save_game(sim: &Simulation) -> Result<SaveFile, ManagerError> {
             stage: stages.get(entity).copied(),
             species: species.get(entity).copied(),
             genome: genomes.get(entity).cloned(),
+            phenotype: phenotypes.get(entity).cloned(),
             extras: BTreeMap::new(),
         });
     }
@@ -246,7 +277,7 @@ pub fn save_game(sim: &Simulation) -> Result<SaveFile, ManagerError> {
             chronicler: resources.rng_chronicler.clone(),
         },
         channel_fingerprint: resources.channels.fingerprint(),
-        primitive_fingerprint: primitive_fingerprint(&resources.primitives),
+        primitive_fingerprint: primitive_fingerprint(&resources.primitives)?,
         entities,
     })
 }
@@ -285,7 +316,7 @@ pub fn load_game(
             actual: file.channel_fingerprint.to_hex(),
         });
     }
-    let actual_primitive_fp = primitive_fingerprint(&primitives);
+    let actual_primitive_fp = primitive_fingerprint(&primitives)?;
     if actual_primitive_fp != file.primitive_fingerprint {
         return Err(ManagerError::PrimitiveRegistryMismatch {
             expected: actual_primitive_fp.to_hex(),
@@ -319,8 +350,32 @@ pub fn load_game(
     // `specs::World`, this regenerates the same `(id, gen)` pairs the
     // original simulation produced — see module docs for the
     // assumption (no entity deletion in MVP).
+    //
+    // The sort here is **load-bearing** even though `save_game` builds
+    // `entities` from a `BTreeMap` and therefore already produces
+    // sorted output: a `SaveFile` parsed from disk could have been
+    // hand-edited or built by an out-of-band fixture (test, mod
+    // toolchain, fuzz harness). Re-sorting here means the loader
+    // never relies on the producer-side invariant, and the resulting
+    // entity allocation order is the same regardless of how the file
+    // was assembled. Audit finding #68: keep the explicit `sort_by_key`
+    // and the runtime `assert_entities_sorted` check in `to_bincode`/
+    // `to_json` — both halves are guards, not redundancy.
     let mut sorted = file.entities;
     sorted.sort_by_key(|e| e.id);
+    // Intentional asymmetry with `SaveFile::assert_entities_sorted`'s
+    // release-visible `assert!`: the producer-side check guards an
+    // *invariant* (a save with out-of-order entities is malformed and
+    // would produce non-deterministic bytes), so it must fire in
+    // release. This loader-side check guards the stdlib `sort_by_key`
+    // contract — if `sorted.sort_by_key` ever returned an unsorted
+    // slice the entire toolchain has bigger problems, and
+    // `debug_assert!` is enough to catch a regression in tests
+    // without paying the linear-scan cost on every load.
+    debug_assert!(
+        sorted.windows(2).all(|w| w[0].id <= w[1].id),
+        "post-sort entities must be ascending — sort_by_key contract violated?"
+    );
     for entity_record in sorted {
         let entity = build_entity(&mut sim, &entity_record);
         for marker in &entity_record.markers {
@@ -423,6 +478,9 @@ fn build_entity(sim: &mut Simulation, record: &SerializedEntity) -> beast_ecs::E
     if let Some(g) = record.genome.clone() {
         builder = builder.with(g);
     }
+    if let Some(p) = record.phenotype.clone() {
+        builder = builder.with(p);
+    }
     builder.build()
 }
 
@@ -433,12 +491,49 @@ fn build_entity(sim: &mut Simulation, record: &SerializedEntity) -> beast_ecs::E
 /// the existing save untouched; the temp file is removed if `persist`
 /// fails.
 ///
+/// Before writing, the saved envelope is run through the default
+/// [`crate::SaveValidator`] (rejects `bestiary_discovered`, `ui_*`,
+/// and any caller-registered forbidden keys at any nesting depth).
+/// A validation failure short-circuits — **no bytes are written to
+/// disk**. To customise the rule set (e.g., for mod-specific forbidden
+/// prefixes), use [`save_to_path_with_validator`].
+///
 /// # Errors
 ///
-/// Returns [`ManagerError::Io`] if the temp-file creation, write, or
-/// rename fails. Returns [`ManagerError::Save`] if encoding fails.
+/// * [`ManagerError::Io`] — temp-file creation, write, or rename failed.
+/// * [`ManagerError::Save`] — bincode/JSON encoding failed.
+/// * [`ManagerError::Validator`] — a forbidden key was present in the
+///   saved envelope. Closes the gap flagged by the pre-graphics audit
+///   (#65) where the validator existed but never ran on the outbound
+///   path.
 pub fn save_to_path(sim: &Simulation, path: &Path) -> Result<(), ManagerError> {
-    let bytes = save_game(sim)?.to_bincode()?;
+    save_to_path_with_validator(sim, path, &crate::SaveValidator::new())
+}
+
+/// Variant of [`save_to_path`] taking a caller-built
+/// [`crate::SaveValidator`]. Use when a mod loader needs to extend the
+/// default forbidden set with mod-specific UI flags.
+///
+/// # Errors
+///
+/// Same set as [`save_to_path`].
+pub fn save_to_path_with_validator(
+    sim: &Simulation,
+    path: &Path,
+    validator: &crate::SaveValidator,
+) -> Result<(), ManagerError> {
+    let save = save_game(sim)?;
+    // Validator works on parsed JSON, not bincode bytes — the JSON
+    // round-trip is the authoritative inspectable form, and `extras`
+    // is the only place an unknown key can hide. Cost: one extra
+    // serialize+parse per save, which happens at checkpoint cadence,
+    // not per tick.
+    let json = save.to_json()?;
+    let value: serde_json::Value =
+        serde_json::from_str(&json).map_err(crate::save::SaveError::Json)?;
+    validator.validate(&value)?;
+
+    let bytes = save.to_bincode()?;
     let parent = path.parent().filter(|p| !p.as_os_str().is_empty());
     let parent = match parent {
         Some(p) => p,
@@ -646,13 +741,152 @@ mod tests {
 
     #[test]
     fn primitive_fingerprint_is_stable_for_empty_registry() {
-        let a = primitive_fingerprint(&PrimitiveRegistry::new());
-        let b = primitive_fingerprint(&PrimitiveRegistry::new());
+        let a = primitive_fingerprint(&PrimitiveRegistry::new()).unwrap();
+        let b = primitive_fingerprint(&PrimitiveRegistry::new()).unwrap();
         assert_eq!(a, b);
         // Different magic from channel registry — empty channel
         // registry must produce a different fingerprint than empty
         // primitive registry.
         let chan = ChannelRegistry::new().fingerprint();
         assert_ne!(a, chan, "empty primitive vs channel collision");
+    }
+
+    #[test]
+    fn round_trip_preserves_phenotype_state_hash() {
+        // Audit finding #67: prior to this PR `SerializedEntity` had no
+        // `phenotype` field, so save→load dropped any cached
+        // `PhenotypeComponent` and the post-load state hash diverged
+        // from the pre-save hash for any entity with primitive effects.
+        // Build a fixture sim, attach a non-trivial phenotype, save +
+        // load, and assert the hashes match.
+        use beast_core::{BodySite, EntityId};
+        use beast_ecs::components::PhenotypeComponent;
+        use beast_ecs::WorldExt as _;
+        use beast_primitives::{PrimitiveEffect, Provenance};
+        use std::collections::BTreeMap;
+
+        let mut sim = fixture(123, 0);
+        let entity = sim
+            .world_mut()
+            .create_entity()
+            .with(Creature)
+            .with(Age::new(0))
+            .with(Mass::new(Q3232::from_num(1)))
+            .build();
+        sim.resources_mut()
+            .entity_index
+            .insert(entity, MarkerKind::Creature);
+
+        // Hand-build a phenotype with two sorted effects so we exercise
+        // the (primitive_id, body_site) ordering path on the way back
+        // through the determinism hash.
+        let phenotype = PhenotypeComponent::new(vec![
+            PrimitiveEffect {
+                primitive_id: "alpha".into(),
+                body_site: None,
+                source_channels: vec!["x".into()],
+                parameters: BTreeMap::new(),
+                activation_cost: Q3232::ZERO,
+                emitter: EntityId::new(1),
+                provenance: Provenance::Core,
+            },
+            PrimitiveEffect {
+                primitive_id: "beta".into(),
+                body_site: Some(BodySite::Head),
+                source_channels: vec!["y".into(), "z".into()],
+                parameters: {
+                    let mut m = BTreeMap::new();
+                    m.insert("k".into(), Q3232::from_num(1));
+                    m
+                },
+                activation_cost: Q3232::from_num(2),
+                emitter: EntityId::new(1),
+                provenance: Provenance::Mod("demo".into()),
+            },
+        ]);
+        {
+            let mut storage = sim.world().world().write_storage::<PhenotypeComponent>();
+            storage.insert(entity, phenotype).expect("phenotype insert");
+        }
+
+        let original_hash = compute_state_hash(&sim);
+        let save = save_game(&sim).unwrap();
+        // Sanity: the round-tripped envelope carries the phenotype.
+        assert!(
+            save.entities[0].phenotype.is_some(),
+            "phenotype must be captured by save_game"
+        );
+        let loaded = load_game(save, ChannelRegistry::new(), PrimitiveRegistry::new()).unwrap();
+        assert_eq!(original_hash, compute_state_hash(&loaded));
+    }
+
+    #[test]
+    fn save_to_path_with_validator_rejects_forbidden_extras_without_writing() {
+        // Audit finding #65: the validator existed in S7.4 but was
+        // never wired into save_to_path. A save with `bestiary_discovered`
+        // smuggled into entity extras was previously written to disk
+        // silently. Now the validator runs first and the temp file is
+        // never persisted on rejection.
+        let sim = fixture(13, 1);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rejected.bsv");
+
+        // Build the save by hand and inject a forbidden extras key.
+        let mut save = save_game(&sim).unwrap();
+        save.entities[0]
+            .extras
+            .insert("bestiary_discovered".into(), serde_json::json!(true));
+
+        // We need to drive validate-then-write with the tampered save,
+        // not call `save_to_path` (which would re-build a clean save
+        // from the simulation). Replicate the inner logic on the
+        // tampered envelope.
+        let validator = crate::SaveValidator::new();
+        let json = save.to_json().unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let validation = validator.validate(&value);
+        assert!(matches!(
+            validation,
+            Err(crate::validator::ValidationError::ForbiddenKey { .. })
+        ));
+
+        // And the clean save_to_path must still pass validation +
+        // write the file (regression guard for the wired-in path).
+        save_to_path(&sim, &path).unwrap();
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn save_to_path_with_custom_validator_blocks_real_write() {
+        // Per PR #179 review (MEDIUM): the existing
+        // save_to_path_with_validator_rejects_forbidden_extras_without_writing
+        // test inlines validate-then-write rather than calling the wired
+        // function, so it doesn't exercise the actual `?` propagation
+        // from validator into ManagerError. This test calls the real
+        // entry point with a custom validator that rejects an extras key
+        // that `save_game` always emits (well, doesn't — but a custom
+        // forbidden prefix that catches a normal envelope key works).
+        //
+        // We register `current_tick` as a forbidden literal so the
+        // wired-in path will reject *any* save (the field is always
+        // present). The on-disk file must remain absent.
+        let sim = fixture(17, 1);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("custom-rejected.bsv");
+
+        let validator = crate::SaveValidator::new().with_forbidden("current_tick");
+        let result = save_to_path_with_validator(&sim, &path, &validator);
+        assert!(
+            matches!(result, Err(ManagerError::Validator(_))),
+            "expected ManagerError::Validator, got {result:?}"
+        );
+        assert!(
+            !path.exists(),
+            "save_to_path_with_validator must not write the file when validation fails"
+        );
+
+        // Sanity: the same simulation passes the default validator.
+        save_to_path(&sim, &path).unwrap();
+        assert!(path.exists());
     }
 }

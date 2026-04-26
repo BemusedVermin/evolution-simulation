@@ -37,7 +37,8 @@ pub mod save;
 pub mod validator;
 
 pub use manager::{
-    load_from_path, load_game, primitive_fingerprint, save_game, save_to_path, ManagerError,
+    load_from_path, load_game, primitive_fingerprint, save_game, save_to_path,
+    save_to_path_with_validator, ManagerError,
 };
 pub use migration::{Migration, MigrationError, MigrationRegistry};
 pub use replay::{InputEvent, ReplayError, ReplayJournal, REPLAY_FORMAT_VERSION};
