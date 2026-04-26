@@ -65,7 +65,7 @@ pub enum MergeStrategy {
 
 /// Default value stored alongside a parameter spec. Kept as-is from JSON so
 /// callers can apply the default into their own domain types.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParameterDefault {
     /// Default for a `number`-typed parameter, already converted to Q32.32.
     Number(Q3232),
@@ -78,7 +78,7 @@ pub enum ParameterDefault {
 }
 
 /// Specification for a single input parameter on a primitive.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParameterSpec {
     /// Value type (number / integer / string / boolean).
     pub ty: ParameterType,
@@ -92,7 +92,7 @@ pub struct ParameterSpec {
 }
 
 /// A cost function's per-parameter power-law scaling term.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParameterScaling {
     /// Name of the parameter driving this term (must exist in `parameter_schema`).
     pub parameter: String,
@@ -103,7 +103,7 @@ pub struct ParameterScaling {
 }
 
 /// Metabolic cost function for a primitive.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CostFunction {
     /// Base cost incurred each emission, independent of parameters.
     pub base_metabolic_cost: Q3232,
@@ -133,7 +133,7 @@ pub struct ObservableSignature {
 }
 
 /// In-memory representation of a primitive manifest.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrimitiveManifest {
     /// Unique snake_case identifier.
     pub id: String,

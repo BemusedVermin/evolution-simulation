@@ -63,6 +63,21 @@ fn e() -> Q3232 {
 /// Natural logarithm on Q32.32.
 ///
 /// Returns `None` for `x <= 0` (mathematically undefined).
+///
+/// # Precision
+///
+/// Implementation: range reduction to `m ∈ [1, 2)` followed by 16
+/// terms of the artanh-form series for `ln(m)`. For the reduced
+/// argument, `|z| < 1/3` and the truncation error of the series is
+/// bounded by `|z|^33 / (33 * (1 - z²))` which is well under
+/// `2^-50`. Saturating fixed-point division accumulates a per-step
+/// rounding error of `≤ 2^-32`; over 16 terms this contributes
+/// `≤ 16 * 2^-32 ≈ 4e-9`. The dominant contributor is the
+/// fixed-point quantisation, not the truncation. Empirically
+/// `ln_of_e_is_one` (in tests below) holds to `1e-5`, so callers
+/// can treat results as accurate to roughly **4–5 decimal places**.
+/// Adequate for cost evaluation and balance tuning; unsuitable for
+/// numerical analyses that need ULP-level fidelity.
 pub(crate) fn q_ln(x: Q3232) -> Option<Q3232> {
     if x <= Q3232::ZERO {
         return None;
@@ -181,7 +196,17 @@ pub(crate) fn q_pow(base: Q3232, exp: Q3232) -> Option<Q3232> {
     // we don't expect negative parameter values so this branch is largely
     // defensive.
     let rounded: i64 = exp.to_num::<i64>();
-    if Q3232::from(rounded as i32) != exp {
+    // `Q3232::from(i32)` round-trips integers in `[i32::MIN, i32::MAX]`
+    // exactly. For exponents outside that range, `try_from` fails →
+    // we reject as undefined rather than relying on the silent
+    // narrowing that the previous `rounded as i32` did. (Even very
+    // large integer exponents would produce values far outside the
+    // Q32.32 representable range, so refusing them here is the right
+    // policy regardless.)
+    let Ok(rounded_i32) = i32::try_from(rounded) else {
+        return None;
+    };
+    if Q3232::from(rounded_i32) != exp {
         return None;
     }
     let mut result = Q3232::ONE;
@@ -322,6 +347,20 @@ mod tests {
         // Instead we must surface None.
         let base = Q3232::from_num(-0.1_f64);
         let exp = Q3232::from(-100_i32);
+        assert_eq!(q_pow(base, exp), None);
+    }
+
+    #[test]
+    fn pow_negative_base_exp_outside_i32_range_rejected() {
+        // Per PR #169 review (MEDIUM): the new `i32::try_from` rejection
+        // path on the integer-rounded exponent had no dedicated test —
+        // the underflow path above exercises a different `None` branch.
+        // `i32::MAX as i64 + 1` is comfortably representable as Q3232
+        // (its integer part fits the upper 32 bits), so the round-trip
+        // check `i32::try_from(rounded)` is the load-bearing rejection.
+        let large_exp_i64: i64 = i32::MAX as i64 + 1;
+        let base = Q3232::from(-2_i32);
+        let exp = Q3232::from_num(large_exp_i64 as f64);
         assert_eq!(q_pow(base, exp), None);
     }
 }
