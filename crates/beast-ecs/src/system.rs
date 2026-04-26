@@ -79,6 +79,23 @@ pub trait System {
     /// Implementations should return [`crate::EcsError::SystemRunFailed`]
     /// on failure. The scheduler decides how to react (abort vs skip
     /// this tick) — that policy lives in S6.
+    ///
+    /// # Capability scope (caller contract)
+    ///
+    /// `&mut EcsWorld` hands the system the **entire** world handle —
+    /// including `world_mut().delete_entity(...)` and any other
+    /// `specs::World` mutation. A mid-tick entity deletion would leave
+    /// [`crate::resources::Resources::entity_index`] pointing at a
+    /// dead `Entity` and silently corrupt the deterministic iteration
+    /// order downstream stages depend on.
+    ///
+    /// Until issue #176 narrows this surface to a capability handle
+    /// (e.g., `EcsWorldMut<'_>` exposing only component storages and
+    /// the `entity_index` add/remove methods), implementors **must
+    /// not** call `world.world_mut().delete_entity` from inside `run`.
+    /// Entity destruction is the spawner's responsibility (Stage 0)
+    /// and goes through `Resources::entity_index.remove_everywhere`
+    /// to keep the index coherent.
     fn run(&mut self, world: &mut EcsWorld, resources: &mut Resources) -> crate::Result<()>;
 }
 

@@ -26,9 +26,20 @@ use specs::{Component, DenseVecStorage};
 /// taxonomy small; future expansion (rainforest, taiga, savanna…)
 /// happens behind the `#[non_exhaustive]` attribute so existing match
 /// sites won't break.
-#[derive(
-    Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+///
+/// # Determinism
+///
+/// `Ord` / `PartialOrd` are **hand-written** against [`Self::ordinal`]
+/// rather than derived. Deriving would tie the deterministic sort
+/// order to the variant declaration order — adding a new variant in
+/// the middle would silently shift every existing comparison and
+/// break replay determinism for any
+/// `BTreeMap<BiomeKind, _>` / sort-by-biome path. The hand-written
+/// impl + [`tests::ordinal_is_pinned_per_variant`] make the order an
+/// explicit contract: new variants must extend the ordinal table at
+/// the end (or at a deliberately chosen position with all the
+/// follow-on places audited).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum BiomeKind {
@@ -48,6 +59,25 @@ pub enum BiomeKind {
 }
 
 impl BiomeKind {
+    /// Stable integer rank for `Ord`. New variants extend at the next
+    /// unused integer; an existing variant's number must never change
+    /// without a determinism-gate review (see the type-level docs).
+    ///
+    /// Pinned per-variant by
+    /// [`tests::ordinal_is_pinned_per_variant`]; pinned globally by
+    /// [`tests::biome_kind_ord_is_declaration_order`].
+    #[must_use]
+    pub fn ordinal(self) -> u8 {
+        match self {
+            BiomeKind::Ocean => 0,
+            BiomeKind::Forest => 1,
+            BiomeKind::Plains => 2,
+            BiomeKind::Desert => 3,
+            BiomeKind::Mountain => 4,
+            BiomeKind::Tundra => 5,
+        }
+    }
+
     /// String form expected by future channel manifests that filter
     /// by **terrain** (e.g., "expression_conditions: { terrain: forest }").
     /// Stable across versions — a rename would break every shipping
@@ -73,6 +103,18 @@ impl BiomeKind {
             BiomeKind::Mountain => "mountain",
             BiomeKind::Tundra => "tundra",
         }
+    }
+}
+
+impl PartialOrd for BiomeKind {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for BiomeKind {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.ordinal().cmp(&other.ordinal())
     }
 }
 
@@ -239,5 +281,19 @@ mod tests {
         assert!(Plains < Desert);
         assert!(Desert < Mountain);
         assert!(Mountain < Tundra);
+    }
+
+    #[test]
+    fn ordinal_is_pinned_per_variant() {
+        // Per-variant ordinal lock-in. Adding a new variant must not
+        // change any existing value — re-numbering an existing entry
+        // would silently flip BTreeMap<BiomeKind, _> iteration order
+        // and break replay determinism (INVARIANTS §1).
+        assert_eq!(BiomeKind::Ocean.ordinal(), 0);
+        assert_eq!(BiomeKind::Forest.ordinal(), 1);
+        assert_eq!(BiomeKind::Plains.ordinal(), 2);
+        assert_eq!(BiomeKind::Desert.ordinal(), 3);
+        assert_eq!(BiomeKind::Mountain.ordinal(), 4);
+        assert_eq!(BiomeKind::Tundra.ordinal(), 5);
     }
 }

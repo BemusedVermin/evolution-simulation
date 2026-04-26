@@ -56,6 +56,21 @@ impl MarkerKind {
 /// `Join` iteration order is a `specs` implementation detail, while
 /// this index makes the ordering contract ours.
 ///
+/// # DETERMINISM-CRITICAL
+///
+/// `BTreeSet<Entity>`'s iteration order is what makes
+/// [`Self::entities_of`] / [`Self::iter_all`] deterministic, and that
+/// order rests on the `Ord` impl `specs` derives for [`Entity`] over
+/// `(id, gen)` in field-declaration order. That impl is **not** part
+/// of `specs`'s public API contract — a future `specs` release that
+/// reorders or replaces those fields would silently break replay
+/// determinism. The workspace `Cargo.toml` therefore pins `specs` to
+/// the `~0.20` range (`>= 0.20.0, < 0.21.0`); the
+/// [`tests::specs_entity_ord_sorts_by_index_then_generation`] test
+/// fails loudly if a patch release ever changes the ordering. Issue
+/// #175 tracks migrating to `BTreeSet<u32>` keyed on `Entity::id()`
+/// so the determinism guarantee no longer depends on a derived impl.
+///
 /// # Maintenance contract
 ///
 /// Callers update the index by hand at entity creation / destruction.
