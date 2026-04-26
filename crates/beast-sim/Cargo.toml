@@ -19,6 +19,12 @@ beast-primitives = { workspace = true }
 beast-genome = { workspace = true }
 beast-interpreter = { workspace = true }
 beast-ecs = { workspace = true }
+beast-manifest = { workspace = true }
+# `bincode` 2.x with the same `config::standard()` `beast-serde` uses
+# (S7) — adopted in `determinism::compute_state_hash` so the per-tick
+# `Genome` digest is the canonical save form, not a `Debug`-repr
+# string. See PR #178 (audit finding #64).
+bincode = { workspace = true }
 blake3 = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }

@@ -97,6 +97,13 @@ impl Simulation {
     /// [`SystemSchedule::register`] so callers who hold a
     /// `&mut Simulation` don't need to reach into `.schedule_mut()`
     /// explicitly.
+    ///
+    /// Either path — `sim.register_system(s)` or
+    /// `sim.schedule_mut().register(s)` — drops `s` into the same
+    /// internal `SystemSchedule` and is picked up by the next
+    /// [`Self::tick`] call. The pass-through exists for ergonomics;
+    /// the `schedule_mut` path is useful when several systems are
+    /// being registered in a loop or via a configuration helper.
     pub fn register_system<S>(&mut self, system: S)
     where
         S: beast_ecs::System + Send + 'static,
@@ -113,6 +120,15 @@ impl Simulation {
 
     /// Mutable view of the registered schedule — register systems
     /// directly when the pass-through is insufficient.
+    ///
+    /// Equivalent to [`Self::register_system`] for single-system
+    /// registration: both call sites mutate the same
+    /// [`SystemSchedule`] instance, which [`Self::tick`] drives every
+    /// frame. Choose `register_system` for one-off ergonomics and
+    /// `schedule_mut` when you want to iterate over a config-driven
+    /// system list. There is no "register me but skip me on tick"
+    /// variant; the schedule is always the source of truth for what
+    /// `tick()` runs.
     pub fn schedule_mut(&mut self) -> &mut SystemSchedule {
         &mut self.schedule
     }

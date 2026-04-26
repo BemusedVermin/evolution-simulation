@@ -100,12 +100,21 @@ pub enum SpawnerError {
         /// Supplied height.
         height: u32,
     },
-    /// No spawnable cell exists in the world (every cell mapped to
-    /// `None` species via `species_for_biome`). Detected on the
-    /// first PRNG draw — the spawner refuses to spin in a
-    /// guaranteed-failure loop.
-    #[error("world contains no spawnable cells (first-draw acceptance was zero)")]
-    NoSpawnableCells,
+    /// Every PRNG draw was rejected — `plans` was still empty when
+    /// the rejection budget ran out. Distinguished from
+    /// [`Self::SpawnBudgetExhausted`]: this variant fires only when
+    /// **zero** placements landed across all `attempts` draws,
+    /// strongly implying every cell maps to `None` (or every biome
+    /// rejects). `SpawnBudgetExhausted` is the partial-success case.
+    #[error(
+        "world contains no spawnable cells: all {attempts} draws rejected, \
+         no placements landed"
+    )]
+    NoSpawnableCells {
+        /// Total number of `(x, y)` draws attempted before giving up
+        /// (`target_count * MAX_REJECTION_FACTOR`).
+        attempts: usize,
+    },
     /// The rejection budget was exhausted before placing
     /// `target_count` plans. Spawnable cells *do* exist, but they
     /// are too sparse for the budget — typically when the spawnable
@@ -142,6 +151,10 @@ pub enum SpawnerError {
 /// `species_for_biome(tag)` returns `Some(SpeciesId)` to allow a
 /// species to spawn in cells of that biome, or `None` to reject. A
 /// typical implementation maps `"plains" -> Some(SpeciesId(grassland_grazer))`.
+/// The return type is the [`SpeciesId`] newtype rather than a bare
+/// `usize` so the `(species_for_biome, genomes)` ordering swap that
+/// motivated the newtype (#158) cannot creep back in via the closure
+/// signature.
 ///
 /// The spawner picks cells uniformly with rejection: it draws a
 /// random `(x, y)` from the supplied `prng`, queries
@@ -166,8 +179,11 @@ pub enum SpawnerError {
 ///
 /// * [`SpawnerError::EmptyTarget`] when `target_count == 0`.
 /// * [`SpawnerError::EmptyWorld`] when `width` or `height` is 0.
-/// * [`SpawnerError::NoSpawnableCells`] when the very first draw
-///   already rejects — exactly-zero acceptance.
+/// * [`SpawnerError::NoSpawnableCells`] when **every** draw across
+///   the full rejection budget gets rejected — strongly indicating
+///   exactly-zero acceptance even though the check fires only after
+///   the budget is exhausted (one-time work; the spawner does not
+///   probe the world up-front).
 /// * [`SpawnerError::SpawnBudgetExhausted`] when at least one cell
 ///   is spawnable but the budget runs out before placing
 ///   `target_count` plans.
@@ -182,7 +198,7 @@ pub fn plan_spawns<B, S>(
 ) -> Result<Vec<SpawnPlan>, SpawnerError>
 where
     B: Fn(u32, u32) -> Option<&'static str>,
-    S: Fn(&str) -> Option<usize>,
+    S: Fn(&str) -> Option<SpeciesId>,
 {
     if target_count == 0 {
         return Err(SpawnerError::EmptyTarget);
@@ -209,7 +225,7 @@ where
             // zero-acceptance world; some plans landed → the world
             // is just too sparse for the requested target.
             return Err(if plans.is_empty() {
-                SpawnerError::NoSpawnableCells
+                SpawnerError::NoSpawnableCells { attempts }
             } else {
                 SpawnerError::SpawnBudgetExhausted {
                     placed: plans.len(),
@@ -226,14 +242,14 @@ where
             Some(t) => t,
             None => continue,
         };
-        let species_idx = match species_for_biome(tag) {
+        let species = match species_for_biome(tag) {
             Some(s) => s,
             None => continue,
         };
         plans.push(SpawnPlan {
             cell_x: x,
             cell_y: y,
-            species: SpeciesId(species_idx),
+            species,
         });
     }
     Ok(plans)
@@ -317,16 +333,16 @@ mod tests {
     }
 
     /// Map "plains" → species 0, reject everything else.
-    fn plains_to_species_zero(tag: &str) -> Option<usize> {
+    fn plains_to_species_zero(tag: &str) -> Option<SpeciesId> {
         if tag == "plains" {
-            Some(0)
+            Some(SpeciesId(0))
         } else {
             None
         }
     }
 
     /// Reject every biome — used to exercise the rejection budget.
-    fn reject_all(_tag: &str) -> Option<usize> {
+    fn reject_all(_tag: &str) -> Option<SpeciesId> {
         None
     }
 
@@ -392,7 +408,11 @@ mod tests {
     fn plan_returns_no_spawnable_cells_when_every_biome_rejected() {
         let mut prng = worldgen_prng(0);
         let err = plan_spawns(&mut prng, 10, 10, 5, all_plains, reject_all).unwrap_err();
-        assert_eq!(err, SpawnerError::NoSpawnableCells);
+        // Rejection budget = 5 * 100; every draw bounced.
+        assert!(matches!(
+            err,
+            SpawnerError::NoSpawnableCells { attempts: 500 }
+        ));
     }
 
     #[test]
@@ -438,10 +458,10 @@ mod tests {
                 Some("forest")
             }
         }
-        fn species_per_tag(tag: &str) -> Option<usize> {
+        fn species_per_tag(tag: &str) -> Option<SpeciesId> {
             match tag {
-                "plains" => Some(0),
-                "forest" => Some(1),
+                "plains" => Some(SpeciesId(0)),
+                "forest" => Some(SpeciesId(1)),
                 _ => None,
             }
         }
@@ -567,9 +587,9 @@ mod tests {
                 Some("ocean")
             }
         }
-        fn only_plains(tag: &str) -> Option<usize> {
+        fn only_plains(tag: &str) -> Option<SpeciesId> {
             if tag == "plains" {
-                Some(0)
+                Some(SpeciesId(0))
             } else {
                 None
             }
@@ -591,9 +611,10 @@ mod tests {
                 assert!(placed < 50);
                 assert_eq!(attempts, 5000); // 50 * MAX_REJECTION_FACTOR
             }
-            SpawnerError::NoSpawnableCells => {
+            SpawnerError::NoSpawnableCells { attempts } => {
                 // The sparse 0.01% acceptance happens to miss
                 // every draw — rare but possible at this density.
+                assert_eq!(attempts, 5000); // 50 * MAX_REJECTION_FACTOR
             }
             other => panic!("expected sparse-world error, got {other:?}"),
         }

@@ -20,6 +20,8 @@ use beast_ecs::components::{
     Species, Velocity,
 };
 use beast_ecs::{Entity, MarkerKind, Resources, WorldExt};
+use beast_manifest::Provenance;
+use beast_primitives::PrimitiveEffect;
 
 use crate::simulation::Simulation;
 
@@ -103,23 +105,32 @@ pub fn compute_state_hash(sim: &Simulation) -> [u8; 32] {
         absorb_opt(&mut hasher, species.get(entity), |h, s| {
             h.update(&s.id.to_le_bytes());
         });
-        // Genome and Phenotype are serialisable but their bit layout
-        // can change between crate versions. Feed a canonical byte
-        // stream: the Debug repr. This is slower than bincode but has
-        // zero dependency cost and is only invoked once per tick.
-        // When S7 lands, swap to the canonical bincode form.
+        // Genome: bincode 2.x with the same `config::standard()` that
+        // beast-serde uses for save files. Stable across rustc /
+        // edition upgrades and ~10× cheaper than the previous
+        // `format!("{:?}", ...)` pre-S7 code path. Encoding can fail
+        // only on a serializer-internal error (size_limit overflow on
+        // a >2^32-byte payload, etc.) which a real genome cannot
+        // produce — the `expect` carries the same impossibility
+        // contract as `Genome::validate`'s `GenomeTooLarge` guard.
         absorb_opt(&mut hasher, genomes.get(entity), |h, g| {
-            h.update(format!("{:?}", g.0).as_bytes());
+            let cfg = bincode::config::standard();
+            let bytes = bincode::serde::encode_to_vec(&g.0, cfg)
+                .expect("Genome bincode encoding fits within size_limit");
+            h.update(&bytes);
         });
-        // Phenotype requires defensive sorting before feeding into the
-        // hasher. `PrimitiveEffect.source_channels` is a `Vec<String>`
-        // whose element order comes from whichever hook fired first —
-        // the interpreter is expected to produce this sorted, but the
-        // hash gate must not silently assume it. See PR #122 review
-        // (CRITICAL). Sort is by primitive_id then by the
-        // pre-sorted source_channels slice, which matches the
-        // interpreter's contract. Allocations are per-tick, not
-        // per-frame.
+        // Phenotype: hand-encoded field-by-field instead of bincode'd.
+        // `PrimitiveEffect` is L1 and intentionally does **not** derive
+        // `Serialize` (that's gated by the wider serialize-on-the-
+        // sim-path question — see audit finding #67); a per-effect
+        // canonical byte stream gets us the same determinism guarantee
+        // without dragging serde into beast-primitives.
+        //
+        // Defensive sort: the interpreter contract emits sorted, but
+        // the hash gate must not assume — see PR #122 review
+        // (CRITICAL). Sort by `(primitive_id, body_site)` (matches
+        // INVARIANTS §1's hash-order contract) and sort each
+        // `source_channels` Vec since hook firing order isn't pinned.
         absorb_opt(&mut hasher, phenotypes.get(entity), |h, p| {
             let mut sorted = p.effects.clone();
             sorted.sort_by(|a, b| {
@@ -128,7 +139,10 @@ pub fn compute_state_hash(sim: &Simulation) -> [u8; 32] {
             for effect in &mut sorted {
                 effect.source_channels.sort();
             }
-            h.update(format!("{:?}", sorted).as_bytes());
+            h.update(&(sorted.len() as u64).to_le_bytes());
+            for effect in &sorted {
+                absorb_primitive_effect(h, effect);
+            }
         });
     }
 
@@ -182,6 +196,72 @@ where
             hasher.update(&[0]);
         }
     }
+}
+
+/// Length-prefixed `&str` absorb. The `u64` length comes first so a
+/// trailing string is unambiguously delimited from any following bytes
+/// fed into the hasher.
+fn absorb_str(hasher: &mut blake3::Hasher, s: &str) {
+    hasher.update(&(s.len() as u64).to_le_bytes());
+    hasher.update(s.as_bytes());
+}
+
+/// Encode a single [`PrimitiveEffect`] into a canonical byte stream
+/// for hashing. Stable across `Debug` impl changes and rustc / edition
+/// upgrades because every field is laid out in fixed order with
+/// explicit length prefixes — the same guarantee bincode would give
+/// us, except this avoids forcing a `Serialize` derive onto L1's
+/// `PrimitiveEffect` (audit finding #67 tracks the wider question of
+/// whether `PrimitiveEffect` should be serializable on the save path).
+fn absorb_primitive_effect(hasher: &mut blake3::Hasher, effect: &PrimitiveEffect) {
+    absorb_str(hasher, &effect.primitive_id);
+    // body_site: 1-byte presence tag + 1-byte ordinal (the
+    // ordinal-pin test in `beast-core::body_site` keeps adding a
+    // variant from silently shifting hashes).
+    match effect.body_site {
+        Some(site) => {
+            hasher.update(&[1]);
+            // BodySite has no #[repr(u8)]; the explicit match below
+            // makes adding a variant a compile error, not a silent
+            // hash-output change.
+            use beast_core::BodySite;
+            let ordinal: u8 = match site {
+                BodySite::Global => 0,
+                BodySite::Head => 1,
+                BodySite::Jaw => 2,
+                BodySite::Core => 3,
+                BodySite::LimbLeft => 4,
+                BodySite::LimbRight => 5,
+                BodySite::Tail => 6,
+                BodySite::Appendage => 7,
+            };
+            hasher.update(&[ordinal]);
+        }
+        None => {
+            hasher.update(&[0]);
+        }
+    }
+    // source_channels: caller has already sorted them.
+    hasher.update(&(effect.source_channels.len() as u64).to_le_bytes());
+    for ch in &effect.source_channels {
+        absorb_str(hasher, ch);
+    }
+    // parameters: BTreeMap iterates in key order ⇒ stable.
+    hasher.update(&(effect.parameters.len() as u64).to_le_bytes());
+    for (k, v) in &effect.parameters {
+        absorb_str(hasher, k);
+        hasher.update(&v.to_bits().to_le_bytes());
+    }
+    hasher.update(&effect.activation_cost.to_bits().to_le_bytes());
+    hasher.update(&effect.emitter.raw().to_le_bytes());
+    absorb_provenance(hasher, &effect.provenance);
+}
+
+/// Length-prefixed canonical schema-string form for [`Provenance`].
+/// `to_schema_string` is the same form save files use, so the digest
+/// is stable across the same dimensions a save round-trip would be.
+fn absorb_provenance(hasher: &mut blake3::Hasher, p: &Provenance) {
+    absorb_str(hasher, &p.to_schema_string());
 }
 
 #[cfg(test)]
