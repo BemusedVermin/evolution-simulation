@@ -73,7 +73,9 @@ else
   C_BOLD=""; C_GREEN=""; C_YELLOW=""; C_RED=""; C_DIM=""; C_RESET=""
 fi
 
-declare -a FAILED_STEPS
+# Explicit empty initialiser so `${#FAILED_STEPS[@]}` is safe under
+# `set -u` even when no step has appended to the array yet.
+FAILED_STEPS=()
 TOTAL=0
 
 # Run a named step. On failure either bail or, with --keep-going, record
