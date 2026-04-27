@@ -253,6 +253,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "beast-ui"
+version = "0.1.0"
+dependencies = [
+ "beast-core",
+ "beast-render",
+ "serde",
+]
+
+[[package]]
 name = "beast-world"
 version = "0.1.0"
 dependencies = [
