@@ -23,8 +23,8 @@ use beast_core::{BodySite, Prng, Stream, Q3232};
 use beast_interpreter::{LifeStage, ResolvedPhenotype};
 use beast_render::animation::{rig_animations, Animator};
 use beast_render::directive::{
-    AppendageKind, ColorSpec, Colorize, DirectiveParams, Distribution, Inflate, Protrude,
-    ProtrusionShape, SurfaceRegion, TexturePattern, VisualDirective,
+    ColorSpec, Colorize, DirectiveParams, Distribution, Inflate, Protrude, ProtrusionShape,
+    SurfaceRegion, TexturePattern, VisualDirective,
 };
 use beast_render::{compile_blueprint, CreatureBlueprint};
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
@@ -106,7 +106,6 @@ fn typical_directives() -> Vec<VisualDirective> {
 }
 
 fn neutral_biome() -> ColorSpec {
-    let _ = AppendageKind::Crest; // anchor the import in case Append is added later
     ColorSpec::rgb(
         Q3232::from_num(120_i32),
         Q3232::from_num(0.4_f64),
@@ -127,13 +126,17 @@ fn bench_compile_blueprint(c: &mut Criterion) {
     // Reuse one phenotype: the bench measures pipeline-only cost, so
     // we don't want phenotype generation showing up in the numbers.
     let phenotype = random_phenotype(&mut rng);
+    // `black_box` is only useful at the optimisation boundary —
+    // wrapping `neutral_biome()` (a pure non-allocating call already
+    // inside the iter closure) and the `"bench"` literal would be
+    // no-ops, so they're not wrapped.
     group.bench_function("typical_phenotype", |b| {
         b.iter(|| {
             let bp: CreatureBlueprint = compile_blueprint(
                 black_box(&phenotype),
                 black_box(&directives),
-                black_box(neutral_biome()),
-                black_box("bench"),
+                neutral_biome(),
+                "bench",
             );
             black_box(bp)
         });
@@ -147,12 +150,8 @@ fn bench_compile_blueprint(c: &mut Criterion) {
         b.iter_batched(
             || random_phenotype(&mut rng),
             |phenotype| {
-                let bp = compile_blueprint(
-                    &phenotype,
-                    black_box(&directives),
-                    black_box(neutral_biome()),
-                    "bench",
-                );
+                let bp =
+                    compile_blueprint(&phenotype, black_box(&directives), neutral_biome(), "bench");
                 black_box(bp)
             },
             BatchSize::SmallInput,

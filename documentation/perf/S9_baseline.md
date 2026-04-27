@@ -16,11 +16,18 @@ will land once the SDL3 system deps are sorted on the runners
 
 ## Pass criteria (S9.8)
 
-| Bench | Threshold | Why |
-|---|---|---|
-| `compile_blueprint/typical_phenotype` | < 1 ms / creature | Story 9.5 budget; lets us re-compile 16 creatures per 60 FPS frame without budget overrun. |
-| `rig_animations/typical` | < 200 µs / creature | 1/5th of `compile_blueprint`; sub-stage 6 attribution. |
-| `animator_sample/walk_mid_t` | < 1 µs / sample | 200 creatures × 60 FPS = 12k samples/sec; 1 µs gives 12 ms/frame headroom. |
+The S9 issue body sets *frame-budget* limits (1 ms / 200 µs / 1 µs).
+Those are the absolute design constraints. The thresholds below are
+**regression gates** — set ~10× the current observed mean so the gate
+catches a pathological 10× regression but tolerates ordinary noise on
+slower CI hardware. If a perf-positive PR drops the mean meaningfully,
+tighten the threshold in the same PR.
+
+| Bench | Frame-budget limit | Regression gate | Why |
+|---|---|---|---|
+| `compile_blueprint/typical_phenotype` | < 1 ms | **< 50 µs** | ~11× current mean; flags any 10× slowdown immediately. |
+| `rig_animations/typical` | < 200 µs | **< 25 µs** | ~12× current mean. |
+| `animator_sample/walk_mid_t` | < 1 µs | **< 2.5 µs** | ~11× current mean. Per-frame 200-creature sample budget = 12 µs total. |
 
 > 16.6 ms / 25 ms p99 frame-time targets from the issue body apply to the
 > SDL render benches (`bench_world_map_200_creatures`,
@@ -29,13 +36,13 @@ will land once the SDL3 system deps are sorted on the runners
 
 ## Baseline (S9.8 dev-box, criterion mean)
 
-| Bench | Mean | p95-ish (high) | Threshold | Headroom |
+| Bench | Mean | p95-ish (high) | Regression gate | Headroom-vs-gate |
 |---|---|---|---|---|
-| `compile_blueprint/typical_phenotype` | **4.55 µs** | 4.61 µs | 1000 µs | ≈ 219× |
-| `compile_blueprint/random_phenotype` | **4.35 µs** | 4.61 µs | 1000 µs | ≈ 230× |
-| `rig_animations/typical` | **2.13 µs** | 2.19 µs | 200 µs | ≈ 94× |
-| `animator_sample/walk_mid_t` | **222 ns** | 226 ns | 1000 ns | ≈ 4.5× |
-| `animator_sample/walk_t_zero` | **48 ns** | 49 ns | 1000 ns | ≈ 21× |
+| `compile_blueprint/typical_phenotype` | **4.55 µs** | 4.61 µs | 50 µs | ≈ 11× |
+| `compile_blueprint/random_phenotype` | **4.35 µs** | 4.61 µs | 50 µs | ≈ 11× |
+| `rig_animations/typical` | **2.13 µs** | 2.19 µs | 25 µs | ≈ 12× |
+| `animator_sample/walk_mid_t` | **222 ns** | 226 ns | 2.5 µs | ≈ 11× |
+| `animator_sample/walk_t_zero` | **48 ns** | 49 ns | 2.5 µs | ≈ 52× |
 
 Taken with `--warm-up-time 1 --measurement-time 2 --sample-size 30` for
 stability without burning a long bench window. Default criterion (5s warm-up,
