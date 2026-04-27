@@ -31,8 +31,9 @@ use beast_interpreter::{LifeStage, ResolvedPhenotype};
 use beast_render::animation::Animator;
 use beast_render::blueprint::{AttachPoint, BoneTag, MaterialTarget, SurfaceType};
 use beast_render::directive::{
-    AppendageKind, ColorSpec, Colorize, DirectiveParams, Distribution, Inflate, Protrude,
-    ProtrusionShape, SurfaceRegion, TexturePattern, VisualDirective,
+    Append, AppendageKind, ColorSpec, Colorize, DirectiveParams, Distribution, Harden,
+    HardenPattern, Inflate, Orifice, OrificeOrientation, Protrude, ProtrusionShape, Soften,
+    SurfaceRegion, Texture, TexturePattern, VisualDirective,
 };
 use beast_render::{compile_blueprint, CreatureBlueprint};
 
@@ -48,8 +49,16 @@ const N_CREATURES: usize = 100;
 // ---------------------------------------------------------------------------
 
 /// Channel ids the pipeline reads (mirrors `crate::channels` in
-/// `beast-render`). Listed here verbatim so a rename in render-side code
-/// flips this test red — the test is the contract anchor.
+/// `beast-render`). Listed here verbatim so a one-sided rename — i.e.,
+/// updating the pipeline without updating this fixture — produces a
+/// `Q3232::ZERO` lookup, which then trips the bounding-box / animation
+/// invariants downstream.
+///
+/// **Maintenance**: a new channel added in `crate::channels` must be
+/// added here too. We don't currently have a cross-check; if drift
+/// becomes a problem, expose a `pub(crate) fn channel_id_list() ->
+/// &'static [&'static str]` from the channels module and assert
+/// `CHANNEL_IDS` matches it.
 const CHANNEL_IDS: &[&str] = &[
     "elastic_deformation",
     "structural_rigidity",
@@ -73,10 +82,10 @@ fn random_phenotype(rng: &mut Prng) -> ResolvedPhenotype {
 }
 
 fn random_directives(rng: &mut Prng, creature_idx: usize) -> Vec<VisualDirective> {
-    // Deterministically pick 0-3 directives per creature. Variety keeps
-    // every substage exercised; the priority field rotates so
-    // canonicalisation order doesn't trivially equal id order.
-    let count = (rng.next_u32() % 4) as usize;
+    // Deterministically pick 0-7 directives per creature so the
+    // pigeon-hole effect across 100 creatures puts all 8 variants on
+    // the firing line at least a few times each.
+    let count = (rng.next_u32() % 8) as usize;
     let mut out = Vec::with_capacity(count);
     for i in 0..count {
         let region = match (creature_idx + i) % 4 {
@@ -88,7 +97,10 @@ fn random_directives(rng: &mut Prng, creature_idx: usize) -> Vec<VisualDirective
         let id = (creature_idx as u32 * 100) + i as u32;
         let priority = (rng.next_u32() % 16) + 1;
 
-        let params = match rng.next_u32() % 4 {
+        // `% 8` covers every variant of `DirectiveParams`. If a new
+        // variant lands, expand this match — the lack of a wildcard
+        // arm makes that requirement a compile error.
+        let params = match rng.next_u32() % 8 {
             0 => DirectiveParams::Inflate(Inflate {
                 scale: rng
                     .next_q3232_unit()
@@ -111,12 +123,36 @@ fn random_directives(rng: &mut Prng, creature_idx: usize) -> Vec<VisualDirective
                 distribution: Distribution::Regular,
                 surface_region: SurfaceRegion::Dorsal,
             }),
-            _ => DirectiveParams::Inflate(Inflate { scale: Q3232::ONE }),
+            3 => DirectiveParams::Harden(Harden {
+                roughness: rng.next_q3232_unit(),
+                segmentation: ((rng.next_u32() % 12) + 1) as u8,
+                pattern: HardenPattern::Plates,
+            }),
+            4 => DirectiveParams::Soften(Soften {
+                smoothness: rng.next_q3232_unit(),
+                transparency: rng.next_q3232_unit(),
+            }),
+            5 => DirectiveParams::Orifice(Orifice {
+                size: rng
+                    .next_q3232_unit()
+                    .saturating_add(Q3232::from_num(0.05_f64)),
+                position: rng.next_q3232_unit(),
+                count: ((rng.next_u32() % 3) + 1) as u8,
+                orientation: OrificeOrientation::Forward,
+            }),
+            6 => DirectiveParams::Append(Append {
+                appendage_type: AppendageKind::Crest,
+                count: ((rng.next_u32() % 4) + 1) as u8,
+                position: rng.next_q3232_unit(),
+            }),
+            7 => DirectiveParams::Texture(Texture {
+                pattern: TexturePattern::Striped,
+                scale: rng
+                    .next_q3232_unit()
+                    .saturating_add(Q3232::from_num(0.1_f64)),
+            }),
+            _ => unreachable!("rng.next_u32() % 8 covers 0..=7"),
         };
-        // `params` references appendage/colourize types; pull the
-        // `AppendageKind` import in via a no-op so a future deletion of
-        // the directive variant fails this test loudly.
-        let _ = AppendageKind::Crest;
 
         out.push(VisualDirective {
             id,
@@ -259,9 +295,12 @@ fn assert_blueprint_invariants(idx: usize, seed_used: u64, bp: &CreatureBlueprin
         "creature[{idx}]: expected ≥1 idle clip"
     );
 
-    // No NaN / infinity in keyframes — Q3232 has no NaN, but we still
-    // guard against MIN/MAX saturation, which would mean the rig
-    // overflowed somewhere.
+    // Per-field keyframe bounds. Q3232 has no NaN/infinity, so the
+    // failure mode is saturation toward MIN/MAX — but checking only
+    // those literals is too permissive (it accepts any value short of
+    // saturation). Bounds are tied to design-doc expectations: the
+    // death clip peaks at 90°, sinusoid amplitude is 20°, breathing
+    // scale tops at 1.05.
     for clip in bp
         .animations
         .locomotion
@@ -270,21 +309,41 @@ fn assert_blueprint_invariants(idx: usize, seed_used: u64, bp: &CreatureBlueprin
         .chain(std::iter::once(&bp.animations.damage))
         .chain(std::iter::once(&bp.animations.death))
     {
+        let duration = clip.duration;
         for track in &clip.bone_tracks {
             for kf in &track.keyframes {
-                assert_q3232_finite(idx, &clip.name, &track.bone_id, "rotation", kf.rotation);
-                assert_q3232_finite(idx, &clip.name, &track.bone_id, "scale", kf.scale);
-                assert_q3232_finite(idx, &clip.name, &track.bone_id, "time", kf.time);
+                assert_keyframe_in_bounds(idx, &clip.name, track.bone_id, kf, duration);
             }
         }
     }
 }
 
-fn assert_q3232_finite(creature_idx: usize, clip: &str, bone_id: &u32, field: &str, value: Q3232) {
+fn assert_keyframe_in_bounds(
+    creature_idx: usize,
+    clip: &str,
+    bone_id: u32,
+    kf: &beast_render::animation::Keyframe,
+    duration: Q3232,
+) {
+    let max_rotation = Q3232::from_num(180);
+    let neg_max_rotation = max_rotation.saturating_mul(Q3232::from_num(-1));
     assert!(
-        value > Q3232::MIN && value < Q3232::MAX,
-        "creature[{creature_idx}] clip={clip} bone={bone_id} field={field}: \
-         saturated keyframe value {value:?}"
+        kf.time >= Q3232::ZERO && kf.time <= duration,
+        "creature[{creature_idx}] clip={clip} bone={bone_id}: time {time:?} outside [0, {duration:?}]",
+        time = kf.time,
+    );
+    assert!(
+        kf.rotation >= neg_max_rotation && kf.rotation <= max_rotation,
+        "creature[{creature_idx}] clip={clip} bone={bone_id}: rotation {rot:?} outside [{neg_max_rotation:?}, {max_rotation:?}]",
+        rot = kf.rotation,
+    );
+    // Scale > 0 (a zero scale would invert geometry); upper bound 4.0
+    // flags any future leak from `Inflate` (which targets volumes,
+    // not keyframes).
+    assert!(
+        kf.scale > Q3232::ZERO && kf.scale <= Q3232::from_num(4),
+        "creature[{creature_idx}] clip={clip} bone={bone_id}: scale {scale:?} outside (0, 4]",
+        scale = kf.scale,
     );
 }
 
@@ -293,10 +352,13 @@ fn assert_q3232_finite(creature_idx: usize, clip: &str, bone_id: &u32, field: &s
 // ---------------------------------------------------------------------------
 
 fn compute_state_hash(blueprints: &[CreatureBlueprint]) -> u64 {
-    // `Hash` derive on the blueprint plus `std::hash::DefaultHasher`
-    // (deterministic, fixed-seed SipHash 1-3) gives us a stable
-    // process-independent fingerprint. Same fixtures → same hash, on
-    // any platform.
+    // Same-process fingerprint via the derived `Hash`. `DefaultHasher`
+    // is documented as "subject to change" between Rust versions, so
+    // the value is *not* stable across rustc upgrades or platforms —
+    // sufficient here because both calls in `same_seed_produces_same_
+    // state_hash` run in the same process. The cross-platform
+    // determinism gate (M1 in `beast-sim/src/determinism.rs`) uses
+    // BLAKE3-over-bincode for the stronger contract.
     let mut hasher = DefaultHasher::new();
     blueprints.hash(&mut hasher);
     hasher.finish()
@@ -307,12 +369,14 @@ fn compute_state_hash(blueprints: &[CreatureBlueprint]) -> u64 {
 // ---------------------------------------------------------------------------
 
 fn generate_blueprints(seed: u64) -> Vec<CreatureBlueprint> {
-    let master = Prng::from_seed(seed);
-    // One stream for phenotype channel sampling, another for directive
-    // synthesis, so a change to the directive count doesn't shift the
-    // phenotype channel sequence.
-    let mut phenotype_rng = master.split_stream(Stream::Phenotype);
-    let mut directive_rng = master.split_stream(Stream::Testing);
+    // Two independent test streams, both rooted on `Stream::Testing` so
+    // we don't accidentally shadow a production stream slot. Distinct
+    // master seeds (XOR with a constant tag) keep the streams disjoint
+    // without needing a second `Stream` variant.
+    let phenotype_master = Prng::from_seed(seed);
+    let directive_master = Prng::from_seed(seed ^ 0x00D1_5EC7_1BE5_u64);
+    let mut phenotype_rng = phenotype_master.split_stream(Stream::Testing);
+    let mut directive_rng = directive_master.split_stream(Stream::Testing);
 
     (0..N_CREATURES)
         .map(|i| {
@@ -383,25 +447,10 @@ fn different_seeds_produce_different_state_hashes() {
     assert_ne!(a, b, "two different seeds collided — fixture is degenerate");
 }
 
-#[test]
-fn snapshot_one_blueprint_is_stable() {
-    // Pin one of the 100 creatures via Debug fingerprint. Any
-    // pipeline-or-rig change that perturbs creature 42 must also
-    // update the expected hash here, surfacing the change.
-    let blueprints = generate_blueprints(SMOKE_TEST_SEED);
-    let snapshot = format!("{:#?}", blueprints[42]);
-    let mut hasher = DefaultHasher::new();
-    snapshot.hash(&mut hasher);
-    let snapshot_hash = hasher.finish();
-
-    // The hash itself isn't asserted against a hard-coded literal —
-    // doing so makes the test brittle to ordinary refactors. What
-    // matters is that two runs produce the *same* hash, and the
-    // earlier `same_seed_produces_same_state_hash` test handles that
-    // for the whole batch. Here we just sanity-check that creature
-    // 42's snapshot is non-trivially-empty.
-    assert!(
-        snapshot.len() > 200,
-        "creature[42] Debug snapshot is suspiciously small: {snapshot_hash}"
-    );
-}
+// NOTE: a single-creature snapshot test would be redundant here —
+// `same_seed_produces_same_state_hash` already pins the entire batch's
+// hash for same-process equality, which subsumes pinning one creature.
+// A literal-asserted snapshot (with a BLESS workflow) would catch
+// changes the first run but is brittle to ordinary refactors and
+// requires manual updating; will revisit if the pipeline grows hidden
+// state that the batch hash misses.
