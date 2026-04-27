@@ -130,4 +130,18 @@ These come from `documentation/INVARIANTS.md`. In short:
 
 ## License
 
-Proprietary — see the workspace `Cargo.toml`. Not yet OSS.
+**Proprietary. All rights reserved.** See [`LICENSE`](LICENSE) for the full terms.
+
+The repository is published for review and reference only. No grant is given to
+build, run, fork (except for upstream pull requests), modify, redistribute, or
+incorporate the source — first-party or derivative — into another product or ML
+training set without prior written consent. Contributions submitted by pull
+request are accepted on the understanding that the copyright holder retains
+sole copyright and may relicense the resulting work.
+
+Third-party Rust crates pulled in via `Cargo.lock` continue to be governed by
+their own permissive licenses (MIT / Apache-2.0 / BSD / ISC / BSL-1.0 / Zlib /
+CC0-1.0 / Unicode), enumerated in [`deny.toml`](deny.toml). The proprietary
+terms above apply only to first-party code authored within this repository.
+
+For commercial-licensing or use-grant inquiries, open a GitHub issue.
