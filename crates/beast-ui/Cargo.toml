@@ -36,7 +36,14 @@ beast-core = { workspace = true }
 # build (including the Linux CI runner that has no X11 dev libs). The
 # explicit feature pass-throughs below are now the only way to enable a
 # backend.
-beast-render = { workspace = true, default-features = false }
+#
+# Using a direct `path = ...` instead of `workspace = true` because
+# overriding `default-features = false` through workspace inheritance is
+# unreliable in our cargo version: `cargo metadata` still reports
+# `uses_default_features: true` and CI's resolver pulls beast-render's
+# `sdl` feature in transitively. A direct path dep sidesteps the
+# inheritance path entirely.
+beast-render = { path = "../beast-render", default-features = false }
 serde = { workspace = true }
 
 [lints.rust]
