@@ -42,6 +42,7 @@ optional = true
 features = ["build-from-source-static"]
 
 [dev-dependencies]
+criterion = { workspace = true }
 tempfile = { workspace = true }
 
 [[example]]
@@ -54,6 +55,13 @@ required-features = ["sdl"]
 [[example]]
 name = "animation"
 required-features = ["sdl"]
+
+[[bench]]
+# Pipeline + animation rig + animator-sample benchmarks. Run with
+#   cargo bench -p beast-render --no-default-features --features headless
+# so the SDL backend doesn't get pulled into the bench harness.
+name = "pipeline_bench"
+harness = false
 
 [lints.rust]
 # Forbid `unsafe { ... }` blocks unless they carry a `// SAFETY:` comment
