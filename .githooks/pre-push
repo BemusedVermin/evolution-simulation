@@ -7,10 +7,11 @@
 # Bypass in a genuine emergency with `git push --no-verify`; every bypass
 # should be explained in the next commit message.
 #
-# Heads-up: the CI pipeline below (fmt → clippy → tests → doc tests → release
-# build → cargo-deny) can take several minutes on a cold target/. This is
-# deliberate — it mirrors the CI gate in CLAUDE.md "Commands" so a failing
-# push is caught here instead of round-tripping through GitHub Actions.
+# Heads-up: the CI pipeline below (fmt → clippy → tests → doc tests →
+# beast-render headless → cargo-deny → coverage → quality → release →
+# determinism gate) can take several minutes on a cold `target/`. This is
+# deliberate — it mirrors the CI gate in `CLAUDE.md` so a failing push is
+# caught here instead of round-tripping through GitHub Actions.
 
 set -eu
 
@@ -49,40 +50,26 @@ done
 
 # --- CI checks ---------------------------------------------------------------
 #
-# Mirrors the CI pipeline documented in CLAUDE.md "Commands" so failures
-# surface before the push leaves this machine. Ordered fast-first: fmt and
-# clippy fail in seconds; the release build and cargo-deny are the slow
-# tail. `set -e` aborts on the first non-zero exit status.
-
-step() {
-    printf '\npre-push: %s\n' "$1" >&2
-}
-
-step 'cargo fmt --all -- --check'
-cargo fmt --all -- --check
-
-step 'cargo clippy --workspace --all-targets -- -D warnings'
-cargo clippy --workspace --all-targets -- -D warnings
-
-step 'cargo test --workspace --all-targets --locked'
-cargo test --workspace --all-targets --locked
-
-step 'cargo test --workspace --doc --locked'
-cargo test --workspace --doc --locked
-
-# --- Quality metrics ---------------------------------------------------------
+# Delegated to `scripts/ci-local.sh` so this hook and the GitHub Actions
+# `ci` workflow run the exact same gates with the exact same flags. Edit
+# `scripts/ci-local.sh` to change the gate set; both this hook and the
+# subagents that pre-push will pick the change up.
 #
-# Delegated to the shared driver so this hook and the `quality-metrics` CI
-# job run the exact same lizard invocations and thresholds. Edit
-# `.github/scripts/run-quality-metrics.sh` to change either.
-step '.github/scripts/run-quality-metrics.sh'
-.github/scripts/run-quality-metrics.sh >/dev/null
+# `PRE_PUSH_CI_FLAGS` lets ad-hoc local runs opt out of the slow tail
+# (e.g. `PRE_PUSH_CI_FLAGS="--quick" git push`). Default is unset, which
+# runs the full suite including release builds + determinism gate.
 
-step 'cargo build --workspace --release --locked'
-cargo build --workspace --release --locked
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+ci_script="$repo_root/scripts/ci-local.sh"
 
-step 'cargo deny check'
-cargo deny check
+if [ ! -x "$ci_script" ]; then
+    echo "pre-push: $ci_script is missing or not executable." >&2
+    echo "pre-push: restore it from \`origin/master\` and run \`chmod +x $ci_script\`." >&2
+    exit 1
+fi
+
+# shellcheck disable=SC2086  # intentional word-splitting for flag pass-through.
+"$ci_script" ${PRE_PUSH_CI_FLAGS:-}
 
 printf '\npre-push: all CI checks passed.\n' >&2
 exit 0
