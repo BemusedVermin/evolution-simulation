@@ -1,22 +1,23 @@
 name: CodeQL
 
 # Replaces the repo-level "Default setup" with an Advanced setup driven
-# from this file. Two reasons we want the explicit workflow:
+# from this file. Why we want the explicit workflow:
 #
-#   1. The Rust extractor needs a working `cargo build`. The default
-#      setup runs autobuild, which on this workspace tries the
-#      SDL3-from-source path and fails on the Linux runner (no X11
-#      dev libs). This workflow uses `build-mode: manual` and matches
-#      the lint-and-test command exactly — same `--exclude` list,
-#      same locked deps.
-#   2. We can tune query suites and paths via .github/codeql/codeql-
-#      config.yml. The default setup gives us only the base `security`
-#      suite; the advanced setup we run here uses `security-extended`.
+#   * Tune query suites and paths via .github/codeql/codeql-config.yml.
+#     Default setup gives us only the base `security` suite; the
+#     advanced setup uses `security-extended`, which is what flagged
+#     the workflow_run checkout pattern in claude-code-review.yml.
+#   * Cover Actions YAML alongside Rust on a schedule we control.
+#   * Pin tooling and trigger on the same events as the rest of CI.
 #
-# **One-time UI step:** when this lands on master, disable the repo's
-# Default code-scanning setup at
+# **One-time UI step required for this to take effect:** disable the
+# repo's Default code-scanning setup at
 # `Settings → Code security → Code scanning → Default setup → Disable`.
-# Otherwise GitHub will run *both* setups and double-bill scan minutes.
+# Until that's done, this workflow's SARIF upload is rejected by GitHub
+# with the message "CodeQL analyses from advanced configurations cannot
+# be processed when the default setup is enabled" — i.e. the analysis
+# runs but the results are dropped on upload, and the check shows red.
+# After disabling, this advanced workflow is the single source of truth.
 
 on:
   push:
@@ -59,25 +60,25 @@ jobs:
           # `claude-code-review.yml`).
           - language: actions
             build-mode: none
-          # Rust source scanning. Beta as of 2024 but increasingly
-          # useful — flags things clippy doesn't (taint flow, unsafe
-          # propagation, etc.).
+          # Rust source scanning. As of CodeQL 2.25+ the Rust extractor
+          # uses `build-mode: none` exclusively — it parses sources and
+          # `cargo metadata` directly without invoking the compiler, so
+          # we don't need to mirror lint-and-test's --exclude list here.
+          # (`manual` is rejected: "Rust does not support the manual
+          # build mode.")
           - language: rust
-            build-mode: manual
+            build-mode: none
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      # The Rust extractor needs `cargo metadata` to read the workspace
+      # graph; we install the toolchain so cargo is on PATH. No build
+      # step follows — `build-mode: none` skips compilation entirely.
       - name: Install Rust toolchain (stable)
         if: matrix.language == 'rust'
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry and build artifacts
-        if: matrix.language == 'rust'
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ci-codeql
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
@@ -85,32 +86,6 @@ jobs:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
           config-file: ./.github/codeql/codeql-config.yml
-
-      # Match the lint-and-test job exactly so feature resolution
-      # mirrors what every other Linux job does — beast-render and
-      # beast-ui are excluded because the SDL3-from-source build
-      # needs X11 dev libs the runner lacks. Headless variants are
-      # still extracted because the workspace path-deps make CodeQL
-      # see the source either way.
-      - name: Build for CodeQL extraction
-        if: matrix.language == 'rust'
-        env:
-          CARGO_TERM_COLOR: always
-          CARGO_INCREMENTAL: 0
-          # Don't fail the build on warnings — CodeQL needs the build
-          # to succeed to extract; lint-and-test (the dedicated CI
-          # job) is where `-D warnings` lives.
-          RUSTFLAGS: ""
-        run: |
-          cargo build --workspace \
-            --exclude beast-render --exclude beast-ui \
-            --all-targets --locked
-          cargo build -p beast-render \
-            --no-default-features --features headless \
-            --all-targets --locked
-          cargo build -p beast-ui \
-            --no-default-features --features headless \
-            --all-targets --locked
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
