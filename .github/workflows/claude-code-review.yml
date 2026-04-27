@@ -99,8 +99,17 @@ jobs:
 
             ## Constraints
 
-            * **NEVER submit `APPROVE` or `REQUEST_CHANGES`.** Always `event: "COMMENT"`.
-              The repository owner reviews approvals themselves.
+            * **Verdict (`event`) is determined by the highest severity finding:**
+              * **`REQUEST_CHANGES`** if the review contains at least one
+                `CRITICAL`, `HIGH`, or `MEDIUM` finding.
+              * **`APPROVE`** if the review contains no `MEDIUM`-or-above findings
+                (i.e. clean, or only `LOW` notes).
+              The repo owner can still override the verdict — APPROVE is advisory,
+              REQUEST_CHANGES doesn't block merge by default.
+            * **`COMMENT`** is reserved for cases where you genuinely cannot make
+              the call (e.g. the diff is too large to inspect fully, or the change
+              is purely policy / config that you have no rubric for). Treat it as
+              a fallback, not the default.
             * Inline comments must reference a specific line in the new file
               (`side: "RIGHT"`). Don't post a top-level overall comment as a substitute
               for an inline comment when a line anchor is appropriate.
@@ -108,9 +117,10 @@ jobs:
               suggestion (a code snippet, a doc reference, or a one-line fix).
             * Stay grounded in what the diff actually contains. Do not invent issues
               that aren't in the change.
-            * If you find no findings worth flagging, post a short approving
-              `COMMENT` review (still no `APPROVE` event) acknowledging the PR is
-              clean against the checks you ran.
+            * State the chosen verdict and severity counts in the first line of the
+              overall body, e.g. `**APPROVE** — 0 CRITICAL · 0 HIGH · 0 MEDIUM · 2 LOW`
+              or `**REQUEST_CHANGES** — 0 CRITICAL · 1 HIGH · 3 MEDIUM · 1 LOW`. The
+              repo owner reads this line first to decide whether to dive in.
 
             ## Output
 
