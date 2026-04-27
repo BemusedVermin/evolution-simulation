@@ -17,7 +17,9 @@
 //!   forces explicit allocation of a stream slot rather than accidentally
 //!   colliding with an existing one.
 
-use rand_core::{RngCore, SeedableRng};
+use core::convert::Infallible;
+
+use rand_core::{Rng, SeedableRng, TryRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
 use serde::{Deserialize, Serialize};
 
@@ -205,18 +207,28 @@ impl Prng {
     }
 }
 
-impl RngCore for Prng {
+// rand_core 0.10 renamed `RngCore` → `Rng` and made `Rng` an extension of
+// `TryRng<Error = Infallible>` (see crates.io/crates/rand_core/0.10.1).
+// Implementing `TryRng` is the load-bearing impl; `Rng` is then provided
+// by the blanket `impl<R> Rng for R where R: TryRng<Error = Infallible>`
+// in `rand_core`. This means `Prng` continues to satisfy any bound that
+// reads `R: Rng` (e.g. random distributions) without us writing the
+// extension methods ourselves.
+impl TryRng for Prng {
+    type Error = Infallible;
+
     #[inline]
-    fn next_u32(&mut self) -> u32 {
-        self.inner.next_u32()
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(self.inner.next_u32())
     }
     #[inline]
-    fn next_u64(&mut self) -> u64 {
-        self.inner.next_u64()
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(self.inner.next_u64())
     }
     #[inline]
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.inner.fill_bytes(dest)
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
+        self.inner.fill_bytes(dest);
+        Ok(())
     }
 }
 
