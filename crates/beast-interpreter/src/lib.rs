@@ -39,14 +39,23 @@
 #![warn(missing_docs)]
 #![warn(rust_2018_idioms)]
 
+/// Per-body-site channel aggregation (Story 4.5 — issue #59).
 pub mod body_map;
+/// Hook composition + ordering (Story 4.3 — issue #57).
 pub mod composition;
+/// Primitive emission (Story 4.4 — issue #58).
 pub mod emission;
+/// Typed [`InterpreterError`] / [`Result`] for fallible interpreter ops.
 pub mod error;
+/// Affordance-driven hook expression filter (Story 4.2 — issue #56).
 pub mod expression;
+/// Top-level [`interpret_phenotype`] orchestrator wiring all stages.
 pub mod interpreter;
+/// Parameter expression parser + evaluator (Story 4.4 — issue #58).
 pub mod parameter_map;
+/// Phenotype data types: body sites, regions, life stages, environment.
 pub mod phenotype;
+/// Scale-band gating (Story 4.1 — issue #55).
 pub mod scale_band;
 
 pub use body_map::{

@@ -21,9 +21,12 @@ members = [
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
+# Proprietary — see LICENSE at the repo root. The non-SPDX `Proprietary`
+# string is accepted by cargo for `publish = false` crates and is
+# carved out by `deny.toml`'s `[licenses.private] ignore = true` rule.
 license = "Proprietary"
-authors = ["Beast Evolution Game contributors"]
-repository = "https://example.invalid/beast-evolution-game"
+authors = ["Liam McGuire"]
+repository = "https://github.com/BemusedVermin/evolution-simulation"
 publish = false
 
 [workspace.dependencies]

@@ -1,0 +1,52 @@
+Beast Evolution Game
+
+Copyright (c) 2026 Liam McGuire. All rights reserved.
+
+This repository and its contents (the "Software") are made available
+publicly for the sole purpose of review, reference, and personal study.
+No license, express or implied, is granted to any party to copy, modify,
+publish, distribute, sublicense, sell, run, or otherwise use the Software
+in source or binary form, in whole or in part, for any purpose —
+commercial or non-commercial — without the prior written consent of the
+copyright holder.
+
+In particular, the following are NOT permitted without prior written
+consent:
+
+  * Forking the repository for any purpose other than submitting a
+    pull request back to the original repository.
+  * Building, running, or distributing the Software in source or
+    binary form.
+  * Incorporating the Software, in whole or in part, into another
+    software product or service.
+  * Using the Software, its design, mechanics, or assets in any
+    derivative work.
+  * Training, fine-tuning, or otherwise inputting the Software into
+    any machine-learning model intended for code generation,
+    completion, or reproduction.
+
+Contributions submitted by pull request are welcome but, by submitting,
+the contributor agrees that the copyright holder retains sole copyright
+and may relicense, sublicense, or commercialise the resulting work
+without further notice or compensation. Contributors should not submit
+work they do not have the right to assign on these terms.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES,
+OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE,
+ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+
+For commercial-licensing or use-grant inquiries, contact the copyright
+holder via the GitHub repository:
+
+    https://github.com/BemusedVermin/evolution-simulation
+
+The Software incorporates third-party Rust crates listed in `Cargo.lock`,
+each licensed under its own permissive open-source license (MIT,
+Apache-2.0, BSD, ISC, BSL-1.0, Zlib, CC0-1.0, Unicode, etc., as
+enumerated by `deny.toml`). The terms above apply only to the
+first-party code authored within this repository; third-party crate
+licenses continue to govern their respective crates.

@@ -161,6 +161,13 @@ pub fn generate_archipelago(
 }
 
 fn validate_config(config: &WorldConfig) -> Result<(), GenerationError> {
+    validate_dimensions(config)?;
+    validate_noise_params(config)?;
+    validate_unit_thresholds(config)?;
+    validate_threshold_relationships(config)
+}
+
+fn validate_dimensions(config: &WorldConfig) -> Result<(), GenerationError> {
     if config.width == 0 || config.height == 0 {
         return Err(GenerationError::EmptyDimensions {
             width: config.width,
@@ -170,19 +177,26 @@ fn validate_config(config: &WorldConfig) -> Result<(), GenerationError> {
     if config.octaves == 0 {
         return Err(GenerationError::ZeroOctaves);
     }
-    // Noise-shape parameters must be strictly positive. A zero
-    // `frequency` collapses every cell onto the same lattice
-    // point (constant map); zero `gain` stalls fBm after one
-    // octave; non-positive `lacunarity` flips frequency direction
-    // each octave producing a subtle deterministic bias that's
-    // hard to diagnose from a degenerate map alone.
+    Ok(())
+}
+
+/// Noise-shape parameters must be strictly positive. A zero `frequency`
+/// collapses every cell onto the same lattice point (constant map);
+/// zero `gain` stalls fBm after one octave; non-positive `lacunarity`
+/// flips frequency direction each octave, producing a subtle
+/// deterministic bias that's hard to diagnose from a degenerate map
+/// alone.
+fn validate_noise_params(config: &WorldConfig) -> Result<(), GenerationError> {
     check_positive("frequency", config.frequency)?;
     check_positive("gain", config.gain)?;
     check_positive("lacunarity", config.lacunarity)?;
-    // Range checks for unit-interval thresholds. Without these, a
-    // misconfigured WorldConfig (e.g., loaded from an external
-    // file) silently produces a degenerate world rather than a
-    // typed error.
+    Ok(())
+}
+
+/// Range checks for unit-interval thresholds. Without these, a
+/// misconfigured `WorldConfig` (e.g., loaded from an external file)
+/// silently produces a degenerate world rather than a typed error.
+fn validate_unit_thresholds(config: &WorldConfig) -> Result<(), GenerationError> {
     check_unit_threshold("sea_level", config.sea_level)?;
     check_unit_threshold("mountain_threshold", config.mountain_threshold)?;
     check_unit_threshold(
@@ -191,6 +205,10 @@ fn validate_config(config: &WorldConfig) -> Result<(), GenerationError> {
     )?;
     check_unit_threshold("desert_threshold", config.desert_threshold)?;
     check_unit_threshold("forest_threshold", config.forest_threshold)?;
+    Ok(())
+}
+
+fn validate_threshold_relationships(config: &WorldConfig) -> Result<(), GenerationError> {
     if config.mountain_threshold <= config.sea_level {
         return Err(GenerationError::InvalidThresholds {
             detail: format!(

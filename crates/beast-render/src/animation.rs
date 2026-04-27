@@ -557,7 +557,7 @@ fn sinusoid_keyframes(duration: Q3232, amplitude: Q3232, phase_fraction: Q3232) 
         .collect();
     // Re-sort by time so the keyframe list stays monotonic after the
     // phase wrap. Stable sort + Q3232::Ord both deterministic.
-    keyframes.sort_by(|a, b| a.time.cmp(&b.time));
+    keyframes.sort_by_key(|k| k.time);
     if let Some(last) = keyframes.last_mut() {
         last.easing = Easing::Linear;
     }

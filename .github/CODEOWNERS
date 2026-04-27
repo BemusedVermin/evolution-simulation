@@ -1,0 +1,65 @@
+# Code-ownership rules for the Beast Evolution Game.
+#
+# Format: <path-pattern> <owner...> ; later rules override earlier ones.
+# Patterns follow .gitignore syntax; see
+#   https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/about-code-owners
+#
+# A CODEOWNERS rule auto-requests a review from the named owner(s) when a
+# matching path is touched in a PR. With branch protection on `master` set
+# to "Require review from Code Owners", the rule also gates merge.
+#
+# Today every path resolves to @BemusedVermin (solo project). The
+# section structure is forward-looking: when future contributors are
+# added, the load-bearing paths (invariants, architecture, license,
+# CI, dependency policy) stay pinned to the owner without churn.
+
+# ---------------------------------------------------------------------------
+# Default — everything in the repo.
+# ---------------------------------------------------------------------------
+*                                       @BemusedVermin
+
+# ---------------------------------------------------------------------------
+# Load-bearing contracts. Changes here imply broader implications across
+# the codebase, so the owner stays in the review path even after others
+# are added.
+# ---------------------------------------------------------------------------
+/LICENSE                                @BemusedVermin
+/documentation/INVARIANTS.md            @BemusedVermin
+/documentation/architecture/            @BemusedVermin
+/CLAUDE.md                              @BemusedVermin
+
+# ---------------------------------------------------------------------------
+# Workspace metadata & dependency / license policy. Wildcard deps, license
+# allow-list, lockfile churn — all changes here need owner sign-off.
+# ---------------------------------------------------------------------------
+/Cargo.toml                             @BemusedVermin
+/Cargo.lock                             @BemusedVermin
+/deny.toml                              @BemusedVermin
+
+# ---------------------------------------------------------------------------
+# CI, hooks, and pre-approved automation. The action workflows and the
+# pre-push hook gate every PR; the scripts under `scripts/` are
+# pre-approved for subagents to run without prompting.
+# ---------------------------------------------------------------------------
+/.github/                               @BemusedVermin
+/.githooks/                             @BemusedVermin
+/scripts/                               @BemusedVermin
+
+# ---------------------------------------------------------------------------
+# Crate-level ownership. Single-owner today; left in place so future
+# crate stewards can be added per-line without restructuring.
+# ---------------------------------------------------------------------------
+/crates/beast-core/                     @BemusedVermin
+/crates/beast-manifest/                 @BemusedVermin
+/crates/beast-channels/                 @BemusedVermin
+/crates/beast-primitives/               @BemusedVermin
+/crates/beast-genome/                   @BemusedVermin
+/crates/beast-interpreter/              @BemusedVermin
+/crates/beast-ecs/                      @BemusedVermin
+/crates/beast-sim/                      @BemusedVermin
+/crates/beast-serde/                    @BemusedVermin
+/crates/beast-world/                    @BemusedVermin
+/crates/beast-climate/                  @BemusedVermin
+/crates/beast-render/                   @BemusedVermin
+/crates/beast-chronicler/               @BemusedVermin
+/crates/beast-ui/                       @BemusedVermin
