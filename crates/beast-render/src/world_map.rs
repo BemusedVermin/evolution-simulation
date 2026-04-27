@@ -106,6 +106,7 @@ impl Camera {
         canvas_w: u32,
         canvas_h: u32,
     ) -> (f32, f32) {
+        debug_assert!(self.zoom > 0.0, "Camera::zoom must be positive");
         let cw = canvas_w as f32;
         let ch = canvas_h as f32;
         (
@@ -116,6 +117,7 @@ impl Camera {
 
     /// Inverse of [`Self::tile_to_screen`].
     pub fn screen_to_tile(&self, sx: f32, sy: f32, canvas_w: u32, canvas_h: u32) -> (f32, f32) {
+        debug_assert!(self.zoom > 0.0, "Camera::zoom must be positive");
         let cw = canvas_w as f32;
         let ch = canvas_h as f32;
         (
@@ -127,6 +129,13 @@ impl Camera {
     /// Tile range visible in the viewport, inclusive on the start and
     /// exclusive on the end. Result is clamped to `[0, max_w/h]`. Used
     /// to skip drawing tiles outside the visible window.
+    ///
+    /// Clamping is done in `f32` *before* the `as u32` cast: a very
+    /// large positive `tx0` would otherwise saturate to `u32::MAX`
+    /// (silently producing an empty `x0..x1` range with no draws), and
+    /// a very negative `tx0` would saturate to 0 (silently drawing the
+    /// world from the origin). Both are silent failure modes, so we
+    /// fold both bounds into the float math first.
     pub fn visible_tile_range(
         &self,
         canvas_w: u32,
@@ -136,10 +145,12 @@ impl Camera {
     ) -> (u32, u32, u32, u32) {
         let (tx0, ty0) = self.screen_to_tile(0.0, 0.0, canvas_w, canvas_h);
         let (tx1, ty1) = self.screen_to_tile(canvas_w as f32, canvas_h as f32, canvas_w, canvas_h);
-        let x0 = tx0.floor().max(0.0) as u32;
-        let y0 = ty0.floor().max(0.0) as u32;
-        let x1 = (tx1.ceil().max(0.0) as u32).min(grid_w);
-        let y1 = (ty1.ceil().max(0.0) as u32).min(grid_h);
+        let gw = grid_w as f32;
+        let gh = grid_h as f32;
+        let x0 = tx0.floor().clamp(0.0, gw) as u32;
+        let y0 = ty0.floor().clamp(0.0, gh) as u32;
+        let x1 = tx1.ceil().clamp(0.0, gw) as u32;
+        let y1 = ty1.ceil().clamp(0.0, gh) as u32;
         (x0, y0, x1, y1)
     }
 }
@@ -192,9 +203,17 @@ mod sdl_backend {
         let (cw, ch) = canvas.output_size().map_err(|e| e.to_string())?;
         let (x0, y0, x1, y1) =
             camera.visible_tile_range(cw, ch, archipelago.width, archipelago.height);
-        // Inflate by 1 tile to cover sub-pixel tile edges at fractional zooms.
+        // Inflate by 1 px to cover sub-pixel tile edges at fractional
+        // zoom values (e.g. zoom = 16.7 leaves 0.7-px gaps between
+        // adjacent tiles otherwise).
         let zoom_i = camera.zoom.ceil() as i32 + 1;
 
+        // TODO(perf, follow-up of #201): drawing 64x64 tiles each frame
+        // is up to 4096 `set_draw_color` + `fill_rect` calls. For real
+        // 60 FPS targets, batch by biome (one `fill_rects(&[Rect])` per
+        // palette slot) or pre-bake the tile grid into a single texture
+        // refreshed only when the world changes. Profile-driven before
+        // optimising — current usage is the smoke test.
         for ty in y0..y1 {
             for tx in x0..x1 {
                 let Some(tag) = archipelago.get(tx, ty) else {
@@ -228,9 +247,25 @@ mod sdl_backend {
         // zoom without dominating high-zoom views.
         let glyph_px = (camera.zoom * 0.4).clamp(3.0, 6.0).round() as u32;
         let half = (glyph_px as i32) / 2;
+
+        // Cull to the visible tile range — same hygiene as
+        // `draw_archipelago` so off-screen creatures don't
+        // unconditionally cost a `set_draw_color` + `fill_rect` per
+        // frame. Half a tile of slop on each side covers glyphs whose
+        // centre is just past the viewport edge but whose body
+        // extends in.
+        let (tx0, ty0) = camera.screen_to_tile(0.0, 0.0, cw, ch);
+        let (tx1, ty1) = camera.screen_to_tile(cw as f32, ch as f32, cw, ch);
+        let (cull_x0, cull_y0) = (tx0 - 0.5, ty0 - 0.5);
+        let (cull_x1, cull_y1) = (tx1 + 0.5, ty1 + 0.5);
+
         for g in glyphs {
-            let (sx, sy) =
-                camera.tile_to_screen(g.tile_x as f32 + 0.5, g.tile_y as f32 + 0.5, cw, ch);
+            let gx = g.tile_x as f32;
+            let gy = g.tile_y as f32;
+            if gx < cull_x0 || gx > cull_x1 || gy < cull_y0 || gy > cull_y1 {
+                continue;
+            }
+            let (sx, sy) = camera.tile_to_screen(gx + 0.5, gy + 0.5, cw, ch);
             let [r, gc, b] = g.species_tint;
             canvas.set_draw_color(Color::RGB(r, gc, b));
             let rect = Rect::new(
@@ -356,6 +391,42 @@ mod tests {
         // Off to the negative side, x1 clamps to 0 too because tx1 < 0.
         assert_eq!(x1, 0);
         assert_eq!(y1, 0);
+    }
+
+    #[test]
+    fn visible_tile_range_clips_at_positive_edge() {
+        // Camera centred far past the world's positive edge. Without
+        // the f32→u32 saturation guard, `tx0 as u32` would saturate to
+        // u32::MAX and the loop `x0..x1` would silently produce nothing.
+        // After the fix, both bounds clamp to `grid_w` / `grid_h`,
+        // giving an empty (`x0 == x1`) range — distinguishable from
+        // saturation by the equality.
+        let cam = Camera {
+            center_tile_x: 10_000.0,
+            center_tile_y: 10_000.0,
+            zoom: 16.0,
+        };
+        let (x0, y0, x1, y1) = cam.visible_tile_range(1280, 720, 64, 64);
+        assert_eq!(x0, 64);
+        assert_eq!(y0, 64);
+        assert_eq!(x1, 64);
+        assert_eq!(y1, 64);
+    }
+
+    #[test]
+    fn pan_pixels_is_noop_when_zoom_is_zero() {
+        // `Camera::zoom = 0.0` is constructible directly because all
+        // fields are `pub`. `pan_pixels` guards the divide-by-zero;
+        // this test pins that guard so a future refactor doesn't
+        // remove it silently.
+        let mut cam = Camera {
+            center_tile_x: 4.0,
+            center_tile_y: 9.0,
+            zoom: 0.0,
+        };
+        cam.pan_pixels(100.0, -50.0);
+        assert_eq!(cam.center_tile_x, 4.0);
+        assert_eq!(cam.center_tile_y, 9.0);
     }
 
     #[test]
