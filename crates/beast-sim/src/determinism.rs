@@ -68,85 +68,98 @@ pub fn compute_state_hash(sim: &Simulation) -> [u8; 32] {
 
     for (marker, entity) in resources.entity_index.iter_all() {
         absorb_entity_header(&mut hasher, marker, entity);
-
-        absorb_opt(&mut hasher, ages.get(entity), |h, a| {
-            h.update(&a.ticks.to_le_bytes());
-        });
-        absorb_opt(&mut hasher, masses.get(entity), |h, m| {
-            h.update(&m.kg.to_bits().to_le_bytes());
-        });
-        absorb_opt(&mut hasher, health.get(entity), |h, s| {
-            h.update(&s.health.to_bits().to_le_bytes());
-            h.update(&s.energy.to_bits().to_le_bytes());
-        });
-        absorb_opt(&mut hasher, positions.get(entity), |h, p| {
-            h.update(&p.x.to_bits().to_le_bytes());
-            h.update(&p.y.to_bits().to_le_bytes());
-        });
-        absorb_opt(&mut hasher, velocities.get(entity), |h, v| {
-            h.update(&v.vx.to_bits().to_le_bytes());
-            h.update(&v.vy.to_bits().to_le_bytes());
-        });
-        absorb_opt(&mut hasher, stages.get(entity), |h, s| {
-            // Explicit match rather than `*s as u8` because
-            // DevelopmentalStage has no #[repr(u8)]; inserting a
-            // variant in the middle would silently renumber every
-            // later variant, invalidating persisted hashes. See PR
-            // #122 review note (HIGH).
-            let stage_byte: u8 = match s {
-                DevelopmentalStage::Egg => 0,
-                DevelopmentalStage::Larval => 1,
-                DevelopmentalStage::Juvenile => 2,
-                DevelopmentalStage::Adult => 3,
-                DevelopmentalStage::Geriatric => 4,
-            };
-            h.update(&[stage_byte]);
-        });
-        absorb_opt(&mut hasher, species.get(entity), |h, s| {
-            h.update(&s.id.to_le_bytes());
-        });
-        // Genome: bincode 2.x with the same `config::standard()` that
-        // beast-serde uses for save files. Stable across rustc /
-        // edition upgrades and ~10× cheaper than the previous
-        // `format!("{:?}", ...)` pre-S7 code path. Encoding can fail
-        // only on a serializer-internal error (size_limit overflow on
-        // a >2^32-byte payload, etc.) which a real genome cannot
-        // produce — the `expect` carries the same impossibility
-        // contract as `Genome::validate`'s `GenomeTooLarge` guard.
-        absorb_opt(&mut hasher, genomes.get(entity), |h, g| {
-            let cfg = bincode::config::standard();
-            let bytes = bincode::serde::encode_to_vec(&g.0, cfg)
-                .expect("Genome bincode encoding fits within size_limit");
-            h.update(&bytes);
-        });
-        // Phenotype: hand-encoded field-by-field instead of bincode'd.
-        // `PrimitiveEffect` is L1 and intentionally does **not** derive
-        // `Serialize` (that's gated by the wider serialize-on-the-
-        // sim-path question — see audit finding #67); a per-effect
-        // canonical byte stream gets us the same determinism guarantee
-        // without dragging serde into beast-primitives.
-        //
-        // Defensive sort: the interpreter contract emits sorted, but
-        // the hash gate must not assume — see PR #122 review
-        // (CRITICAL). Sort by `(primitive_id, body_site)` (matches
-        // INVARIANTS §1's hash-order contract) and sort each
-        // `source_channels` Vec since hook firing order isn't pinned.
-        absorb_opt(&mut hasher, phenotypes.get(entity), |h, p| {
-            let mut sorted = p.effects.clone();
-            sorted.sort_by(|a, b| {
-                (&a.primitive_id, &a.body_site).cmp(&(&b.primitive_id, &b.body_site))
-            });
-            for effect in &mut sorted {
-                effect.source_channels.sort();
-            }
-            h.update(&(sorted.len() as u64).to_le_bytes());
-            for effect in &sorted {
-                absorb_primitive_effect(h, effect);
-            }
-        });
+        absorb_opt(&mut hasher, ages.get(entity), absorb_age);
+        absorb_opt(&mut hasher, masses.get(entity), absorb_mass);
+        absorb_opt(&mut hasher, health.get(entity), absorb_health);
+        absorb_opt(&mut hasher, positions.get(entity), absorb_position);
+        absorb_opt(&mut hasher, velocities.get(entity), absorb_velocity);
+        absorb_opt(&mut hasher, stages.get(entity), absorb_stage);
+        absorb_opt(&mut hasher, species.get(entity), absorb_species);
+        absorb_opt(&mut hasher, genomes.get(entity), absorb_genome);
+        absorb_opt(&mut hasher, phenotypes.get(entity), absorb_phenotype);
     }
 
     *hasher.finalize().as_bytes()
+}
+
+fn absorb_age(h: &mut blake3::Hasher, a: &Age) {
+    h.update(&a.ticks.to_le_bytes());
+}
+
+fn absorb_mass(h: &mut blake3::Hasher, m: &Mass) {
+    h.update(&m.kg.to_bits().to_le_bytes());
+}
+
+fn absorb_health(h: &mut blake3::Hasher, s: &HealthState) {
+    h.update(&s.health.to_bits().to_le_bytes());
+    h.update(&s.energy.to_bits().to_le_bytes());
+}
+
+fn absorb_position(h: &mut blake3::Hasher, p: &Position) {
+    h.update(&p.x.to_bits().to_le_bytes());
+    h.update(&p.y.to_bits().to_le_bytes());
+}
+
+fn absorb_velocity(h: &mut blake3::Hasher, v: &Velocity) {
+    h.update(&v.vx.to_bits().to_le_bytes());
+    h.update(&v.vy.to_bits().to_le_bytes());
+}
+
+/// Explicit match rather than `*s as u8` because `DevelopmentalStage` has
+/// no `#[repr(u8)]`; inserting a variant in the middle would silently
+/// renumber every later variant, invalidating persisted hashes. See PR
+/// #122 review note (HIGH).
+fn absorb_stage(h: &mut blake3::Hasher, s: &DevelopmentalStage) {
+    let stage_byte: u8 = match s {
+        DevelopmentalStage::Egg => 0,
+        DevelopmentalStage::Larval => 1,
+        DevelopmentalStage::Juvenile => 2,
+        DevelopmentalStage::Adult => 3,
+        DevelopmentalStage::Geriatric => 4,
+    };
+    h.update(&[stage_byte]);
+}
+
+fn absorb_species(h: &mut blake3::Hasher, s: &Species) {
+    h.update(&s.id.to_le_bytes());
+}
+
+/// Genome: bincode 2.x with the same `config::standard()` that
+/// `beast-serde` uses for save files. Stable across rustc / edition
+/// upgrades and ~10× cheaper than the previous `format!("{:?}", ...)`
+/// pre-S7 code path. Encoding can fail only on a serializer-internal
+/// error (size_limit overflow on a >2^32-byte payload, etc.) which a
+/// real genome cannot produce — the `expect` carries the same
+/// impossibility contract as `Genome::validate`'s `GenomeTooLarge` guard.
+fn absorb_genome(h: &mut blake3::Hasher, g: &GenomeComponent) {
+    let cfg = bincode::config::standard();
+    let bytes = bincode::serde::encode_to_vec(&g.0, cfg)
+        .expect("Genome bincode encoding fits within size_limit");
+    h.update(&bytes);
+}
+
+/// Phenotype: hand-encoded field-by-field instead of bincode'd.
+/// `PrimitiveEffect` is L1 and intentionally does **not** derive
+/// `Serialize` (that's gated by the wider serialize-on-the-sim-path
+/// question — see audit finding #67); a per-effect canonical byte stream
+/// gets us the same determinism guarantee without dragging serde into
+/// `beast-primitives`.
+///
+/// Defensive sort: the interpreter contract emits sorted, but the hash
+/// gate must not assume — see PR #122 review (CRITICAL). Sort by
+/// `(primitive_id, body_site)` (matches INVARIANTS §1's hash-order
+/// contract) and sort each `source_channels` Vec since hook firing order
+/// isn't pinned.
+fn absorb_phenotype(h: &mut blake3::Hasher, p: &PhenotypeComponent) {
+    let mut sorted = p.effects.clone();
+    sorted.sort_by(|a, b| (&a.primitive_id, &a.body_site).cmp(&(&b.primitive_id, &b.body_site)));
+    for effect in &mut sorted {
+        effect.source_channels.sort();
+    }
+    h.update(&(sorted.len() as u64).to_le_bytes());
+    for effect in &sorted {
+        absorb_primitive_effect(h, effect);
+    }
 }
 
 fn absorb_preamble(hasher: &mut blake3::Hasher, resources: &Resources) {

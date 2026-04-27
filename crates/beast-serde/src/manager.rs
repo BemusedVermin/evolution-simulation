@@ -302,13 +302,28 @@ pub fn load_game(
     channels: ChannelRegistry,
     primitives: PrimitiveRegistry,
 ) -> Result<Simulation, ManagerError> {
+    verify_compatibility(&file, &channels, &primitives)?;
+    let mut sim = Simulation::new(SimulationConfig {
+        world_seed: file.world_seed,
+        channels,
+        primitives,
+    });
+    restore_rng_streams(&mut sim, &file);
+    rebuild_entities(&mut sim, file.entities);
+    Ok(sim)
+}
+
+fn verify_compatibility(
+    file: &SaveFile,
+    channels: &ChannelRegistry,
+    primitives: &PrimitiveRegistry,
+) -> Result<(), ManagerError> {
     if file.format_version != SAVE_FORMAT_VERSION {
         return Err(ManagerError::UnsupportedVersion {
             expected: SAVE_FORMAT_VERSION,
-            found: file.format_version,
+            found: file.format_version.clone(),
         });
     }
-
     let actual_channel_fp = channels.fingerprint();
     if actual_channel_fp != file.channel_fingerprint {
         return Err(ManagerError::ChannelRegistryMismatch {
@@ -316,76 +331,70 @@ pub fn load_game(
             actual: file.channel_fingerprint.to_hex(),
         });
     }
-    let actual_primitive_fp = primitive_fingerprint(&primitives)?;
+    let actual_primitive_fp = primitive_fingerprint(primitives)?;
     if actual_primitive_fp != file.primitive_fingerprint {
         return Err(ManagerError::PrimitiveRegistryMismatch {
             expected: actual_primitive_fp.to_hex(),
             actual: file.primitive_fingerprint.to_hex(),
         });
     }
+    Ok(())
+}
 
-    let mut sim = Simulation::new(SimulationConfig {
-        world_seed: file.world_seed,
-        channels,
-        primitives,
-    });
+/// Overwrite the freshly-derived PRNG streams with the persisted ones —
+/// the simulation may have already drawn from them before the snapshot
+/// was taken.
+fn restore_rng_streams(sim: &mut Simulation, file: &SaveFile) {
+    let resources = sim.resources_mut();
+    let streams = &file.rng_streams;
+    resources.rng_genetics = streams.genetics.clone();
+    resources.rng_phenotype = streams.phenotype.clone();
+    resources.rng_physics = streams.physics.clone();
+    resources.rng_combat = streams.combat.clone();
+    resources.rng_physiology = streams.physiology.clone();
+    resources.rng_ecology = streams.ecology.clone();
+    resources.rng_worldgen = streams.worldgen.clone();
+    resources.rng_chronicler = streams.chronicler.clone();
+    resources.tick_counter = TickCounter::new(file.current_tick);
+}
 
-    // Overwrite the freshly-derived PRNG streams with the persisted
-    // ones — the simulation may have already drawn from them before the
-    // snapshot was taken.
-    {
-        let resources = sim.resources_mut();
-        resources.rng_genetics = file.rng_streams.genetics;
-        resources.rng_phenotype = file.rng_streams.phenotype;
-        resources.rng_physics = file.rng_streams.physics;
-        resources.rng_combat = file.rng_streams.combat;
-        resources.rng_physiology = file.rng_streams.physiology;
-        resources.rng_ecology = file.rng_streams.ecology;
-        resources.rng_worldgen = file.rng_streams.worldgen;
-        resources.rng_chronicler = file.rng_streams.chronicler;
-        resources.tick_counter = TickCounter::new(file.current_tick);
-    }
-
-    // Re-create entities in `id`-ascending order. With a fresh
-    // `specs::World`, this regenerates the same `(id, gen)` pairs the
-    // original simulation produced — see module docs for the
-    // assumption (no entity deletion in MVP).
-    //
-    // The sort here is **load-bearing** even though `save_game` builds
-    // `entities` from a `BTreeMap` and therefore already produces
-    // sorted output: a `SaveFile` parsed from disk could have been
-    // hand-edited or built by an out-of-band fixture (test, mod
-    // toolchain, fuzz harness). Re-sorting here means the loader
-    // never relies on the producer-side invariant, and the resulting
-    // entity allocation order is the same regardless of how the file
-    // was assembled. Audit finding #68: keep the explicit `sort_by_key`
-    // and the runtime `assert_entities_sorted` check in `to_bincode`/
-    // `to_json` — both halves are guards, not redundancy.
-    let mut sorted = file.entities;
-    sorted.sort_by_key(|e| e.id);
+/// Re-create entities in `id`-ascending order. With a fresh
+/// `specs::World`, this regenerates the same `(id, gen)` pairs the
+/// original simulation produced — see module docs for the assumption (no
+/// entity deletion in MVP).
+///
+/// The sort here is **load-bearing** even though `save_game` builds
+/// `entities` from a `BTreeMap` and therefore already produces sorted
+/// output: a `SaveFile` parsed from disk could have been hand-edited or
+/// built by an out-of-band fixture (test, mod toolchain, fuzz harness).
+/// Re-sorting here means the loader never relies on the producer-side
+/// invariant, and the resulting entity allocation order is the same
+/// regardless of how the file was assembled. Audit finding #68: keep the
+/// explicit `sort_by_key` and the runtime `assert_entities_sorted` check
+/// in `to_bincode`/`to_json` — both halves are guards, not redundancy.
+fn rebuild_entities(sim: &mut Simulation, mut entities: Vec<SerializedEntity>) {
+    entities.sort_by_key(|e| e.id);
     // Intentional asymmetry with `SaveFile::assert_entities_sorted`'s
     // release-visible `assert!`: the producer-side check guards an
     // *invariant* (a save with out-of-order entities is malformed and
     // would produce non-deterministic bytes), so it must fire in
     // release. This loader-side check guards the stdlib `sort_by_key`
-    // contract — if `sorted.sort_by_key` ever returned an unsorted
-    // slice the entire toolchain has bigger problems, and
-    // `debug_assert!` is enough to catch a regression in tests
-    // without paying the linear-scan cost on every load.
+    // contract — if `sort_by_key` ever returned an unsorted slice the
+    // entire toolchain has bigger problems, and `debug_assert!` is
+    // enough to catch a regression in tests without paying the
+    // linear-scan cost on every load.
     debug_assert!(
-        sorted.windows(2).all(|w| w[0].id <= w[1].id),
+        entities.windows(2).all(|w| w[0].id <= w[1].id),
         "post-sort entities must be ascending — sort_by_key contract violated?"
     );
-    for entity_record in sorted {
-        let entity = build_entity(&mut sim, &entity_record);
-        for marker in &entity_record.markers {
+    for record in entities {
+        let entity = build_entity(sim, &record);
+        for marker in &record.markers {
             sim.resources_mut()
                 .entity_index
                 .insert(entity, wire_to_marker(*marker));
         }
     }
-
-    Ok(sim)
 }
 
 /// Pack the specs `(id, gen)` pair into a single `u64`. Layout:
@@ -438,8 +447,17 @@ fn wire_to_marker(marker: SerializedMarker) -> MarkerKind {
 /// builder chain short and matches the order used by spawner code in
 /// `beast-sim`'s tests.
 fn build_entity(sim: &mut Simulation, record: &SerializedEntity) -> beast_ecs::Entity {
-    let mut builder = sim.world_mut().create_entity();
-    for marker in &record.markers {
+    let builder = sim.world_mut().create_entity();
+    let builder = attach_markers(builder, &record.markers);
+    let builder = attach_data_components(builder, record);
+    builder.build()
+}
+
+fn attach_markers<'a>(
+    mut builder: beast_ecs::EntityBuilder<'a>,
+    markers: &[SerializedMarker],
+) -> beast_ecs::EntityBuilder<'a> {
+    for marker in markers {
         builder = match marker {
             SerializedMarker::Creature => builder.with(Creature),
             SerializedMarker::Pathogen => builder.with(Pathogen),
@@ -449,6 +467,18 @@ fn build_entity(sim: &mut Simulation, record: &SerializedEntity) -> beast_ecs::E
             SerializedMarker::Biome => builder.with(Biome),
         };
     }
+    builder
+}
+
+/// Attach the eight data components recorded in the wire format. The
+/// genome and phenotype are cloned because `record` is borrowed immutably
+/// — that's the only heap allocation in the per-entity restore path
+/// (every other component is `Copy`). Per PR #136 review (LOW): noted
+/// explicitly to deter future drive-by clones from creeping in.
+fn attach_data_components<'a>(
+    mut builder: beast_ecs::EntityBuilder<'a>,
+    record: &SerializedEntity,
+) -> beast_ecs::EntityBuilder<'a> {
     if let Some(p) = record.position {
         builder = builder.with(p);
     }
@@ -470,18 +500,13 @@ fn build_entity(sim: &mut Simulation, record: &SerializedEntity) -> beast_ecs::E
     if let Some(s) = record.species {
         builder = builder.with(s);
     }
-    // `record` is borrowed immutably; the genome must be cloned to
-    // hand ownership to the builder. This is the only heap allocation
-    // in `build_entity` — every other component is `Copy`. Per PR #136
-    // review (LOW): noting it explicitly to deter future drive-by
-    // clones from creeping into the per-entity restore path.
     if let Some(g) = record.genome.clone() {
         builder = builder.with(g);
     }
     if let Some(p) = record.phenotype.clone() {
         builder = builder.with(p);
     }
-    builder.build()
+    builder
 }
 
 /// Capture and write a [`Simulation`] to `path` atomically.
@@ -523,27 +548,41 @@ pub fn save_to_path_with_validator(
     validator: &crate::SaveValidator,
 ) -> Result<(), ManagerError> {
     let save = save_game(sim)?;
-    // Validator works on parsed JSON, not bincode bytes — the JSON
-    // round-trip is the authoritative inspectable form, and `extras`
-    // is the only place an unknown key can hide. Cost: one extra
-    // serialize+parse per save, which happens at checkpoint cadence,
-    // not per tick.
+    validate_envelope_json(&save, validator)?;
+    let bytes = save.to_bincode()?;
+    write_atomic(&bytes, path)
+}
+
+/// Run the [`crate::SaveValidator`] over the JSON form of `save`.
+///
+/// The validator works on parsed JSON, not bincode bytes — the JSON
+/// round-trip is the authoritative inspectable form, and `extras` is
+/// the only place an unknown key can hide. Cost: one extra
+/// serialize+parse per save, which happens at checkpoint cadence, not
+/// per tick.
+fn validate_envelope_json(
+    save: &SaveFile,
+    validator: &crate::SaveValidator,
+) -> Result<(), ManagerError> {
     let json = save.to_json()?;
     let value: serde_json::Value =
         serde_json::from_str(&json).map_err(crate::save::SaveError::Json)?;
     validator.validate(&value)?;
+    Ok(())
+}
 
-    let bytes = save.to_bincode()?;
-    let parent = path.parent().filter(|p| !p.as_os_str().is_empty());
-    let parent = match parent {
-        Some(p) => p,
-        // No parent (e.g., a bare filename in CWD) — write into ".".
-        None => Path::new("."),
-    };
+/// Write `bytes` to `path` atomically: stage into a sibling temp file
+/// and rename over the target. A mid-write crash leaves the existing
+/// file untouched.
+fn write_atomic(bytes: &[u8], path: &Path) -> Result<(), ManagerError> {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     fs::create_dir_all(parent)?;
     let mut temp = tempfile_in(parent)?;
     use std::io::Write as _;
-    temp.write_all(&bytes)?;
+    temp.write_all(bytes)?;
     temp.flush()?;
     temp.persist(path).map_err(|e| ManagerError::Io(e.error))?;
     Ok(())

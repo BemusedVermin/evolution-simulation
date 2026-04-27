@@ -1,0 +1,27 @@
+name: "Beast Evolution Game CodeQL config"
+
+# Query suites we run.
+#
+# * `security-extended` is a strict superset of the default `security`
+#   suite and pulls in higher-precision (still high-confidence) checks.
+#   The CodeQL alert that flagged the previous `workflow_run` checkout
+#   of an untrusted ref came from this suite.
+# * `security-and-quality` would add maintainability/style checks; we
+#   already get those from clippy + lizard, so we don't double up here.
+queries:
+  - uses: security-extended
+
+# Paths CodeQL must skip outright (extraction is not even attempted).
+# Keep this list short — `paths-ignore` is more flexible and lets the
+# extractor at least walk the tree.
+paths-ignore:
+  # Cargo build output. Re-extracting these on every run wastes time
+  # and surfaces findings we can't act on (third-party generated code).
+  - target/
+  - "**/target/"
+  # Vendored / generated assets that aren't source we ship.
+  - documentation/
+  - "**/*.md"
+  # Tests are still scanned (security findings in tests still matter),
+  # but the workflow's QA artefact dirs are not — they're generated.
+  - .github/qa/

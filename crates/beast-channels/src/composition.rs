@@ -126,68 +126,63 @@ pub fn evaluate_hook(hook: &CompositionHook, other: Q3232) -> HookOutcome {
             factor: Q3232::ONE,
             gate_open: true,
         },
-        CompositionKind::Threshold => {
-            // The schema-validated load path always sets `threshold`
-            // for Threshold/Gating kinds, but `CompositionHook` is a
-            // public struct with public fields — external callers
-            // (mods, integration tests, fuzzers) can construct a
-            // hook with `threshold: None`. Fail-safe behaviour is
-            // **closed gate, zero contribution**: callers AND-gate
-            // `gate_open` across hooks to decide channel expression,
-            // so a missing-threshold hook must NOT silently enable
-            // expression (`HookOutcome::NEUTRAL`'s `gate_open: true`
-            // would do exactly that — opposite of fail-safe).
-            // `debug_assert!` still surfaces the misconstruction in
-            // development builds; release degrades to closed-gate.
-            let Some(t) = hook.threshold else {
-                debug_assert!(
-                    false,
-                    "CompositionHook {{ kind: Threshold, threshold: None }} — \
-                     load-time validation should have rejected this. \
-                     Falling back to closed gate in release.",
-                );
-                return HookOutcome {
-                    delta: Q3232::ZERO,
-                    factor: Q3232::ONE,
-                    gate_open: false,
-                };
-            };
-            if other >= t {
-                HookOutcome {
-                    delta: hook.coefficient * other,
-                    factor: Q3232::ONE,
-                    gate_open: true,
-                }
-            } else {
-                HookOutcome {
-                    delta: Q3232::ZERO,
-                    factor: Q3232::ONE,
-                    gate_open: false,
-                }
-            }
+        CompositionKind::Threshold => evaluate_threshold(hook.coefficient, other, hook.threshold),
+        CompositionKind::Gating => evaluate_gating(other, hook.threshold),
+    }
+}
+
+/// Closed-gate fallback used by Threshold/Gating when `threshold: None`
+/// slips past load-time validation.
+///
+/// The schema-validated load path always sets `threshold` for
+/// Threshold/Gating kinds, but `CompositionHook` has public fields —
+/// external callers (mods, integration tests, fuzzers) can construct
+/// `threshold: None`. Fail-safe behaviour is **closed gate, zero
+/// contribution**: callers AND-gate `gate_open` across hooks to decide
+/// channel expression, so a missing-threshold hook must not silently
+/// enable expression (`HookOutcome::NEUTRAL`'s `gate_open: true` would
+/// do exactly that — opposite of fail-safe).
+const CLOSED_GATE: HookOutcome = HookOutcome {
+    delta: Q3232::ZERO,
+    factor: Q3232::ONE,
+    gate_open: false,
+};
+
+fn evaluate_threshold(coefficient: Q3232, other: Q3232, threshold: Option<Q3232>) -> HookOutcome {
+    let Some(t) = threshold else {
+        debug_assert!(
+            false,
+            "CompositionHook {{ kind: Threshold, threshold: None }} — \
+             load-time validation should have rejected this. \
+             Falling back to closed gate in release.",
+        );
+        return CLOSED_GATE;
+    };
+    if other >= t {
+        HookOutcome {
+            delta: coefficient * other,
+            factor: Q3232::ONE,
+            gate_open: true,
         }
-        CompositionKind::Gating => {
-            // Same closed-gate fallback as Threshold above.
-            let Some(t) = hook.threshold else {
-                debug_assert!(
-                    false,
-                    "CompositionHook {{ kind: Gating, threshold: None }} — \
-                     load-time validation should have rejected this. \
-                     Falling back to closed gate in release.",
-                );
-                return HookOutcome {
-                    delta: Q3232::ZERO,
-                    factor: Q3232::ONE,
-                    gate_open: false,
-                };
-            };
-            let open = other >= t;
-            HookOutcome {
-                delta: Q3232::ZERO,
-                factor: Q3232::ONE,
-                gate_open: open,
-            }
-        }
+    } else {
+        CLOSED_GATE
+    }
+}
+
+fn evaluate_gating(other: Q3232, threshold: Option<Q3232>) -> HookOutcome {
+    let Some(t) = threshold else {
+        debug_assert!(
+            false,
+            "CompositionHook {{ kind: Gating, threshold: None }} — \
+             load-time validation should have rejected this. \
+             Falling back to closed gate in release.",
+        );
+        return CLOSED_GATE;
+    };
+    HookOutcome {
+        delta: Q3232::ZERO,
+        factor: Q3232::ONE,
+        gate_open: other >= t,
     }
 }
 
