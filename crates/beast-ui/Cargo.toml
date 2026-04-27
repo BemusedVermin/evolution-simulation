@@ -29,7 +29,14 @@ headless = ["beast-render/headless"]
 # no widget code in this story actually drives the renderer yet — that lands
 # in S10.4 when screens embed renderer viewports.
 beast-core = { workspace = true }
-beast-render = { workspace = true }
+# `default-features = false` is load-bearing: beast-render's default
+# feature is `sdl`, and cargo features are additive. Without this opt-out
+# the `sdl` feature would stay on even when a downstream caller selects
+# beast-ui's `headless` feature, dragging SDL3-from-source onto every
+# build (including the Linux CI runner that has no X11 dev libs). The
+# explicit feature pass-throughs below are now the only way to enable a
+# backend.
+beast-render = { workspace = true, default-features = false }
 serde = { workspace = true }
 
 [lints.rust]
