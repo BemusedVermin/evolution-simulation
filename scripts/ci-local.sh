@@ -5,18 +5,21 @@
 # exits non-zero if *any* step failed.
 #
 # Steps mirror the CI jobs:
-#   1. cargo fmt --check                          (lint-and-test)
-#   2. cargo clippy --workspace --exclude beast-render --all-targets -D warnings
-#   3. cargo test  --workspace --exclude beast-render --all-targets --locked
-#   4. cargo test  --workspace --exclude beast-render --doc --locked
-#   5. cargo clippy beast-render headless         (lint-and-test, render lane)
-#   6. cargo test  beast-render headless          (lint-and-test, render lane)
-#   7. cargo deny check                           (cargo-deny)            [skipped if not installed]
-#   8. cargo llvm-cov summary                     (coverage)              [skipped if not installed]
-#   9. .github/scripts/run-quality-metrics.sh     (quality-metrics)       [skipped if lizard missing]
-#  10. cargo build --release --workspace --exclude beast-render --locked  (release-build)
-#  11. cargo build --release -p beast-render --headless --locked          (release-build, render lane)
-#  12. cargo test --test determinism_test --release  (M1 determinism gate, runs only once it lands)
+#   1. cargo fmt --check                                      (lint-and-test)
+#   2. cargo clippy --workspace --exclude {beast-render,beast-ui} --all-targets -D warnings
+#   3. cargo test  --workspace --exclude {beast-render,beast-ui} --all-targets --locked
+#   4. cargo test  --workspace --exclude {beast-render,beast-ui} --doc --locked
+#   5. cargo clippy beast-render headless                     (lint-and-test, render lane)
+#   6. cargo test  beast-render headless                      (lint-and-test, render lane)
+#   7. cargo clippy beast-ui     headless                     (lint-and-test, ui lane)
+#   8. cargo test  beast-ui     headless                      (lint-and-test, ui lane)
+#   9. cargo deny check                                       (cargo-deny)        [skipped if not installed]
+#  10. cargo llvm-cov summary                                 (coverage)          [skipped if not installed]
+#  11. .github/scripts/run-quality-metrics.sh                 (quality-metrics)   [skipped if lizard missing]
+#  12. cargo build --release --workspace --exclude {beast-render,beast-ui} --locked
+#  13. cargo build --release -p beast-render --headless --locked
+#  14. cargo build --release -p beast-ui     --headless --locked
+#  15. cargo test --test determinism_test --release          (M1 determinism gate)
 #
 # Usage:
 #   scripts/ci-local.sh                 # fail-fast
@@ -147,26 +150,33 @@ summarize() {
 step "cargo fmt --check" \
   cargo fmt --all -- --check
 
-# ----- 2. clippy (workspace minus beast-render) ---------------------------
-step "cargo clippy (workspace, exclude beast-render)" \
-  cargo clippy --workspace --exclude beast-render --all-targets -- -D warnings
+# ----- 2. clippy (workspace minus beast-render + beast-ui) ---------------
+# beast-ui defaults to the `sdl` feature, which propagates to
+# beast-render/sdl and triggers the SDL3 build-from-source path. Exclude
+# both here and run them separately in headless mode below.
+step "cargo clippy (workspace, exclude beast-render+beast-ui)" \
+  cargo clippy --workspace --exclude beast-render --exclude beast-ui --all-targets -- -D warnings
 
-# ----- 3. test (workspace minus beast-render) -----------------------------
-step "cargo test (workspace, exclude beast-render)" \
-  cargo test --workspace --exclude beast-render --all-targets --locked
+# ----- 3. test (workspace minus beast-render + beast-ui) -----------------
+step "cargo test (workspace, exclude beast-render+beast-ui)" \
+  cargo test --workspace --exclude beast-render --exclude beast-ui --all-targets --locked
 
 # ----- 4. doctests --------------------------------------------------------
 step "cargo test --doc" \
-  cargo test --workspace --exclude beast-render --doc --locked
+  cargo test --workspace --exclude beast-render --exclude beast-ui --doc --locked
 
-# ----- 5 + 6. beast-render headless --------------------------------------
+# ----- 5 + 6 + 7 + 8. beast-render + beast-ui headless -------------------
 if [[ $NO_RENDER -eq 0 ]]; then
   step "cargo clippy beast-render (headless)" \
     cargo clippy -p beast-render --no-default-features --features headless --all-targets -- -D warnings
   step "cargo test beast-render (headless)" \
     cargo test -p beast-render --no-default-features --features headless --all-targets --locked
+  step "cargo clippy beast-ui (headless)" \
+    cargo clippy -p beast-ui --no-default-features --features headless --all-targets -- -D warnings
+  step "cargo test beast-ui (headless)" \
+    cargo test -p beast-ui --no-default-features --features headless --all-targets --locked
 else
-  printf '\n%s↷ skipping beast-render headless steps (--no-render)%s\n' "$C_YELLOW" "$C_RESET"
+  printf '\n%s↷ skipping beast-render+beast-ui headless steps (--no-render)%s\n' "$C_YELLOW" "$C_RESET"
 fi
 
 # ----- 7. cargo-deny -----------------------------------------------------
@@ -175,22 +185,24 @@ optional_step "cargo deny check" \
   cargo deny check --hide-inclusion-graph
 
 if [[ $QUICK -eq 0 ]]; then
-  # ----- 8. coverage summary --------------------------------------------
+  # ----- 10. coverage summary -------------------------------------------
   optional_step "cargo llvm-cov (summary)" \
     "command -v cargo-llvm-cov" \
-    cargo llvm-cov --workspace --exclude beast-render --all-targets --locked --summary-only --no-fail-fast
+    cargo llvm-cov --workspace --exclude beast-render --exclude beast-ui --all-targets --locked --summary-only --no-fail-fast
 
-  # ----- 9. quality metrics ---------------------------------------------
+  # ----- 11. quality metrics --------------------------------------------
   optional_step "quality-metrics (lizard)" \
     "command -v lizard || python -m lizard --help" \
     .github/scripts/run-quality-metrics.sh
 
-  # ----- 10 + 11. release build -----------------------------------------
-  step "cargo build --release (workspace, exclude beast-render)" \
-    cargo build --workspace --exclude beast-render --release --locked
+  # ----- 12 + 13 + 14. release build ------------------------------------
+  step "cargo build --release (workspace, exclude beast-render+beast-ui)" \
+    cargo build --workspace --exclude beast-render --exclude beast-ui --release --locked
   if [[ $NO_RENDER -eq 0 ]]; then
     step "cargo build --release beast-render (headless)" \
       cargo build -p beast-render --no-default-features --features headless --release --locked
+    step "cargo build --release beast-ui (headless)" \
+      cargo build -p beast-ui --no-default-features --features headless --release --locked
   fi
 fi
 
