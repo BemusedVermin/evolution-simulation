@@ -80,16 +80,25 @@ jobs:
           echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
           echo "Resolved PR number: ${pr_number}"
 
-      - name: Checkout PR HEAD
+      # SECURITY: workflow_run runs with full `pull-requests: write` against
+      # the trusted default-branch workflow file. Checking out the PR's
+      # head_sha would put untrusted code (e.g. a malicious
+      # scripts/post-pr-review.sh) on disk and run it with our token —
+      # CodeQL's "privileged workflow / untrusted code" pattern. So we
+      # check out the default branch instead, and the agent fetches the
+      # PR diff and any PR-side file content over the GitHub API
+      # (`gh pr diff`, `gh api repos/.../contents/...?ref=<head_sha>`).
+      # Trusted local files (post-pr-review.sh, README) come from
+      # master.
+      - name: Checkout default branch (trusted)
         if: steps.pr.outputs.pr_number != ''
         uses: actions/checkout@v6
         with:
-          # Pin to the exact commit CI just verified, not the branch tip
-          # (which may have moved on by now if the author pushed again).
-          ref: ${{ github.event.workflow_run.head_sha }}
-          # Need both sides of the diff so the agent can read the new
-          # file content for context, not just the patch hunks.
-          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+          # Shallow is fine — we don't need PR history on disk; the
+          # agent reads the diff via the API.
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Run Claude rust-reviewer
         if: steps.pr.outputs.pr_number != ''
@@ -128,8 +137,14 @@ jobs:
             1. Run `gh pr view ${{ steps.pr.outputs.pr_number }} --json title,body,files`
                to get PR metadata and the file list.
             2. Run `gh pr diff ${{ steps.pr.outputs.pr_number }}` to get the full
-               diff. For files where you need surrounding context, read them off disk
-               (the repo is checked out at the workflow workspace root).
+               diff. For files where you need surrounding context **on the PR side**,
+               fetch them over the API rather than from disk:
+                 gh api "repos/${{ github.repository }}/contents/<path>?ref=${{ github.event.workflow_run.head_sha }}" \
+                   --jq '.content' | base64 -d
+               The local checkout is the **default branch**, not the PR — see the
+               security note in the workflow file. Trusted helpers
+               (`scripts/post-pr-review.sh`, `scripts/README.md`) come from disk and
+               are safe to run; PR-side source files must be fetched.
             3. If the PR body references a story issue (`Closes #N` or `Part of epic #N`),
                read the issue with `gh issue view N` so you can check DoD coverage.
             4. Review for: idiomatic Rust (ownership, error handling, naming, traits),
