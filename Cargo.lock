@@ -208,6 +208,7 @@ version = "0.1.0"
 dependencies = [
  "beast-core",
  "beast-interpreter",
+ "beast-world",
  "criterion",
  "sdl3",
  "serde",

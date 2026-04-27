@@ -40,6 +40,10 @@ pub(crate) mod pipeline;
 // the GPU-upload step lands alongside the SDL renderers in S9.3 / S9.4.
 pub mod sprite;
 
+// World-map renderer: pure Camera math + biome tint + (under `sdl`) the
+// SDL drawing entry points (`draw_archipelago`, `draw_creature_glyphs`).
+pub mod world_map;
+
 pub use animation::{
     rig_animations, AnimationClip, AnimationSet, Animator, BoneRotation, BoneTrack, Easing,
     Keyframe, LocomotionStyle, PoseFrame,
@@ -50,3 +54,4 @@ pub use error::{RenderError, Result};
 pub use pipeline::compile_blueprint;
 pub use renderer::{Renderer, WindowConfig};
 pub use sprite::{AtlasError, Rect, SpriteAtlas, SpriteId};
+pub use world_map::{biome_tint, Camera, CreatureGlyph};
