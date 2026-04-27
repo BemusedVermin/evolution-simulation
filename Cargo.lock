@@ -113,6 +113,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "beast-chronicler"
+version = "0.1.0"
+dependencies = [
+ "beast-core",
+ "blake3",
+ "proptest",
+ "serde",
+]
+
+[[package]]
 name = "beast-climate"
 version = "0.1.0"
 dependencies = [
