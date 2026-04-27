@@ -4,6 +4,36 @@ Small utilities used by automation (review subagents, CI helpers). Each
 script is **pre-approved** in `.claude/settings.local.json` so it runs
 without a permission prompt.
 
+## `ci-local.sh`
+
+Run every CI gate from `.github/workflows/ci.yml` locally, in the same order, with the same flags. Mirror of:
+
+1. `cargo fmt --check`
+2. `cargo clippy --workspace --exclude beast-render --all-targets -- -D warnings`
+3. `cargo test --workspace --exclude beast-render --all-targets --locked`
+4. `cargo test --workspace --exclude beast-render --doc --locked`
+5. `cargo clippy -p beast-render --no-default-features --features headless --all-targets -- -D warnings`
+6. `cargo test  -p beast-render --no-default-features --features headless --all-targets --locked`
+7. `cargo deny check`                                                   *(skipped if cargo-deny isn't installed)*
+8. `cargo llvm-cov` summary                                             *(skipped if cargo-llvm-cov isn't installed)*
+9. `.github/scripts/run-quality-metrics.sh`                             *(skipped if `lizard` isn't installed)*
+10. `cargo build --release --workspace --exclude beast-render --locked`
+11. `cargo build --release -p beast-render --headless --locked`
+12. `cargo test --test determinism_test --release` *(once the M1 target lands)*
+
+### Usage
+
+```bash
+scripts/ci-local.sh                  # fail-fast (recommended for pre-push)
+scripts/ci-local.sh --keep-going     # run every gate, then list failures
+scripts/ci-local.sh --quick          # skip release builds, coverage, quality
+scripts/ci-local.sh --no-render      # skip the SDL3-from-source render steps
+```
+
+The script forces `RUSTFLAGS=-D warnings` and `CARGO_INCREMENTAL=0` so the local run matches CI bit-for-bit. Optional gates (cargo-deny, cargo-llvm-cov, lizard) print a clear "skipped" line when the tool isn't installed instead of failing.
+
+---
+
 ## `post-pr-review.sh`
 
 Post a complete GitHub PR review — overall body + every inline comment +
