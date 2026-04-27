@@ -209,42 +209,10 @@ impl SpriteAtlas {
             .map(|p| p.join(&wire.source))
             .unwrap_or_else(|| PathBuf::from(&wire.source));
 
-        // Validation triage order per entry: empty id → non-positive
-        // dimensions → negative origin → duplicate id. The first check
-        // that fails wins; e.g. an entry with both `w=0` and `x=-1`
-        // surfaces `InvalidRegion`. Callers fix one issue at a time, so
-        // a single deterministic error per entry is more useful than a
-        // collected list.
         let mut regions = BTreeMap::new();
         for entry in wire.entries {
-            if entry.id.is_empty() {
-                return Err(AtlasError::EmptyId {
-                    path: path.to_path_buf(),
-                });
-            }
-            if entry.w <= 0 || entry.h <= 0 {
-                return Err(AtlasError::InvalidRegion {
-                    path: path.to_path_buf(),
-                    id: entry.id,
-                    w: entry.w,
-                    h: entry.h,
-                });
-            }
-            if entry.x < 0 || entry.y < 0 {
-                return Err(AtlasError::InvalidOrigin {
-                    path: path.to_path_buf(),
-                    id: entry.id,
-                    x: entry.x,
-                    y: entry.y,
-                });
-            }
-            // Duplicate-id check first so the success path can move
-            // `entry.id` into `SpriteId::new` instead of cloning it.
-            if regions.contains_key(&SpriteId::new(&entry.id)) {
-                return Err(AtlasError::DuplicateId { id: entry.id });
-            }
-            let rect = Rect::new(entry.x, entry.y, entry.w, entry.h);
-            regions.insert(SpriteId::new(entry.id), rect);
+            let (id, rect) = validate_entry(entry, &regions, path)?;
+            regions.insert(id, rect);
         }
 
         Ok(Self {
@@ -277,6 +245,50 @@ impl SpriteAtlas {
     pub fn iter(&self) -> impl Iterator<Item = (&SpriteId, &Rect)> {
         self.regions.iter()
     }
+}
+
+/// Validate one wire-format atlas entry and convert it to its in-memory
+/// `(SpriteId, Rect)` form.
+///
+/// Triage order: empty id → non-positive dimensions → negative origin →
+/// duplicate id. The first check that fails wins; e.g. an entry with both
+/// `w=0` and `x=-1` surfaces `InvalidRegion`. Callers fix one issue at a
+/// time, so a single deterministic error per entry is more useful than a
+/// collected list.
+fn validate_entry(
+    entry: AtlasEntryWire,
+    regions: &BTreeMap<SpriteId, Rect>,
+    path: &Path,
+) -> Result<(SpriteId, Rect), AtlasError> {
+    if entry.id.is_empty() {
+        return Err(AtlasError::EmptyId {
+            path: path.to_path_buf(),
+        });
+    }
+    if entry.w <= 0 || entry.h <= 0 {
+        return Err(AtlasError::InvalidRegion {
+            path: path.to_path_buf(),
+            id: entry.id,
+            w: entry.w,
+            h: entry.h,
+        });
+    }
+    if entry.x < 0 || entry.y < 0 {
+        return Err(AtlasError::InvalidOrigin {
+            path: path.to_path_buf(),
+            id: entry.id,
+            x: entry.x,
+            y: entry.y,
+        });
+    }
+    // Duplicate-id check before constructing the final `SpriteId` so the
+    // success path can move `entry.id` into `SpriteId::new` instead of
+    // cloning it.
+    if regions.contains_key(&SpriteId::new(&entry.id)) {
+        return Err(AtlasError::DuplicateId { id: entry.id });
+    }
+    let rect = Rect::new(entry.x, entry.y, entry.w, entry.h);
+    Ok((SpriteId::new(entry.id), rect))
 }
 
 #[cfg(test)]
