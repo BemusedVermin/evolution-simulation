@@ -1,0 +1,30 @@
+[package]
+name = "beast-chronicler"
+description = "Pattern recognition and labeling for the Beast Evolution Game. Watches primitive emissions, clusters them into stable signatures, and (in later sprints) assigns post-hoc labels for the UI."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# beast-core supplies TickCounter + EntityId + Q3232 (the latter for the
+# label confidence work that lands in S10.6). beast-primitives is not a
+# direct dep yet — primitive ids are passed as `&str` so the chronicler
+# stays decoupled from the registry's manifest types until S10.6 needs
+# them. blake3 backs PatternSignature and is already a workspace dep used
+# by the determinism gate.
+beast-core = { workspace = true }
+blake3 = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+# proptest powers the property test that asserts signature stability
+# across permuted primitive insertion orders.
+proptest = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
