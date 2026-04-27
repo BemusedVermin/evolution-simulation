@@ -1,0 +1,16 @@
+# Pinned Python deps used by the quality-metrics CI job.
+#
+# Pinning means CI is deterministic — a lizard release that adds a
+# new check or changes output format won't silently flip a quality
+# threshold. Bump deliberately when we want the new behaviour, then
+# adjust whitelizard.txt or thresholds in the same commit.
+#
+# Used by:
+#   - .github/workflows/ci.yml (quality-metrics job)
+#   - .github/scripts/run-quality-metrics.sh (local + pre-push hook)
+#
+# Cache key: actions/setup-python@v5 hashes this file to key the pip
+# cache. Touching it (or upgrading lizard here) invalidates the cache
+# and re-downloads.
+
+lizard==1.17.31
