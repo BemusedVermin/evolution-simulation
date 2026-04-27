@@ -61,7 +61,12 @@ impl PatternSignature {
     pub fn from_sorted_set(sorted: &BTreeSet<String>) -> Self {
         let mut hasher = blake3::Hasher::new();
         for id in sorted {
-            hasher.update(&(id.len() as u64).to_le_bytes());
+            // `usize -> u64` via `try_from` so 32-bit targets get an
+            // explicit panic instead of a silent truncation. Realistic
+            // primitive ids are far shorter than `u32::MAX` bytes, so
+            // the conversion never actually fails.
+            let len = u64::try_from(id.len()).expect("primitive id length must fit in u64");
+            hasher.update(&len.to_le_bytes());
             hasher.update(id.as_bytes());
         }
         Self(hasher.finalize().into())
@@ -88,8 +93,10 @@ impl PatternSignature {
 ///
 /// * `count` — total number of `(tick, entity)` snapshots that hashed to
 ///   this signature.
-/// * `first_tick` — set on the very first observation, never updated.
-/// * `last_tick` — overwritten on every subsequent observation.
+/// * `first_tick` — minimum tick across every ingestion.
+/// * `last_tick`  — maximum tick across every ingestion. The invariant
+///   `first_tick <= last_tick` always holds, even under out-of-order
+///   ingestion.
 /// * `primitives` — the actual set of primitive ids the signature stands
 ///   for, kept around so label-generation (S10.6) and query-side code
 ///   (S10.7) can reverse-lookup without a separate table.

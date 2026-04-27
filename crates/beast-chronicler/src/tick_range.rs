@@ -39,7 +39,18 @@ impl TickRange {
     /// inside this range. Used to decide whether a [`PatternObservation`](
     /// crate::PatternObservation) — which spans `[first_tick, last_tick]` —
     /// has any presence in the window.
+    ///
+    /// # Precondition
+    ///
+    /// `a <= b`. Reversed spans return `false` silently in release; in
+    /// debug builds we trip `debug_assert!`. `PatternObservation` always
+    /// satisfies this because [`Chronicler::ingest`](crate::Chronicler::ingest)
+    /// only ever advances `last_tick` forward of `first_tick`.
     pub fn overlaps_inclusive(self, a: TickCounter, b: TickCounter) -> bool {
+        debug_assert!(
+            a <= b,
+            "overlaps_inclusive requires a <= b (got {a:?} > {b:?})"
+        );
         // `a..=b` overlaps `[start, end)` iff a < end && b >= start.
         a < self.end && b >= self.start
     }

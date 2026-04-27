@@ -37,7 +37,13 @@ impl Chronicler {
     ///   `first_tick = last_tick = snapshot.tick`, and stores the
     ///   primitive set so reverse-lookups stay O(1).
     /// * On subsequent sight, increments `count` (saturating at `u64::MAX`)
-    ///   and overwrites `last_tick`. `first_tick` is never touched.
+    ///   and *expands* the `[first_tick, last_tick]` span:
+    ///   - `first_tick = min(first_tick, snapshot.tick)`
+    ///   - `last_tick  = max(last_tick,  snapshot.tick)`
+    ///
+    ///   So out-of-order ingestion (older ticks arriving after newer
+    ///   ones) keeps the span well-formed; the invariant
+    ///   `first_tick <= last_tick` always holds.
     ///
     /// Empty snapshots (no primitives emitted) are tracked under the
     /// "all-empty" signature — that's a valid pattern that means "this
@@ -55,16 +61,29 @@ impl Chronicler {
                 primitives: snapshot.primitives.clone(),
             });
         entry.count = entry.count.saturating_add(1);
-        entry.last_tick = snapshot.tick;
+        if snapshot.tick < entry.first_tick {
+            entry.first_tick = snapshot.tick;
+        }
+        if snapshot.tick > entry.last_tick {
+            entry.last_tick = snapshot.tick;
+        }
     }
 
     /// All [`PatternObservation`]s whose `[first_tick, last_tick]` span
     /// overlaps `window`. Iteration order is by `PatternSignature` —
     /// the natural total order of the underlying `BTreeMap`.
-    pub fn cluster(&self, window: TickRange) -> impl Iterator<Item = &PatternObservation> {
+    ///
+    /// Returns an owned `Vec` of references rather than `impl Iterator`
+    /// so callers (notably the S10.7 query API) can name the type, hold
+    /// it across function boundaries, and re-iterate without rebuilding
+    /// the filter. Internal storage is `BTreeMap`-backed, so the
+    /// allocation here is one Vec of references — not a clone of the
+    /// observations themselves.
+    pub fn cluster(&self, window: TickRange) -> Vec<&PatternObservation> {
         self.observations
             .values()
-            .filter(move |obs| window.overlaps_inclusive(obs.first_tick, obs.last_tick))
+            .filter(|obs| window.overlaps_inclusive(obs.first_tick, obs.last_tick))
+            .collect()
     }
 
     /// Read-only access to the full observation index.
@@ -138,6 +157,20 @@ mod tests {
     }
 
     #[test]
+    fn out_of_order_ingest_keeps_first_le_last() {
+        // Reverse-order ingestion of the same signature must keep
+        // first_tick = min, last_tick = max — never inverted.
+        let mut c = Chronicler::new();
+        c.ingest(&snap(20, 1, &["a"])); // first sight: first = last = 20
+        c.ingest(&snap(5, 2, &["a"])); // older tick lands second
+        c.ingest(&snap(50, 3, &["a"])); // newer tick lands third
+        let obs = c.observations().values().next().unwrap();
+        assert_eq!(obs.count, 3);
+        assert_eq!(obs.first_tick, TickCounter::new(5));
+        assert_eq!(obs.last_tick, TickCounter::new(50));
+    }
+
+    #[test]
     fn distinct_primitive_sets_keep_separate_signatures() {
         let mut c = Chronicler::new();
         c.ingest(&snap(1, 1, &["a", "b"]));
@@ -169,6 +202,7 @@ mod tests {
         let window = TickRange::new(TickCounter::new(40), TickCounter::new(60)).unwrap();
         let names: Vec<_> = c
             .cluster(window)
+            .into_iter()
             .flat_map(|o| o.primitives.iter().cloned())
             .collect();
         assert_eq!(names, vec!["b".to_string()]);
@@ -192,10 +226,12 @@ mod tests {
         }
         let bytes_a: Vec<u8> = a
             .cluster(TickRange::ALL)
+            .into_iter()
             .flat_map(|o| o.signature.0.into_iter())
             .collect();
         let bytes_b: Vec<u8> = b
             .cluster(TickRange::ALL)
+            .into_iter()
             .flat_map(|o| o.signature.0.into_iter())
             .collect();
         assert_eq!(bytes_a, bytes_b);

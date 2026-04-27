@@ -1,5 +1,12 @@
-//! Property test: any permutation of the same primitive set produces
-//! the same [`PatternSignature`].
+//! Property test: every cyclic rotation of the same primitive set
+//! produces the same [`PatternSignature`].
+//!
+//! This is a strict subset of "all permutations" — proper shuffle would
+//! need a seeded RNG. The full permutation invariance is proven
+//! analytically: `PatternSignature::from_primitives` collects into a
+//! `BTreeSet` before hashing, so the signature is a function of the set
+//! contents, not insertion order. The proptest exercises that contract
+//! over a wide id-set space and a deterministic permutation family.
 
 use std::collections::BTreeSet;
 
