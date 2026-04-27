@@ -8,7 +8,7 @@
 use crate::event::{EventResult, UiEvent};
 use crate::paint::{Color, PaintCtx, Point, Rect, Size};
 
-use super::{Widget, WidgetId};
+use super::{LayoutCtx, Widget, WidgetId};
 
 const TITLE_BAR_HEIGHT: f32 = 20.0;
 
@@ -78,12 +78,12 @@ impl Widget for Card {
         self.bounds = bounds;
     }
 
-    fn measure(&self) -> Size {
+    fn measure(&self, ctx: &LayoutCtx) -> Size {
         // Title bar plus the bounding box of all child measurements.
         let mut max_w = 0.0_f32;
         let mut total_h = 0.0_f32;
         for child in &self.children {
-            let s = child.measure();
+            let s = child.measure(ctx);
             max_w = max_w.max(s.width);
             total_h += s.height;
         }
@@ -105,7 +105,7 @@ impl Widget for Card {
         ctx.fill_rect(title_rect, Color::rgb(0.85, 0.85, 0.92));
         ctx.text(
             Point::new(self.bounds.origin.x + 4.0, self.bounds.origin.y + 2.0),
-            self.title.clone(),
+            self.title.as_str(),
             Color::BLACK,
         );
         for child in &self.children {
@@ -183,9 +183,10 @@ mod tests {
         let mut ids = IdAllocator::new();
         let mut card = Card::new(ids.allocate(), "x");
         let button = Button::new(ids.allocate(), "wide button label");
-        let measured_button = button.measure();
+        let lc = LayoutCtx::default();
+        let measured_button = button.measure(&lc);
         card.push_child(Box::new(button));
-        let measured = card.measure();
+        let measured = card.measure(&lc);
         assert!(measured.width >= measured_button.width);
         assert!(measured.height >= measured_button.height + TITLE_BAR_HEIGHT);
     }

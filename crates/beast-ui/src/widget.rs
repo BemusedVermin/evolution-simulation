@@ -25,7 +25,12 @@ pub use list::{List, ListItem};
 /// integer ids (entities, sprites, primitives). Allocate via [`IdAllocator`]
 /// — never construct a [`WidgetId`] from a hand-picked literal in non-test
 /// code, since collisions silently break event routing.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+///
+/// Carries serde derives so future widget-tree save/restore work doesn't
+/// hit a breaking change adding them.
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct WidgetId(u32);
 
 impl WidgetId {
@@ -79,6 +84,16 @@ impl Default for IdAllocator {
     }
 }
 
+/// Layout-time context passed to [`Widget::measure`].
+///
+/// S10.1 ships a stub — the real `LayoutCtx` (font metrics, viewport
+/// scale, available DPI) lands with the layout engine in S10.2. Threading
+/// the parameter through the trait now means S10.2 can extend it without
+/// a breaking trait change.
+#[derive(Copy, Clone, Debug, Default)]
+#[non_exhaustive]
+pub struct LayoutCtx {}
+
 /// Retained-mode widget contract.
 ///
 /// Widgets are pure data + pure dispatch. The trait is object-safe so a
@@ -106,9 +121,10 @@ pub trait Widget {
 
     /// Intrinsic minimum + preferred size used by the layout pass.
     ///
-    /// S10.1 returns a single [`Size`]; S10.2 will extend this to handle
-    /// flex-style min / max constraints.
-    fn measure(&self) -> Size;
+    /// S10.1 ignores `ctx` and returns a heuristic [`Size`]; S10.2 will
+    /// fill in [`LayoutCtx`] with font metrics + viewport scale and
+    /// extend the return shape with flex-style min / max constraints.
+    fn measure(&self, ctx: &LayoutCtx) -> Size;
 
     /// Render the widget by pushing draw commands into `ctx`.
     fn paint(&self, ctx: &mut PaintCtx);

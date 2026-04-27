@@ -259,7 +259,6 @@ dependencies = [
  "beast-core",
  "beast-render",
  "serde",
- "thiserror",
 ]
 
 [[package]]

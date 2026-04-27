@@ -8,7 +8,7 @@
 use crate::event::{EventResult, UiEvent};
 use crate::paint::{Color, PaintCtx, Point, Rect, Size};
 
-use super::{Card, Widget, WidgetId};
+use super::{Card, LayoutCtx, Widget, WidgetId};
 
 /// Dialog overlay wrapping a [`Card`].
 pub struct Dialog {
@@ -60,19 +60,18 @@ impl Widget for Dialog {
         self.inner.set_bounds(bounds);
     }
 
-    fn measure(&self) -> Size {
-        self.inner.measure()
+    fn measure(&self, ctx: &LayoutCtx) -> Size {
+        self.inner.measure(ctx)
     }
 
     fn paint(&self, ctx: &mut PaintCtx) {
         if self.modal {
-            // Dim the rest of the screen behind the dialog. The screen
-            // bounds aren't known here yet (S10.2 will add a layout-time
-            // viewport hand-off), so for now we paint the scrim using
-            // the dialog's own bounds expanded by a scrim rect at
-            // (-100k, -100k, 200k, 200k). It's overkill in pixel terms
-            // but keeps the recorded command set deterministic. A proper
-            // viewport-relative scrim lands with the WidgetTree.
+            // TODO(S10.2): replace this with a viewport-relative scrim.
+            // The WidgetTree will hand layout a real viewport rect; for
+            // S10.1 we approximate "everything outside the dialog" with
+            // an oversized rect anchored at (-100k, -100k). Overkill in
+            // pixel terms but keeps the recorded command set
+            // deterministic and snapshots stable.
             ctx.fill_rect(
                 Rect::xywh(-100_000.0, -100_000.0, 200_000.0, 200_000.0),
                 Color::rgba(0.0, 0.0, 0.0, 0.4),

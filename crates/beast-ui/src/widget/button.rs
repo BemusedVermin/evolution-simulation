@@ -10,7 +10,7 @@
 use crate::event::{EventResult, MouseButton, UiEvent};
 use crate::paint::{Color, PaintCtx, Rect, Size};
 
-use super::{Widget, WidgetId};
+use super::{LayoutCtx, Widget, WidgetId};
 
 /// Button primitive. Stores its label, enabled state, and a press counter
 /// instead of a `Box<dyn FnMut>` callback — this keeps the widget
@@ -95,9 +95,9 @@ impl Widget for Button {
         self.bounds = bounds;
     }
 
-    fn measure(&self) -> Size {
+    fn measure(&self, _ctx: &LayoutCtx) -> Size {
         // Heuristic: 8 px per glyph + 16 px padding, fixed 32 px tall.
-        // Layout (S10.2) will replace this with text metrics.
+        // Layout (S10.2) will replace this with text metrics from `ctx`.
         Size::new(self.label.chars().count() as f32 * 8.0 + 16.0, 32.0)
     }
 
@@ -113,7 +113,7 @@ impl Widget for Button {
         ctx.stroke_rect(self.bounds, Color::BLACK);
         let text_pos =
             crate::paint::Point::new(self.bounds.origin.x + 8.0, self.bounds.origin.y + 8.0);
-        ctx.text(text_pos, self.label.clone(), Color::WHITE);
+        ctx.text(text_pos, self.label.as_str(), Color::WHITE);
     }
 
     fn handle_event(&mut self, event: &UiEvent) -> EventResult {

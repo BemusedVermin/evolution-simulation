@@ -8,7 +8,7 @@
 use crate::event::{EventResult, KeyCode, MouseButton, UiEvent};
 use crate::paint::{Color, PaintCtx, Point, Rect, Size};
 
-use super::{Widget, WidgetId};
+use super::{LayoutCtx, Widget, WidgetId};
 
 /// One row in a [`List`]. Concrete payload is generic so callers can store
 /// bestiary entries, faction summaries, etc., without erasing types.
@@ -39,7 +39,7 @@ pub struct List<T> {
     bounds: Rect,
     items: Vec<ListItem<T>>,
     selected: Option<usize>,
-    last_cursor_y: f32,
+    last_cursor_y: Option<f32>,
 }
 
 impl<T> List<T> {
@@ -50,7 +50,7 @@ impl<T> List<T> {
             bounds: Rect::ZERO,
             items: Vec::new(),
             selected: None,
-            last_cursor_y: f32::NAN,
+            last_cursor_y: None,
         }
     }
 
@@ -136,7 +136,7 @@ impl<T: Clone + std::fmt::Debug> Widget for List<T> {
         self.bounds = bounds;
     }
 
-    fn measure(&self) -> Size {
+    fn measure(&self, _ctx: &LayoutCtx) -> Size {
         Size::new(120.0, ROW_HEIGHT * self.items.len() as f32)
     }
 
@@ -153,7 +153,7 @@ impl<T: Clone + std::fmt::Debug> Widget for List<T> {
             }
             ctx.text(
                 Point::new(row_origin.x + 4.0, row_origin.y + 2.0),
-                item.label.clone(),
+                item.label.as_str(),
                 Color::BLACK,
             );
         }
@@ -162,13 +162,16 @@ impl<T: Clone + std::fmt::Debug> Widget for List<T> {
     fn handle_event(&mut self, event: &UiEvent) -> EventResult {
         match event {
             UiEvent::MouseMove { y, .. } => {
-                self.last_cursor_y = *y;
+                self.last_cursor_y = Some(*y);
                 EventResult::Ignored
             }
             UiEvent::MouseDown {
                 button: MouseButton::Primary,
             } => {
-                if let Some(idx) = self.row_index_at(self.last_cursor_y) {
+                let Some(y) = self.last_cursor_y else {
+                    return EventResult::Ignored;
+                };
+                if let Some(idx) = self.row_index_at(y) {
                     self.selected = Some(idx);
                     EventResult::Consumed
                 } else {

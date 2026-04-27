@@ -31,7 +31,6 @@ headless = ["beast-render/headless"]
 beast-core = { workspace = true }
 beast-render = { workspace = true }
 serde = { workspace = true }
-thiserror = { workspace = true }
 
 [lints.rust]
 # Forbid `unsafe`. The widget framework is pure data + dispatch; any unsafe

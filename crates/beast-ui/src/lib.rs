@@ -32,4 +32,6 @@ pub mod widget;
 
 pub use event::{EventResult, KeyCode, KeyMods, Modifiers, MouseButton, UiEvent};
 pub use paint::{Color, DrawCmd, PaintCtx, Point, Rect, Size};
-pub use widget::{Button, Card, Dialog, IdAllocator, Label, List, ListItem, Widget, WidgetId};
+pub use widget::{
+    Button, Card, Dialog, IdAllocator, Label, LayoutCtx, List, ListItem, Widget, WidgetId,
+};

@@ -6,7 +6,7 @@
 use crate::event::{EventResult, UiEvent};
 use crate::paint::{Color, PaintCtx, Point, Rect, Size};
 
-use super::{Widget, WidgetId};
+use super::{LayoutCtx, Widget, WidgetId};
 
 /// Static text widget. Doesn't react to input.
 #[derive(Clone, Debug)]
@@ -59,17 +59,17 @@ impl Widget for Label {
         self.bounds = bounds;
     }
 
-    fn measure(&self) -> Size {
-        // S10.2 will replace this with real text metrics. For S10.1 we
-        // just return a constant-height row sized to a heuristic
-        // 8px-per-char estimate so layout tests have *some* signal.
+    fn measure(&self, _ctx: &LayoutCtx) -> Size {
+        // S10.2 will pull font metrics from `ctx`. For S10.1 we just
+        // return a constant-height row sized to a heuristic 8px-per-char
+        // estimate so layout tests have *some* signal.
         Size::new(self.text.chars().count() as f32 * 8.0, 16.0)
     }
 
     fn paint(&self, ctx: &mut PaintCtx) {
         ctx.text(
             Point::new(self.bounds.origin.x, self.bounds.origin.y),
-            self.text.clone(),
+            self.text.as_str(),
             self.color,
         );
     }
@@ -114,6 +114,7 @@ mod tests {
         let mut ids = IdAllocator::new();
         let short = Label::new(ids.allocate(), "ab");
         let long = Label::new(ids.allocate(), "abcdefgh");
-        assert!(long.measure().width > short.measure().width);
+        let lc = LayoutCtx::default();
+        assert!(long.measure(&lc).width > short.measure(&lc).width);
     }
 }
