@@ -62,6 +62,10 @@ required-features = ["sdl"]
 name = "world_map"
 required-features = ["sdl"]
 
+[[example]]
+name = "encounter"
+required-features = ["sdl"]
+
 [[bench]]
 # Pipeline + animation rig + animator-sample benchmarks. Run with
 #   cargo bench -p beast-render --no-default-features --features headless
