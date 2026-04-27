@@ -60,7 +60,7 @@ regex = "1"
 # `default-features`, which we keep because this runs in a std environment
 # and `winnow`'s `std` feature is what's needed for `impl std::error::Error`
 # on error types).
-winnow = "0.7"
+winnow = "1.0"
 
 # S5 scaffold (#17) — specs-based ECS. Pinned at 0.20 (latest stable at
 # time of writing) which supports our 2021 edition + rust 1.75 MSRV. `specs`
