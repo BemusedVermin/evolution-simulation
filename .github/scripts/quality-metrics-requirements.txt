@@ -13,4 +13,8 @@
 # cache. Touching it (or upgrading lizard here) invalidates the cache
 # and re-downloads.
 
-lizard==1.17.31
+# 1.22+ matches what the workspace was originally lizard-clean against
+# (the older 1.17.x pin we tried first reported 11 false positives in
+# spawner.rs / migration.rs / simulation.rs that 1.21+ correctly skips
+# — see CI failure on PR #228 before this bump).
+lizard==1.22.1
