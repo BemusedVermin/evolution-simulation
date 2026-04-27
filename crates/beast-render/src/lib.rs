@@ -44,12 +44,20 @@ pub mod sprite;
 // SDL drawing entry points (`draw_archipelago`, `draw_creature_glyphs`).
 pub mod world_map;
 
+// Encounter-view renderer: 2.5D projection + depth ordering + (under
+// `sdl`) the SDL drawing entry points (`draw_backdrop`, `draw_encounter`).
+pub mod encounter;
+
 pub use animation::{
     rig_animations, AnimationClip, AnimationSet, Animator, BoneRotation, BoneTrack, Easing,
     Keyframe, LocomotionStyle, PoseFrame,
 };
 pub use blueprint::CreatureBlueprint;
 pub use directive::{ColorSpec, DirectiveParams, VisualDirective};
+pub use encounter::{
+    depth_extents, depth_order, normalize_depth, silhouette_size, Backdrop, EncounterEntity,
+    Position2D, Projection,
+};
 pub use error::{RenderError, Result};
 pub use pipeline::compile_blueprint;
 pub use renderer::{Renderer, WindowConfig};
