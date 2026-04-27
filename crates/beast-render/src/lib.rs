@@ -55,7 +55,8 @@ pub use animation::{
 pub use blueprint::CreatureBlueprint;
 pub use directive::{ColorSpec, DirectiveParams, VisualDirective};
 pub use encounter::{
-    depth_extents, depth_order, silhouette_size, Backdrop, EncounterEntity, Position2D, Projection,
+    depth_extents, depth_order, normalize_depth, silhouette_size, Backdrop, EncounterEntity,
+    Position2D, Projection,
 };
 pub use error::{RenderError, Result};
 pub use pipeline::compile_blueprint;

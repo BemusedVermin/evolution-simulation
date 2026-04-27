@@ -77,6 +77,13 @@ impl Backdrop {
 /// 2.5D projection parameters. Hand-tuned to match the design doc's
 /// "2.5D perspective" idiom: y depth → vertical offset + slight x
 /// compression so the scene reads as receding rather than orthographic.
+///
+/// `horizon_fraction` must be kept in sync with [`Backdrop::horizon_fraction`]
+/// so the projection's ground line lands at (slightly below) the
+/// backdrop's horizon line. The defaults agree (0.45 for Backdrop,
+/// projection puts feet at 0.65 = horizon + 0.20). Custom `Backdrop`
+/// values should pair with a matching `Projection` — see the
+/// `entity_feet_land_below_horizon` test for the contract.
 #[derive(Debug, Clone, Copy)]
 pub struct Projection {
     /// Pixels per world-space unit on x.
@@ -87,6 +94,10 @@ pub struct Projection {
     /// Horizontal compression at the back of the scene. 1.0 = no
     /// compression, 0.6 = back rows are 60 % the width of front rows.
     pub depth_x_scale: f32,
+    /// Horizon as a fraction of canvas height; matches the backdrop's
+    /// horizon line so creature feet land just below it. The default
+    /// (0.45) aligns with [`Backdrop::default()`]'s horizon.
+    pub horizon_fraction: f32,
 }
 
 impl Default for Projection {
@@ -95,23 +106,30 @@ impl Default for Projection {
             px_per_unit_x: 120.0,
             px_per_unit_y: 80.0,
             depth_x_scale: 0.6,
+            horizon_fraction: 0.45,
         }
     }
 }
 
 impl Projection {
+    /// 0.20 is the offset between the horizon line and the ground
+    /// line: feet land 20 % of the canvas height below the horizon
+    /// when `pos.y == 0`. Tuned so the encounter slot range
+    /// `[-0.6, 0.6]` keeps creatures within the ground band without
+    /// pushing them off-screen.
+    const GROUND_OFFSET_BELOW_HORIZON: f32 = 0.20;
+
     /// Project an encounter world position to screen-space pixels
     /// (origin top-left). Canvas dims define the centre point.
     ///
     /// Math:
     /// * `screen_x = canvas_w/2 + x * px_per_unit_x * lerp(1, depth_x_scale, y_norm)`
-    /// * `screen_y = ground_y - y * px_per_unit_y`  (where ground_y is
-    ///   slightly below the horizon)
+    /// * `screen_y = ground_y - y * px_per_unit_y` where
+    ///   `ground_y = canvas_h * (horizon_fraction + GROUND_OFFSET_BELOW_HORIZON)`
     ///
-    /// `y_norm` = `(y - y_min) / (y_max - y_min)` clamped to `[0, 1]`,
-    /// where `(y_min, y_max)` come from the entity batch's depth range
-    /// — passed in as `depth_extents` so all entities scale
-    /// consistently.
+    /// `y_norm` is computed by [`normalize_depth`] from the entity
+    /// batch's depth range, so all entities scale consistently.
+    #[must_use]
     pub fn project(
         &self,
         pos: Position2D,
@@ -121,20 +139,29 @@ impl Projection {
     ) -> (f32, f32) {
         let cw = canvas_w as f32;
         let ch = canvas_h as f32;
-        let (y_min, y_max) = depth_extents;
-        let y_norm = if y_max > y_min {
-            ((pos.y - y_min) / (y_max - y_min)).clamp(0.0, 1.0)
-        } else {
-            0.5
-        };
+        let y_norm = normalize_depth(pos.y, depth_extents);
         // Lerp: front (y_norm = 0) keeps full x; back (y_norm = 1)
         // compresses to depth_x_scale.
         let x_scale = 1.0 - (1.0 - self.depth_x_scale) * y_norm;
 
-        let ground_y = ch * 0.65;
+        let ground_y = ch * (self.horizon_fraction + Self::GROUND_OFFSET_BELOW_HORIZON);
         let screen_x = cw * 0.5 + pos.x * self.px_per_unit_x * x_scale;
         let screen_y = ground_y - pos.y * self.px_per_unit_y;
         (screen_x, screen_y)
+    }
+}
+
+/// Normalize a depth value into `[0, 1]` against a depth range. When
+/// `y_max == y_min` (single entity / all entities at the same depth)
+/// returns 0.5 so the projection still produces a sensible compression
+/// rather than a divide-by-zero.
+#[must_use]
+pub fn normalize_depth(y: f32, depth_extents: (f32, f32)) -> f32 {
+    let (y_min, y_max) = depth_extents;
+    if y_max > y_min {
+        ((y - y_min) / (y_max - y_min)).clamp(0.0, 1.0)
+    } else {
+        0.5
     }
 }
 
@@ -142,30 +169,28 @@ impl Projection {
 /// `Vec<usize>` of indices into the original slice; the renderer
 /// iterates this to issue draw calls in the right order. Stable sort
 /// — ties between identical `y` values keep their insertion order.
+///
+/// Uses `f32::total_cmp`, which gives a total order over all f32
+/// values: NaN sorts after every finite value. With back-to-front
+/// reversal that means a NaN-position entity is drawn *first*
+/// (visible-but-rearmost in the depth stack), instead of being
+/// scattered randomly by `partial_cmp.unwrap_or(Equal)`.
+#[must_use]
 pub fn depth_order(entities: &[EncounterEntity<'_>]) -> Vec<usize> {
     let mut indices: Vec<usize> = (0..entities.len()).collect();
-    indices.sort_by(|&a, &b| {
-        // partial_cmp is fine: encounter positions are render-only and
-        // we control inputs. NaN lands at the front.
-        entities[b]
-            .position
-            .y
-            .partial_cmp(&entities[a].position.y)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    indices.sort_by(|&a, &b| entities[b].position.y.total_cmp(&entities[a].position.y));
     indices
 }
 
 /// Compute the depth range `(y_min, y_max)` of an entity batch.
 /// Empty batch → `(0.0, 0.0)`.
+#[must_use]
 pub fn depth_extents(entities: &[EncounterEntity<'_>]) -> (f32, f32) {
     let mut iter = entities.iter().map(|e| e.position.y);
     let Some(first) = iter.next() else {
         return (0.0, 0.0);
     };
-    iter.fold((first, first), |(lo, hi), y| {
-        (if y < lo { y } else { lo }, if y > hi { y } else { hi })
-    })
+    iter.fold((first, first), |(lo, hi), y| (lo.min(y), hi.max(y)))
 }
 
 /// Silhouette pixel size derived from a blueprint's bounding box.
@@ -199,7 +224,8 @@ pub fn silhouette_size(
 #[cfg(feature = "sdl")]
 mod sdl_backend {
     use super::{
-        depth_extents, depth_order, silhouette_size, Backdrop, EncounterEntity, Projection,
+        depth_extents, depth_order, normalize_depth, silhouette_size, Backdrop, EncounterEntity,
+        Projection,
     };
     use crate::world_map::biome_tint;
     use sdl3::pixels::Color;
@@ -218,13 +244,12 @@ mod sdl_backend {
             .fill_rect(Rect::new(0, 0, cw, horizon.max(0) as u32))
             .map_err(|e| e.to_string())?;
 
-        // Ground: biome tint, darkened a touch so creatures contrast.
+        // Ground: biome tint, darkened to 70 % so creatures contrast
+        // against it. Float math + round avoids the readability hit of
+        // `(r as u16 * 7 / 10) as u8`.
         let [r, g, b] = biome_tint(backdrop.biome);
-        canvas.set_draw_color(Color::RGB(
-            (r as u16 * 7 / 10) as u8,
-            (g as u16 * 7 / 10) as u8,
-            (b as u16 * 7 / 10) as u8,
-        ));
+        let darken = |c: u8| ((c as f32) * 0.7).round() as u8;
+        canvas.set_draw_color(Color::RGB(darken(r), darken(g), darken(b)));
         let ground_h = (ch as i32 - horizon).max(0) as u32;
         canvas
             .fill_rect(Rect::new(0, horizon, cw, ground_h))
@@ -248,15 +273,10 @@ mod sdl_backend {
         draw_backdrop(canvas, backdrop)?;
         let (cw, ch) = canvas.output_size().map_err(|e| e.to_string())?;
         let extents = depth_extents(entities);
-        let (y_min, y_max) = extents;
 
         for idx in depth_order(entities) {
             let entity = &entities[idx];
-            let depth_norm = if y_max > y_min {
-                ((entity.position.y - y_min) / (y_max - y_min)).clamp(0.0, 1.0)
-            } else {
-                0.5
-            };
+            let depth_norm = normalize_depth(entity.position.y, extents);
             let (sx, sy) = projection.project(entity.position, cw, ch, extents);
             let (w_px, h_px) = silhouette_size(entity.blueprint, projection, depth_norm);
 
@@ -316,10 +336,17 @@ mod sdl_backend {
     }
 
     fn silhouette_tint(blueprint: &crate::blueprint::CreatureBlueprint) -> [u8; 3] {
-        // Pick the first global material's base colour; convert HSV
-        // (Q3232) to RGB via a lossy approximation. For the smoke-test
-        // silhouette this only needs to be visually distinguishable —
-        // exact colour science waits for the procedural-mesh path.
+        // Pick the first global / per-volume material's base colour;
+        // convert HSV (Q3232) to RGB via a lossy approximation. For
+        // the smoke-test silhouette this only needs to be visually
+        // distinguishable — exact colour science waits for the
+        // procedural-mesh path.
+        //
+        // `MaterialTarget::Detail` is intentionally skipped — those
+        // are surface-detail materials (spike colour, plate colour,
+        // etc.), not the creature body's overall tint. Wiring them
+        // through the silhouette would require resolving the detail's
+        // host volume first; that lands with the mesh path.
         let global = blueprint.materials.iter().find(|m| {
             matches!(
                 m.target,
@@ -372,8 +399,11 @@ mod sdl_backend {
     }
 }
 
+// `draw_encounter` is the only public draw-call; `draw_backdrop` is
+// an implementation detail it calls internally. Keeping it crate-
+// private avoids leaking it as part of the public API surface.
 #[cfg(feature = "sdl")]
-pub use sdl_backend::{draw_backdrop, draw_encounter};
+pub use sdl_backend::draw_encounter;
 
 // ---------------------------------------------------------------------------
 // Pure tests
@@ -545,5 +575,68 @@ mod tests {
         let bd = Backdrop::new(BiomeTag::Forest);
         assert_eq!(bd.biome, BiomeTag::Forest);
         assert!(bd.horizon_fraction > 0.0 && bd.horizon_fraction < 0.5);
+    }
+
+    #[test]
+    fn projection_default_horizon_matches_backdrop() {
+        let proj = Projection::default();
+        let bd = Backdrop::new(BiomeTag::Forest);
+        assert!(approx(proj.horizon_fraction, bd.horizon_fraction));
+    }
+
+    #[test]
+    fn entity_feet_land_below_horizon_at_default_settings() {
+        // The projection's ground line must fall below (greater
+        // screen-y than) the backdrop's horizon line — otherwise feet
+        // render above the horizon, which reads as floating creatures.
+        let proj = Projection::default();
+        let bd = Backdrop::new(BiomeTag::Forest);
+        let canvas_h: u32 = 720;
+        let horizon_y = (canvas_h as f32) * bd.horizon_fraction;
+        // Entity at y=0 — projection puts its feet on the ground
+        // line. Feet must be below the horizon line.
+        let (_, feet_y) = proj.project(Position2D::new(0.0, 0.0), 1280, canvas_h, (0.0, 0.0));
+        assert!(
+            feet_y > horizon_y,
+            "feet_y {feet_y} must be below horizon_y {horizon_y}"
+        );
+    }
+
+    #[test]
+    fn depth_order_nan_entity_sorts_to_back() {
+        // `f32::total_cmp` orders NaN after every finite value; with
+        // back-to-front reversal that means a NaN-position entity is
+        // drawn first (rearmost in the depth stack). Test pins this
+        // contract — `partial_cmp.unwrap_or(Equal)` would scatter the
+        // NaN entity into an unspecified position.
+        let bp = dummy_blueprint();
+        let entities = [
+            entity(0, 0.0, -0.5, &bp),
+            entity(1, 0.0, f32::NAN, &bp),
+            entity(2, 0.0, 0.5, &bp),
+        ];
+        let order = depth_order(&entities);
+        // NaN sorts after all finite values; reversed → it's drawn
+        // first. Then 0.5 (back), then -0.5 (front).
+        assert_eq!(
+            order[0], 1,
+            "NaN entity should be drawn first; got {order:?}"
+        );
+    }
+
+    #[test]
+    fn normalize_depth_clamps_to_unit_range() {
+        let extents = (-1.0, 1.0);
+        assert!(approx(normalize_depth(0.0, extents), 0.5));
+        assert!(approx(normalize_depth(-1.0, extents), 0.0));
+        assert!(approx(normalize_depth(1.0, extents), 1.0));
+        // Beyond the extent range clamps:
+        assert!(approx(normalize_depth(-99.0, extents), 0.0));
+        assert!(approx(normalize_depth(99.0, extents), 1.0));
+    }
+
+    #[test]
+    fn normalize_depth_handles_zero_extent() {
+        assert!(approx(normalize_depth(42.0, (5.0, 5.0)), 0.5));
     }
 }
