@@ -29,9 +29,11 @@ headless = []
 [dependencies]
 # Q3232 + BodySite + general L0 utilities are read all over the visual
 # pipeline; the interpreter dep brings ResolvedPhenotype (the pipeline's
-# input contract). Both are pure-Rust deps — no SDL coupling.
+# input contract); the world dep brings BiomeTag + Archipelago for the
+# world-map renderer (S9.3). All three are pure-Rust deps — no SDL coupling.
 beast-core = { workspace = true }
 beast-interpreter = { workspace = true }
+beast-world = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -54,6 +56,10 @@ required-features = ["sdl"]
 
 [[example]]
 name = "animation"
+required-features = ["sdl"]
+
+[[example]]
+name = "world_map"
 required-features = ["sdl"]
 
 [[bench]]
