@@ -1,0 +1,38 @@
+[package]
+name = "beast-ui"
+description = "Retained-mode widget framework for the Beast Evolution Game UI. Read-only against sim state per INVARIANTS §6."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = true
+
+[features]
+# Mirror beast-render's feature split so downstream crates can pick the same
+# backend at workspace level. The `sdl` feature pulls in `beast-render` with
+# its real SDL3 backend; `headless` keeps the public API but compiles without
+# linking SDL3 — used by CI, tests, and integration runs on display-less
+# machines. Default to `sdl` to match beast-render.
+default = ["sdl"]
+sdl = ["beast-render/sdl"]
+headless = ["beast-render/headless"]
+
+[dependencies]
+# beast-core supplies WidgetId-friendly newtypes (we keep WidgetId here, but
+# the workspace-shared error / fixed-point helpers are useful for future
+# bindings). beast-render is depended on so the feature split flows through;
+# no widget code in this story actually drives the renderer yet — that lands
+# in S10.4 when screens embed renderer viewports.
+beast-core = { workspace = true }
+beast-render = { workspace = true }
+serde = { workspace = true }
+
+[lints.rust]
+# Forbid `unsafe`. The widget framework is pure data + dispatch; any unsafe
+# block here would be a bug, not an FFI necessity.
+unsafe_code = "forbid"

@@ -14,6 +14,7 @@ members = [
     "crates/beast-climate",
     "crates/beast-render",
     "crates/beast-chronicler",
+    "crates/beast-ui",
 ]
 
 [workspace.package]
@@ -99,6 +100,7 @@ beast-world = { path = "crates/beast-world" }
 beast-climate = { path = "crates/beast-climate" }
 beast-render = { path = "crates/beast-render" }
 beast-chronicler = { path = "crates/beast-chronicler" }
+beast-ui = { path = "crates/beast-ui" }
 
 # Dev-only
 proptest = "1.5"
