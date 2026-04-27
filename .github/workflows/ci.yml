@@ -40,30 +40,39 @@ jobs:
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
 
-      # `--exclude beast-render` keeps the main lint + test jobs off the
-      # `sdl3` build-from-source path so the L0–L4 crates get fast feedback
-      # without each PR paying the cost of compiling SDL3 + cmake. The
-      # render crate is exercised separately a few steps down in headless
-      # mode; the cross-platform job covers the SDL backend in S9.* once
-      # Linux system deps are sorted.
+      # `--exclude beast-render` and `--exclude beast-ui` keep the main
+      # lint + test jobs off the `sdl3` build-from-source path so the
+      # L0–L4 crates get fast feedback without each PR paying the cost of
+      # compiling SDL3 + cmake. `beast-ui` defaults to the `sdl` feature
+      # (which propagates to `beast-render/sdl`), so it has to be excluded
+      # alongside `beast-render` itself or cargo will pull in SDL3 via the
+      # transitive dep. Both crates are exercised separately a few steps
+      # down in headless mode; the cross-platform job covers the SDL
+      # backend in S9.* once Linux system deps are sorted.
       - name: cargo clippy (all targets, -D warnings)
-        run: cargo clippy --workspace --exclude beast-render --all-targets -- -D warnings
+        run: cargo clippy --workspace --exclude beast-render --exclude beast-ui --all-targets -- -D warnings
 
       - name: cargo test (unit + integration)
-        run: cargo test --workspace --exclude beast-render --all-targets --locked
+        run: cargo test --workspace --exclude beast-render --exclude beast-ui --all-targets --locked
 
       - name: cargo test --doc
-        run: cargo test --workspace --exclude beast-render --doc --locked
+        run: cargo test --workspace --exclude beast-render --exclude beast-ui --doc --locked
 
-      # beast-render: exercise the public API + headless backend.
-      # `--no-default-features --features headless` skips the SDL3
-      # source build, so this step doesn't need cmake/X11/Wayland on the
-      # runner.
+      # beast-render + beast-ui: exercise the public API + headless
+      # backend. `--no-default-features --features headless` skips the
+      # SDL3 source build, so these steps don't need cmake/X11/Wayland
+      # on the runner.
       - name: cargo clippy beast-render (headless)
         run: cargo clippy -p beast-render --no-default-features --features headless --all-targets -- -D warnings
 
       - name: cargo test beast-render (headless)
         run: cargo test -p beast-render --no-default-features --features headless --all-targets --locked
+
+      - name: cargo clippy beast-ui (headless)
+        run: cargo clippy -p beast-ui --no-default-features --features headless --all-targets -- -D warnings
+
+      - name: cargo test beast-ui (headless)
+        run: cargo test -p beast-ui --no-default-features --features headless --all-targets --locked
 
   # Cross-platform determinism sanity: the Box-Muller Gaussian and the PRNG
   # both claim bit-identical output across x86_64 targets. Running tests on
@@ -89,14 +98,17 @@ jobs:
         with:
           shared-key: ci-${{ matrix.os }}
 
-      # See lint-and-test for why beast-render is excluded here. Linux is
-      # the easy target for SDL3 from source; Windows + macOS get a
-      # follow-up job once Linux passes.
+      # See lint-and-test for why beast-render and beast-ui are excluded
+      # here. Linux is the easy target for SDL3 from source; Windows +
+      # macOS get a follow-up job once Linux passes.
       - name: cargo test
-        run: cargo test --workspace --exclude beast-render --all-targets --locked
+        run: cargo test --workspace --exclude beast-render --exclude beast-ui --all-targets --locked
 
       - name: cargo test beast-render (headless)
         run: cargo test -p beast-render --no-default-features --features headless --all-targets --locked
+
+      - name: cargo test beast-ui (headless)
+        run: cargo test -p beast-ui --no-default-features --features headless --all-targets --locked
 
   # Dependency audit: advisories, licenses, unknown registries / git sources.
   # Configuration lives in `deny.toml` at the repo root. Failing here means a
@@ -144,15 +156,19 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
-      # Coverage excludes beast-render's SDL backend for the same reason
-      # the lint-and-test job does (Linux runner doesn't yet have the
-      # X11/Wayland system deps SDL3 needs). The headless backend is
-      # included so the public API surface still gets covered.
+      # Coverage excludes beast-render's and beast-ui's SDL-feature build
+      # for the same reason the lint-and-test job does (Linux runner
+      # doesn't yet have the X11/Wayland system deps SDL3 needs). The
+      # headless backend is included so the public API surface still gets
+      # covered.
       - name: cargo llvm-cov (summary)
-        run: cargo llvm-cov --workspace --exclude beast-render --all-targets --locked --summary-only --no-fail-fast
+        run: cargo llvm-cov --workspace --exclude beast-render --exclude beast-ui --all-targets --locked --summary-only --no-fail-fast
 
       - name: cargo llvm-cov beast-render (headless)
         run: cargo llvm-cov -p beast-render --no-default-features --features headless --all-targets --locked --no-report
+
+      - name: cargo llvm-cov beast-ui (headless)
+        run: cargo llvm-cov -p beast-ui --no-default-features --features headless --all-targets --locked --no-report
 
       - name: cargo llvm-cov (JSON summary artifact)
         run: cargo llvm-cov report --json --summary-only --output-path coverage-summary.json
@@ -233,11 +249,16 @@ jobs:
         with:
           shared-key: ci-release
 
-      # Release build excludes beast-render until the Linux runner has the
-      # native deps SDL3 needs (X11, libxext, libxrandr, …). Tracked as a
-      # follow-up to S9.1 — see PR description.
+      # Release build excludes beast-render and beast-ui until the Linux
+      # runner has the native deps SDL3 needs (X11, libxext, libxrandr,
+      # …). beast-ui defaults to the `sdl` feature which transitively
+      # pulls SDL3 in, so it has to be excluded alongside beast-render.
+      # Tracked as a follow-up to S9.1 — see PR description.
       - name: cargo build --release
-        run: cargo build --workspace --exclude beast-render --release --locked
+        run: cargo build --workspace --exclude beast-render --exclude beast-ui --release --locked
 
       - name: cargo build --release beast-render (headless)
         run: cargo build -p beast-render --no-default-features --features headless --release --locked
+
+      - name: cargo build --release beast-ui (headless)
+        run: cargo build -p beast-ui --no-default-features --features headless --release --locked

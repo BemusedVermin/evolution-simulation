@@ -22,7 +22,10 @@
 
 // Modules are crate-private; consumers should depend on the re-exports
 // below so they don't couple to internal module paths.
+
+/// Typed error returned by every fallible entry point in this crate.
 pub(crate) mod error;
+/// SDL3-backed window / canvas / event-pump façade.
 pub(crate) mod renderer;
 
 // Visual-pipeline modules. `blueprint` and `directive` are public so
@@ -30,22 +33,32 @@ pub(crate) mod renderer;
 // see the IR + output types. `pipeline` itself is crate-private — its
 // only public surface is [`compile_blueprint`] re-exported below — to
 // keep substage helpers from leaking into anyone's API.
+
+/// Skeletal animation — clips, tracks, easing, and the per-creature animator.
 pub mod animation;
+/// Creature blueprint IR (bones, volumes, materials, attached effects).
 pub mod blueprint;
+/// Stable channel-id constants the visual pipeline reads from.
 pub(crate) mod channels;
+/// Visual directive vocabulary the interpreter emits at Stage 4.
 pub mod directive;
+/// Blueprint compiler: directive set → [`blueprint::CreatureBlueprint`].
 pub(crate) mod pipeline;
 
-// Sprite atlas: id → Rect lookup loaded from a JSON manifest. Pure-Rust;
-// the GPU-upload step lands alongside the SDL renderers in S9.3 / S9.4.
+/// Sprite atlas: id → [`sprite::Rect`] lookup loaded from a JSON manifest.
+///
+/// Pure-Rust; the GPU-upload step lands alongside the SDL renderers in
+/// S9.3 / S9.4.
 pub mod sprite;
 
-// World-map renderer: pure Camera math + biome tint + (under `sdl`) the
-// SDL drawing entry points (`draw_archipelago`, `draw_creature_glyphs`).
+/// World-map renderer: [`world_map::Camera`] math, biome tint, and (under
+/// `sdl`) the SDL drawing entry points `draw_archipelago` and
+/// `draw_creature_glyphs`.
 pub mod world_map;
 
-// Encounter-view renderer: 2.5D projection + depth ordering + (under
-// `sdl`) the SDL drawing entry points (`draw_backdrop`, `draw_encounter`).
+/// Encounter-view renderer: 2.5D projection, depth ordering, and (under
+/// `sdl`) the SDL drawing entry points `draw_backdrop` and
+/// `draw_encounter`.
 pub mod encounter;
 
 pub use animation::{

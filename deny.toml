@@ -19,7 +19,24 @@ yanked = "warn"
 # Treat every unreviewed advisory as a hard failure. If we ever need to
 # acknowledge-and-ship through one, add its RUSTSEC id to `ignore` with a
 # dated justification.
-ignore = []
+ignore = [
+    # RUSTSEC-2025-0141 — `bincode` v2 marked unmaintained (2026-04-27).
+    # Not a vulnerability; the bincode team ceased development with no safe
+    # upgrade path. `bincode` is the mandated serializer per CLAUDE.md
+    # ("Serialization: serde + bincode (deterministic config)") and underpins
+    # `beast-serde`'s deterministic save format. Migration to `postcard` /
+    # `bitcode` is tracked in #225 and will be evaluated once an alternative
+    # meets our bit-identical-replay determinism gate.
+    "RUSTSEC-2025-0141",
+    # RUSTSEC-2024-0436 — `paste` archived/unmaintained (2026-04-27).
+    # Not a vulnerability; transitive only, reaches us via
+    # `specs -> nougat -> macro_rules_attribute -> paste`. We do not depend
+    # on `paste` directly. The `specs` ECS is mandated by CLAUDE.md and
+    # cannot be swapped without a major refactor. Migration tracked in #226;
+    # lift this ignore when `specs` (or our chosen replacement) drops the
+    # `paste` chain.
+    "RUSTSEC-2024-0436",
+]
 
 [licenses]
 version = 2

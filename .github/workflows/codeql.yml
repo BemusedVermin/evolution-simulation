@@ -1,0 +1,93 @@
+name: CodeQL
+
+# Replaces the repo-level "Default setup" with an Advanced setup driven
+# from this file. Why we want the explicit workflow:
+#
+#   * Tune query suites and paths via .github/codeql/codeql-config.yml.
+#     Default setup gives us only the base `security` suite; the
+#     advanced setup uses `security-extended`, which is what flagged
+#     the workflow_run checkout pattern in claude-code-review.yml.
+#   * Cover Actions YAML alongside Rust on a schedule we control.
+#   * Pin tooling and trigger on the same events as the rest of CI.
+#
+# **One-time UI step required for this to take effect:** disable the
+# repo's Default code-scanning setup at
+# `Settings → Code security → Code scanning → Default setup → Disable`.
+# Until that's done, this workflow's SARIF upload is rejected by GitHub
+# with the message "CodeQL analyses from advanced configurations cannot
+# be processed when the default setup is enabled" — i.e. the analysis
+# runs but the results are dropped on upload, and the check shows red.
+# After disabling, this advanced workflow is the single source of truth.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    # Sunday 06:00 UTC. Catches advisories that landed against
+    # already-shipped code without us needing a push to trigger.
+    - cron: "0 6 * * 0"
+
+# Cancel older in-flight scans on the same ref so a fast-following
+# push doesn't queue a stale analysis behind the new one.
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  # `security-events: write` is required so the analyze step can upload
+  # SARIF results to the code-scanning database. No other write scope
+  # is needed.
+  security-events: write
+  # `actions: read` lets the action enumerate caller workflows for
+  # dependency-resolution. Read-only by design.
+  actions: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # GitHub Actions YAML scanning. Picks up workflow-injection
+          # and privilege-escalation patterns (this is the suite that
+          # flagged the workflow_run checkout we fixed in
+          # `claude-code-review.yml`).
+          - language: actions
+            build-mode: none
+          # Rust source scanning. As of CodeQL 2.25+ the Rust extractor
+          # uses `build-mode: none` exclusively — it parses sources and
+          # `cargo metadata` directly without invoking the compiler, so
+          # we don't need to mirror lint-and-test's --exclude list here.
+          # (`manual` is rejected: "Rust does not support the manual
+          # build mode.")
+          - language: rust
+            build-mode: none
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # The Rust extractor needs `cargo metadata` to read the workspace
+      # graph; we install the toolchain so cargo is on PATH. No build
+      # step follows — `build-mode: none` skips compilation entirely.
+      - name: Install Rust toolchain (stable)
+        if: matrix.language == 'rust'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          config-file: ./.github/codeql/codeql-config.yml
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

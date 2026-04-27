@@ -12,13 +12,40 @@ name: Claude Rust Reviewer
 #   3. POSTs a single review with `scripts/post-pr-review.sh`, which wraps
 #      `gh api POST /pulls/N/reviews` so the body + every inline comment
 #      lands in one atomic call.
+#
+# ## Trigger: `workflow_run` after CI, not `pull_request` directly
+#
+# The reviewer is gated on the CI workflow completing successfully so:
+#
+#   * The review reflects the same code state CI just signed off on (no
+#     race where the reviewer posts before clippy/tests/quality-metrics
+#     have a verdict).
+#   * Tokens aren't burned reviewing PRs whose builds are red — the
+#     `if:` clause below skips when `workflow_run.conclusion != 'success'`.
+#   * Pushing a new commit to a PR branch re-runs CI which, on success,
+#     re-runs this reviewer automatically. No separate trigger needed.
+#
+# Caveats of `workflow_run`:
+#   * GitHub uses the workflow file that exists on the **default branch**
+#     when this trigger fires. Edits on a PR don't take effect for that
+#     PR — only for future PRs once merged.
+#   * `github.event.pull_request.*` is unavailable; the PR number is
+#     resolved from `workflow_run.pull_requests[0]` (or, for fork PRs,
+#     from a head-SHA → PRs API lookup).
 
 on:
-  pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
 
 jobs:
   rust-review:
+    # Only review PR-triggered CI runs that finished green. Skips:
+    #   - direct pushes to master (workflow_run.event != 'pull_request')
+    #   - failed / cancelled / skipped CI runs (conclusion != 'success')
+    if: >-
+      ${{ github.event.workflow_run.event == 'pull_request' &&
+          github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       # `pull-requests: write` is required so the action can POST the
@@ -30,20 +57,57 @@ jobs:
       id-token: write
 
     steps:
-      - name: Checkout repository
+      - name: Resolve PR number from workflow_run
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The same-repo case fills `pull_requests[]` directly; the
+          # fork-PR case leaves it empty and we fall back to a SHA lookup.
+          PR_HINT: ${{ toJSON(github.event.workflow_run.pull_requests) }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -eu
+          pr_number=$(jq -r '.[0].number // empty' <<<"$PR_HINT")
+          if [ -z "$pr_number" ]; then
+            pr_number=$(gh api \
+              "repos/${{ github.repository }}/commits/${HEAD_SHA}/pulls" \
+              --jq '.[0].number // empty')
+          fi
+          if [ -z "$pr_number" ]; then
+            echo "no PR associated with head_sha=${HEAD_SHA}; skipping review" >&2
+            exit 0
+          fi
+          echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
+          echo "Resolved PR number: ${pr_number}"
+
+      # SECURITY: workflow_run runs with full `pull-requests: write` against
+      # the trusted default-branch workflow file. Checking out the PR's
+      # head_sha would put untrusted code (e.g. a malicious
+      # scripts/post-pr-review.sh) on disk and run it with our token —
+      # CodeQL's "privileged workflow / untrusted code" pattern. So we
+      # check out the default branch instead, and the agent fetches the
+      # PR diff and any PR-side file content over the GitHub API
+      # (`gh pr diff`, `gh api repos/.../contents/...?ref=<head_sha>`).
+      # Trusted local files (post-pr-review.sh, README) come from
+      # master.
+      - name: Checkout default branch (trusted)
+        if: steps.pr.outputs.pr_number != ''
         uses: actions/checkout@v6
         with:
-          # Need both sides of the diff so the agent can read the new
-          # file content for context, not just the patch hunks.
-          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+          # Shallow is fine — we don't need PR history on disk; the
+          # agent reads the diff via the API.
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Run Claude rust-reviewer
+        if: steps.pr.outputs.pr_number != ''
         id: claude-review
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
-            You are reviewing pull request #${{ github.event.pull_request.number }} in the
+            You are reviewing pull request #${{ steps.pr.outputs.pr_number }} in the
             ${{ github.repository }} repository as a Rust code reviewer for the Beast
             Evolution Game (a deterministic evolution-simulation game).
 
@@ -70,11 +134,17 @@ jobs:
 
             ## What to do
 
-            1. Run `gh pr view ${{ github.event.pull_request.number }} --json title,body,files`
+            1. Run `gh pr view ${{ steps.pr.outputs.pr_number }} --json title,body,files`
                to get PR metadata and the file list.
-            2. Run `gh pr diff ${{ github.event.pull_request.number }}` to get the full
-               diff. For files where you need surrounding context, read them off disk
-               (the repo is checked out at the workflow workspace root).
+            2. Run `gh pr diff ${{ steps.pr.outputs.pr_number }}` to get the full
+               diff. For files where you need surrounding context **on the PR side**,
+               fetch them over the API rather than from disk:
+                 gh api "repos/${{ github.repository }}/contents/<path>?ref=${{ github.event.workflow_run.head_sha }}" \
+                   --jq '.content' | base64 -d
+               The local checkout is the **default branch**, not the PR — see the
+               security note in the workflow file. Trusted helpers
+               (`scripts/post-pr-review.sh`, `scripts/README.md`) come from disk and
+               are safe to run; PR-side source files must be fetched.
             3. If the PR body references a story issue (`Closes #N` or `Part of epic #N`),
                read the issue with `gh issue view N` so you can check DoD coverage.
             4. Review for: idiomatic Rust (ownership, error handling, naming, traits),
@@ -92,7 +162,7 @@ jobs:
                   scripts/post-pr-review.sh \
                     ${{ github.event.repository.owner.login }} \
                     ${{ github.event.repository.name }} \
-                    ${{ github.event.pull_request.number }} \
+                    ${{ steps.pr.outputs.pr_number }} \
                     <payload-path>
                This is a single `gh api POST /pulls/N/reviews` call — body and every
                inline comment land atomically.

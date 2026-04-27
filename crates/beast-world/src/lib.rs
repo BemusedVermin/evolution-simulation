@@ -56,9 +56,13 @@
 #![warn(missing_docs)]
 #![warn(rust_2018_idioms)]
 
+/// Archipelago generation: seed + [`WorldConfig`] → row-major [`BiomeTag`] grid.
 pub mod archipelago;
+/// `BiomeTag` enum — local mirror of `beast_ecs::components::BiomeKind`.
 pub mod biome_tag;
+/// `WorldConfig`: tunable thresholds for elevation, moisture, and latitude bands.
 pub mod config;
+/// Deterministic value-noise primitives ([`value_noise_2d`], [`fbm_2d`]).
 pub mod noise;
 
 pub use archipelago::{generate_archipelago, Archipelago, GenerationError};

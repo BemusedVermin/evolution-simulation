@@ -24,12 +24,19 @@
 #![warn(missing_docs)]
 #![warn(rust_2018_idioms)]
 
+/// `PrimitiveCategory` taxonomy + `Modality` flags.
 pub mod category;
+/// Deterministic cost-function evaluator over Q32.32 parameter values.
 pub mod cost;
+/// `PrimitiveEffect`: an emitted (id, parameters) record from the interpreter.
 pub mod effect;
+/// Strongly typed primitive-manifest representation.
 pub mod manifest;
+/// Fixed-point `exp` / `ln` / `pow` helpers used by the cost evaluator.
 pub(crate) mod math;
+/// `PrimitiveRegistry`: deterministic [`std::collections::BTreeMap`]-backed index.
 pub mod registry;
+/// Two-stage (JSON Schema + semantic) manifest validator.
 pub mod schema;
 
 pub use category::{Modality, PrimitiveCategory};
