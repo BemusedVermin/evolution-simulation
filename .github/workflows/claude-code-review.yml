@@ -95,6 +95,19 @@ jobs:
           # rather than `claude[bot]`.
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
+          # Tool allowlist for the orchestrator. The default agent-mode
+          # allowlist in the action does not cover the Task tool (used
+          # to spawn the rust-reviewer subagent) or the specific Bash
+          # commands the prompt invokes (`gh pr view`, `gh pr diff`,
+          # `gh issue view`, `scripts/post-pr-review.sh`). Without this
+          # the run completes "successfully" but with
+          # `permission_denials_count > 0` and no review posted —
+          # observed on the first push of this branch (run
+          # 25042668043). Granting the tools below is the minimum the
+          # prompt needs.
+          claude_args: |
+            --allowed-tools "Bash,Read,Write,Edit,Grep,Glob,Task,WebFetch"
+
           # Install the everything-claude-code plugin marketplace so the
           # rust-reviewer subagent (and its sibling reviewers, used
           # transitively) is available to the orchestrator.
