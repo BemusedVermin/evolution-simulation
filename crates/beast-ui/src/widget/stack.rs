@@ -272,8 +272,11 @@ mod tests {
         // build a label whose glyph count cleanly hits the target.
         let mut b = Button::new(ids.allocate(), label);
         b.set_bounds(Rect::new(Point::new(0.0, 0.0), Size::new(w, h)));
-        // Note: real measure used during layout still comes from Button;
-        // tests below assert positions, not sizes.
+        // Note: the bounds set here are overwritten during layout;
+        // `Button::measure` (glyph * 8 + 16 wide, 32 tall) is what
+        // actually drives the per-child sizes the tests assert on.
+        // The `(w, h)` arguments are vestigial and exist only because
+        // earlier drafts passed pre-measured sizes.
         Box::new(b)
     }
 

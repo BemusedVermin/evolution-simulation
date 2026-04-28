@@ -1,9 +1,14 @@
 //! Fixed-column grid container.
 //!
 //! Children are packed row-major into a `columns`-wide grid: index `i`
-//! lives at row `i / columns`, column `i % columns`. Each cell uses the
-//! maximum measured size across all children so the grid renders as a
-//! uniform table — sufficient for the bestiary entry list and the other
+//! lives at row `i / columns`, column `i % columns`. Inter-cell
+//! *spacing* is uniform — every slot is `cell_w × cell_h` where
+//! `cell_w / cell_h` are the maxima across all children's measured
+//! sizes — but inside a slot each child is anchored at the slot
+//! origin and rendered at its own preferred size. Children smaller
+//! than the slot leave dead space below / right; that's intentional,
+//! since the slot defines the layout grid, not the rendered footprint.
+//! This is sufficient for the bestiary entry list and the other
 //! summary-card screens in S10.4. Variable-cell grids (Masonry-style
 //! packing) are out of scope.
 
@@ -267,9 +272,15 @@ mod tests {
             grid.push_child(Box::new(Card::new(ids.allocate(), "x")));
         }
         let _ = grid.layout(&ctx(), LayoutConstraints::loose(Size::new(1000.0, 1000.0)));
-        // Child 4 is at row 1, col 1.
+        // Child 4 sits at (row 1, col 1). With the default zero gap,
+        // x = col * (cell_w + gap) = 1 * cell_w = cell_w exactly. Pin
+        // the value precisely so a regression in the row-major formula
+        // (e.g. swapping rows/cols) is caught instead of silently
+        // satisfying a loose `> 0 && < cell_w * 2` range.
         let r = grid.children()[4].bounds();
         let cell_w = grid.children()[0].bounds().size.width;
-        assert!(r.origin.x > 0.0 && r.origin.x < cell_w * 2.0);
+        let cell_h = grid.children()[0].bounds().size.height;
+        assert!((r.origin.x - cell_w).abs() < 1e-3, "child 4 x = cell_w");
+        assert!((r.origin.y - cell_h).abs() < 1e-3, "child 4 y = cell_h");
     }
 }

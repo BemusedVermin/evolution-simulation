@@ -84,6 +84,7 @@ impl WidgetTree {
     /// Run a layout pass if the tree is dirty. Returns `true` if a pass
     /// was actually executed (cache miss); `false` when the cached
     /// layout was reused.
+    #[must_use = "the cache-miss bool tells the render loop whether the next paint can reuse the previous frame; ignoring it forces a redundant repaint or hides a missed dirty frame"]
     pub fn layout(&mut self) -> bool {
         if self.laid_out_at == self.version {
             return false;
@@ -121,6 +122,7 @@ impl WidgetTree {
     ///    hover state rarely shifts layout. If a future hover-driven
     ///    widget needs a re-layout, it can request one through the
     ///    binding cache (S10.4) rather than via mouse-move dispatch.
+    #[must_use = "check whether the event was consumed before forwarding it to a sibling overlay or window"]
     pub fn dispatch(&mut self, event: &UiEvent) -> EventResult {
         let result = self.root.handle_event(event);
         if result == EventResult::Consumed && !matches!(event, UiEvent::MouseMove { .. }) {
@@ -162,6 +164,7 @@ impl WidgetTree {
 /// scientific notation for the ranges layout produces). One line per
 /// widget; output ends with a trailing newline so concatenation with
 /// other dumps stays clean.
+#[must_use = "dump_layout is a pure function — its only effect is the returned string"]
 pub fn dump_layout(tree: &WidgetTree) -> String {
     let mut out = String::new();
     let mut visit = |w: &dyn Widget| {
@@ -211,7 +214,7 @@ mod tests {
     #[test]
     fn resize_marks_tree_dirty() {
         let mut t = fixture();
-        t.layout();
+        let _ = t.layout();
         assert!(!t.layout(), "cache hit");
         t.resize(Size::new(640.0, 80.0));
         assert!(t.layout(), "after resize, layout re-runs");
@@ -220,7 +223,7 @@ mod tests {
     #[test]
     fn resize_with_same_size_keeps_cache_warm() {
         let mut t = fixture();
-        t.layout();
+        let _ = t.layout();
         t.resize(t.root_size());
         assert!(!t.layout(), "no-op resize must not invalidate the cache");
     }
@@ -229,7 +232,7 @@ mod tests {
     fn dispatch_ignored_event_keeps_layout_cache_warm() {
         use crate::event::{KeyCode, KeyMods, Modifiers};
         let mut t = fixture();
-        t.layout();
+        let _ = t.layout();
         let before = t.layout_version_for_test();
         // A KeyDown event hits no widget that consumes it (the stack of
         // buttons doesn't react to keypresses). The handler returns
@@ -250,9 +253,9 @@ mod tests {
         // Layout first so children have non-zero bounds — Stack's
         // MouseMove hit-test rejects the cursor when the children are
         // still sized at `Rect::ZERO`.
-        t.layout();
+        let _ = t.layout();
         // Position cursor over the first button so the click consumes.
-        t.dispatch(&UiEvent::MouseMove { x: 5.0, y: 16.0 });
+        let _ = t.dispatch(&UiEvent::MouseMove { x: 5.0, y: 16.0 });
         assert!(!t.layout(), "MouseMove must not invalidate layout");
         let r = t.dispatch(&UiEvent::MouseDown {
             button: MouseButton::Primary,
@@ -264,7 +267,7 @@ mod tests {
     #[test]
     fn dispatch_mousemove_keeps_layout_cache_warm_even_when_consumed() {
         let mut t = fixture();
-        t.layout();
+        let _ = t.layout();
         // MouseMove gets returned as `Ignored` by Button (it only
         // updates internal cursor state), but the contract is "no
         // version bump on MouseMove regardless of result". This test
@@ -278,7 +281,7 @@ mod tests {
     #[test]
     fn dump_layout_emits_one_line_per_widget_in_pre_order() {
         let mut t = fixture();
-        t.layout();
+        let _ = t.layout();
         let dump = dump_layout(&t);
         let lines: Vec<_> = dump.lines().collect();
         // Stack + 3 buttons = 4 lines.
