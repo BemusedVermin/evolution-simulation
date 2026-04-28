@@ -14,6 +14,7 @@
 //! per-id cache.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 use crate::layout::LayoutConstraints;
 use crate::paint::{PaintCtx, Point, Rect, Size};
@@ -103,12 +104,21 @@ impl WidgetTree {
     /// case (unnecessary recompute) is a few microseconds and the best
     /// case (a binding update widening a label) needs the re-layout to
     /// be correct.
+    ///
+    /// Two events are filtered out of the dirty-bit bump:
+    ///
+    /// 1. Any event the tree returns [`EventResult::Ignored`] for. By
+    ///    contract, an `Ignored` result means no widget mutated state,
+    ///    so re-laying out would be redundant. Containers that need to
+    ///    invalidate while forwarding without consuming should return
+    ///    `Consumed` instead.
+    /// 2. `MouseMove` even when consumed — it is high-frequency and
+    ///    hover state rarely shifts layout. If a future hover-driven
+    ///    widget needs a re-layout, it can request one through the
+    ///    binding cache (S10.4) rather than via mouse-move dispatch.
     pub fn dispatch(&mut self, event: &UiEvent) -> EventResult {
         let result = self.root.handle_event(event);
-        // MouseMove is high-frequency and rarely changes layout;
-        // skipping the version bump for it keeps the layout cache hot
-        // during cursor motion.
-        if !matches!(event, UiEvent::MouseMove { .. }) {
+        if result == EventResult::Consumed && !matches!(event, UiEvent::MouseMove { .. }) {
             self.version = self.version.wrapping_add(1);
         }
         result
@@ -119,11 +129,17 @@ impl WidgetTree {
         self.root.paint(ctx);
     }
 
-    /// Internal hook for tests + benches: returns the tree's current
-    /// layout version. Two consecutive `layout()` calls without any
-    /// mutations should observe the same value.
-    #[doc(hidden)]
-    pub fn _layout_version(&self) -> u64 {
+    /// Internal hook for the in-lib unit tests: returns the tree's
+    /// current layout version. Two consecutive `layout()` calls
+    /// without any mutations should observe the same value.
+    ///
+    /// `cfg(test)`-gated so it isn't part of the released public API.
+    /// Integration tests under `tests/*.rs` build against the non-test
+    /// configuration and therefore can't reach this — they must
+    /// observe layout state via the public `layout()` return value
+    /// instead.
+    #[cfg(test)]
+    pub fn layout_version_for_test(&self) -> u64 {
         self.laid_out_at
     }
 }
@@ -145,15 +161,21 @@ pub fn dump_layout(tree: &WidgetTree) -> String {
     let mut out = String::new();
     let mut visit = |w: &dyn Widget| {
         let r = w.bounds();
-        out.push_str(&format!(
-            "{}#{} {},{} {}x{}\n",
+        // `writeln!` formats directly into the buffer; `String`'s
+        // `fmt::Write` impl is infallible so the unwrap can never fire.
+        // The previous `push_str(&format!(...))` allocated one extra
+        // String per widget, which mattered for 200+ widget dumps.
+        writeln!(
+            &mut out,
+            "{}#{} {},{} {}x{}",
             w.kind(),
             w.id().raw(),
             r.origin.x,
             r.origin.y,
             r.size.width,
             r.size.height,
-        ));
+        )
+        .expect("String fmt::Write is infallible");
     };
     tree.root().visit_pre_order(&mut visit);
     out
@@ -196,6 +218,53 @@ mod tests {
         t.layout();
         t.resize(t.root_size());
         assert!(!t.layout(), "no-op resize must not invalidate the cache");
+    }
+
+    #[test]
+    fn dispatch_ignored_event_keeps_layout_cache_warm() {
+        use crate::event::{KeyCode, KeyMods, Modifiers};
+        let mut t = fixture();
+        t.layout();
+        let before = t.layout_version_for_test();
+        // A KeyDown event hits no widget that consumes it (the stack of
+        // buttons doesn't react to keypresses). The handler returns
+        // `Ignored`, so dispatch must not bump the dirty bit.
+        let result = t.dispatch(&UiEvent::KeyDown(Modifiers {
+            key: KeyCode::Tab,
+            mods: KeyMods::NONE,
+        }));
+        assert_eq!(result, EventResult::Ignored);
+        assert!(!t.layout(), "Ignored event should not invalidate layout");
+        assert_eq!(t.layout_version_for_test(), before);
+    }
+
+    #[test]
+    fn dispatch_consumed_non_mousemove_invalidates_layout() {
+        use crate::event::MouseButton;
+        let mut t = fixture();
+        // Position cursor over the first button so the click consumes.
+        t.dispatch(&UiEvent::MouseMove { x: 5.0, y: 16.0 });
+        t.layout();
+        assert!(!t.layout(), "cache hit after layout");
+        let r = t.dispatch(&UiEvent::MouseDown {
+            button: MouseButton::Primary,
+        });
+        assert_eq!(r, EventResult::Consumed);
+        assert!(t.layout(), "Consumed event should invalidate layout");
+    }
+
+    #[test]
+    fn dispatch_mousemove_keeps_layout_cache_warm_even_when_consumed() {
+        let mut t = fixture();
+        t.layout();
+        // MouseMove gets returned as `Ignored` by Button (it only
+        // updates internal cursor state), but the contract is "no
+        // version bump on MouseMove regardless of result". This test
+        // pins that contract so a future widget that returns
+        // `Consumed` for MouseMove does not silently invalidate the
+        // cache.
+        let _ = t.dispatch(&UiEvent::MouseMove { x: 1.0, y: 1.0 });
+        assert!(!t.layout(), "MouseMove must not invalidate layout");
     }
 
     #[test]

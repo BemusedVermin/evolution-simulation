@@ -3,9 +3,9 @@
 //! Children are packed row-major into a `columns`-wide grid: index `i`
 //! lives at row `i / columns`, column `i % columns`. Each cell uses the
 //! maximum measured size across all children so the grid renders as a
-//! uniform table — sufficient for the bestiary entry list and faction
-//! cards in S10.4. Variable-cell grids (Masonry-style packing) are out
-//! of scope.
+//! uniform table — sufficient for the bestiary entry list and the other
+//! summary-card screens in S10.4. Variable-cell grids (Masonry-style
+//! packing) are out of scope.
 
 use crate::event::{EventResult, UiEvent};
 use crate::layout::LayoutConstraints;
@@ -142,7 +142,10 @@ impl Widget for Grid {
             let y = self.bounds.origin.y + row as f32 * (cell_h + self.gap);
             let s = child_sizes[i];
             child.set_bounds(Rect::new(Point::new(x, y), s));
-            let _ = child.layout(ctx, LayoutConstraints::tight(s));
+            // The tight constraint forces the child to return exactly
+            // `s` — we ignore the returned size because we already know
+            // it matches the bounds we just assigned.
+            child.layout(ctx, LayoutConstraints::tight(s));
         }
 
         final_size

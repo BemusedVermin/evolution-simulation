@@ -99,9 +99,16 @@ pub fn cross_axis_offset(align: Align, parent_extent: f32, child_extent: f32) ->
     }
 }
 
-/// `f32::clamp` clones the input; this is the same operation but without
-/// the implicit branch on NaN — layout inputs come from widget code, not
-/// user data, and we want deterministic ordering.
+/// Clamp `value` into `[min, max]`.
+///
+/// Avoids `f32::clamp`'s `debug_assert!(min <= max)` panic — layout
+/// constraints are constructed at runtime from widget measure output
+/// and the compiler cannot prove the relationship statically. NaN
+/// behaviour matches `f32::clamp`: `NaN < min` and `NaN > max` are
+/// both false, so a NaN input falls through unchanged. Widget
+/// implementations should not produce NaN sizes; if one ever does,
+/// the snapshot test `dump_layout` output will surface it as the
+/// literal string "NaN" and the regression will be loud.
 fn clamp(value: f32, min: f32, max: f32) -> f32 {
     if value < min {
         min

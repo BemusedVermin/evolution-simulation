@@ -192,8 +192,10 @@ impl Widget for Stack {
                 self.bounds.origin.y + offset_y,
             );
             child.set_bounds(Rect::new(origin, s));
-            // Recurse so any grandchildren see the correct origin.
-            let _ = child.layout(ctx, LayoutConstraints::tight(s));
+            // Recurse so any grandchildren see the correct origin. The
+            // tight constraint forces the child to return exactly `s`,
+            // so we ignore the returned size.
+            child.layout(ctx, LayoutConstraints::tight(s));
 
             cursor += match self.direction {
                 Axis::Horizontal => s.width,

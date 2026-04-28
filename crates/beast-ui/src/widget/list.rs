@@ -10,8 +10,9 @@ use crate::paint::{Color, PaintCtx, Point, Rect, Size};
 
 use super::{LayoutCtx, Widget, WidgetId};
 
-/// One row in a [`List`]. Concrete payload is generic so callers can store
-/// bestiary entries, faction summaries, etc., without erasing types.
+/// One row in a [`List`]. Concrete payload is generic so callers can
+/// store bestiary entries, cluster summaries, and so on without
+/// erasing types.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ListItem<T> {
     /// Display label.
@@ -202,6 +203,10 @@ impl<T: Clone + std::fmt::Debug> Widget for List<T> {
         }
     }
 
+    // `List<T>` is a traversal leaf. Items are typed `T`, not
+    // `Box<dyn Widget>`, so there are no widget-shaped children for the
+    // visitor to recurse into. Snapshot tests should expect a single
+    // line per `List` regardless of `items.len()`.
     fn visit_pre_order<'a>(&'a self, visitor: &mut dyn FnMut(&'a dyn Widget)) {
         visitor(self);
     }
