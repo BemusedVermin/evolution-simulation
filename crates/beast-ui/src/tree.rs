@@ -90,7 +90,12 @@ impl WidgetTree {
         }
         self.root
             .set_bounds(Rect::new(Point::new(0.0, 0.0), self.root_size));
-        let _ = self
+        // Tight constraint forces the returned size to equal
+        // `root_size`, so we typed-discard. If a future caller switches
+        // to a loose constraint they'd want the returned preferred
+        // size; the `let _: Size` documents that we know exactly what's
+        // being dropped here.
+        let _: Size = self
             .root
             .layout(&self.layout_ctx, LayoutConstraints::tight(self.root_size));
         self.laid_out_at = self.version;
@@ -242,10 +247,13 @@ mod tests {
     fn dispatch_consumed_non_mousemove_invalidates_layout() {
         use crate::event::MouseButton;
         let mut t = fixture();
+        // Layout first so children have non-zero bounds — Stack's
+        // MouseMove hit-test rejects the cursor when the children are
+        // still sized at `Rect::ZERO`.
+        t.layout();
         // Position cursor over the first button so the click consumes.
         t.dispatch(&UiEvent::MouseMove { x: 5.0, y: 16.0 });
-        t.layout();
-        assert!(!t.layout(), "cache hit after layout");
+        assert!(!t.layout(), "MouseMove must not invalidate layout");
         let r = t.dispatch(&UiEvent::MouseDown {
             button: MouseButton::Primary,
         });

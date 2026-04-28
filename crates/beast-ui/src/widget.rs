@@ -150,7 +150,16 @@ pub trait Widget {
     /// (`Stack`, `Grid`) override this to walk and position their
     /// children.
     ///
+    /// `#[must_use]` because under loose constraints the returned
+    /// [`Size`] is the only signal of the child's preferred dimensions;
+    /// dropping the result silently throws that away. Container call
+    /// sites that intentionally discard (tight constraints make the
+    /// return equal to the child's already-known size) should use
+    /// `let _: Size = child.layout(...)` to silence the lint and
+    /// document that the discard is deliberate.
+    ///
     /// [`measure`]: Widget::measure
+    #[must_use = "layout returns the widget's computed size; ignoring it loses the result under loose constraints"]
     fn layout(&mut self, ctx: &LayoutCtx, constraints: LayoutConstraints) -> Size {
         constraints.constrain(self.measure(ctx))
     }

@@ -117,17 +117,19 @@ impl Widget for Card {
         if let UiEvent::MouseMove { x, y } = event {
             self.last_cursor = Some(Point::new(*x, *y));
         }
+        // Hit-test the relevant cursor position against each child's
+        // bounds before forwarding — same contract as `Stack` / `Grid`.
+        // Earlier code broadcast `MouseMove` to every child regardless
+        // of bounds, which is O(n) per cursor frame at 60 FPS.
+        let cursor = match event {
+            UiEvent::MouseMove { x, y } => Some(Point::new(*x, *y)),
+            _ => self.last_cursor,
+        };
         // Forward to children in reverse declaration order so the
         // last-painted child gets first crack at the event (canonical
         // top-most-takes-it model).
         for child in self.children.iter_mut().rev() {
-            // Always forward MouseMove so children can update their own
-            // cursor caches.
-            let inside = matches!(event, UiEvent::MouseMove { .. })
-                || self
-                    .last_cursor
-                    .map(|c| child.bounds().contains(c))
-                    .unwrap_or(false);
+            let inside = cursor.is_some_and(|c| child.bounds().contains(c));
             if inside && child.handle_event(event) == EventResult::Consumed {
                 return EventResult::Consumed;
             }

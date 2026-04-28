@@ -194,8 +194,10 @@ impl Widget for Stack {
             child.set_bounds(Rect::new(origin, s));
             // Recurse so any grandchildren see the correct origin. The
             // tight constraint forces the child to return exactly `s`,
-            // so we ignore the returned size.
-            child.layout(ctx, LayoutConstraints::tight(s));
+            // so we typed-discard the returned size — `let _: Size`
+            // documents the deliberate drop and silences the
+            // `#[must_use]` on `Widget::layout`.
+            let _: Size = child.layout(ctx, LayoutConstraints::tight(s));
 
             cursor += match self.direction {
                 Axis::Horizontal => s.width,
@@ -219,15 +221,21 @@ impl Widget for Stack {
         if let UiEvent::MouseMove { x, y } = event {
             self.last_cursor = Some(Point::new(*x, *y));
         }
+        // Hit-test the relevant cursor position against each child's
+        // bounds before forwarding. For `MouseMove` the position lives
+        // in the event payload; for any other event we fall back to the
+        // last cached cursor. This replaces an earlier broadcast pass
+        // that forwarded `MouseMove` to every child unconditionally
+        // (O(n) per cursor pixel at 60 FPS).
+        let cursor = match event {
+            UiEvent::MouseMove { x, y } => Some(Point::new(*x, *y)),
+            _ => self.last_cursor,
+        };
         // Reverse-iterate so the last-declared (top-most-painted) child
         // gets first crack at the event. Mirrors `Card`'s contract so
         // `Stack`-of-`Stack` composition behaves consistently.
         for child in self.children.iter_mut().rev() {
-            let inside = matches!(event, UiEvent::MouseMove { .. })
-                || self
-                    .last_cursor
-                    .map(|c| child.bounds().contains(c))
-                    .unwrap_or(false);
+            let inside = cursor.is_some_and(|c| child.bounds().contains(c));
             if inside && child.handle_event(event) == EventResult::Consumed {
                 return EventResult::Consumed;
             }

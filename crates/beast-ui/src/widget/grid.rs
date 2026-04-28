@@ -143,9 +143,10 @@ impl Widget for Grid {
             let s = child_sizes[i];
             child.set_bounds(Rect::new(Point::new(x, y), s));
             // The tight constraint forces the child to return exactly
-            // `s` — we ignore the returned size because we already know
-            // it matches the bounds we just assigned.
-            child.layout(ctx, LayoutConstraints::tight(s));
+            // `s` — `let _: Size` is a typed discard that documents the
+            // deliberate drop and silences the `#[must_use]` on
+            // `Widget::layout`.
+            let _: Size = child.layout(ctx, LayoutConstraints::tight(s));
         }
 
         final_size
@@ -161,12 +162,16 @@ impl Widget for Grid {
         if let UiEvent::MouseMove { x, y } = event {
             self.last_cursor = Some(Point::new(*x, *y));
         }
+        // Hit-test the relevant cursor position against each child's
+        // bounds before forwarding — same contract as `Stack`. The
+        // earlier `matches!(event, MouseMove)` short-circuit broadcast
+        // every cursor frame to every cell at O(n).
+        let cursor = match event {
+            UiEvent::MouseMove { x, y } => Some(Point::new(*x, *y)),
+            _ => self.last_cursor,
+        };
         for child in self.children.iter_mut().rev() {
-            let inside = matches!(event, UiEvent::MouseMove { .. })
-                || self
-                    .last_cursor
-                    .map(|c| child.bounds().contains(c))
-                    .unwrap_or(false);
+            let inside = cursor.is_some_and(|c| child.bounds().contains(c));
             if inside && child.handle_event(event) == EventResult::Consumed {
                 return EventResult::Consumed;
             }

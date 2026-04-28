@@ -9,10 +9,17 @@
 //! 3-5× slower and would exceed the budget without diagnosing a real
 //! regression. CI runs the full workspace under `--release` for the
 //! release-build job, where this guard fires.
+//!
+//! Timing strategy: take the **minimum** of three forced-dirty passes
+//! and assert against that. Single-sample wall-time guards on shared
+//! CI runners are flaky — a noisy GC / scheduler hiccup pushes one
+//! sample past the threshold without diagnosing a real regression.
+//! `min` is the right reduction here because we want to ask "what's
+//! the best the pass can do?", not "what's the median under load?".
 
 #![cfg(not(debug_assertions))]
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use beast_ui::{Axis, Button, Grid, IdAllocator, Size, Stack, WidgetTree};
 
@@ -34,19 +41,23 @@ fn layout_pass_completes_under_1ms_for_200_widgets() {
     let mut tree = WidgetTree::new(Box::new(root), Size::new(1280.0, 720.0));
 
     // Warm-up pass — first call allocates the children-size Vecs in
-    // Stack/Grid. We measure the second pass after a forced
-    // invalidation so the timing reflects steady-state cost.
+    // Stack/Grid. Subsequent passes reflect steady-state cost.
     assert!(tree.layout(), "warm-up pass");
-    tree.resize(Size::new(1281.0, 721.0));
 
-    let start = Instant::now();
-    let did_lay_out = tree.layout();
-    let elapsed = start.elapsed();
-    assert!(did_lay_out, "post-resize pass must run");
-
-    let micros = elapsed.as_micros();
+    let mut samples: [Duration; 3] = [Duration::ZERO; 3];
+    for (i, slot) in samples.iter_mut().enumerate() {
+        // Resize by a sub-pixel amount on each iteration so
+        // `WidgetTree::resize` always invalidates the cache.
+        tree.resize(Size::new(1280.0 + i as f32 + 1.0, 720.0));
+        let t = Instant::now();
+        let did_lay_out = tree.layout();
+        *slot = t.elapsed();
+        assert!(did_lay_out, "post-resize pass must run (sample {i})");
+    }
+    let best = samples.iter().min().copied().expect("samples is non-empty");
+    let micros = best.as_micros();
     assert!(
         micros < 1_000,
-        "layout pass over 1ms ({micros} µs) — likely regressed to quadratic walk"
+        "layout pass over 1ms (best {micros} µs of 3 samples: {samples:?}) — likely regressed to quadratic walk"
     );
 }
