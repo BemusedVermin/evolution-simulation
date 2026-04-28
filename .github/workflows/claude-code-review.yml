@@ -123,6 +123,52 @@ jobs:
           set -euo pipefail
           echo "iso=$(date -u --iso-8601=seconds)" >> "$GITHUB_OUTPUT"
 
+      # Compute review round + last-reviewed commit. The reviewer
+      # applies a severity ratchet: round 1 blocks on CRITICAL / HIGH /
+      # MEDIUM; round 2+ blocks only on CRITICAL / HIGH (MEDIUM and
+      # LOW become advisory inline comments under an APPROVE verdict).
+      # This stops the bot from looping forever on freshly-discovered
+      # nits each push.
+      #
+      # We also expose `LAST_REVIEWED_SHA` so the orchestrator can ask
+      # GitHub for an *incremental* diff on round 2+ — only the bytes
+      # that changed since the last review get sent to the subagent,
+      # which prevents the bot from rediscovering issues that were
+      # already in the PR but not flagged on round 1.
+      #
+      # Round = 1 + (number of prior `github-actions[bot]` reviews on
+      # this PR). The bot only ever reviews PRs from this workflow, so
+      # any prior bot review by definition lives on a prior commit of
+      # this PR.
+      - name: Compute review round
+        id: review-round
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BOT_LOGIN: github-actions[bot]
+        run: |
+          set -euo pipefail
+          reviews_json=$(gh api "repos/${REPO}/pulls/${PR}/reviews" --paginate)
+
+          prior_count=$(jq --arg login "$BOT_LOGIN" \
+            '[.[] | select(.user.login == $login)] | length' \
+            <<<"$reviews_json")
+
+          if [ "$prior_count" -eq 0 ]; then
+            review_round=1
+            last_sha=""
+          else
+            review_round=$((prior_count + 1))
+            last_sha=$(jq -r --arg login "$BOT_LOGIN" \
+              '[.[] | select(.user.login == $login)] | sort_by(.submitted_at) | last | .commit_id' \
+              <<<"$reviews_json")
+          fi
+
+          echo "round=${review_round}" >> "$GITHUB_OUTPUT"
+          echo "last_sha=${last_sha}" >> "$GITHUB_OUTPUT"
+          echo "Review round: ${review_round} (last reviewed SHA: ${last_sha:-none})"
+
       - name: Run Claude rust-reviewer
         id: claude-review
         uses: anthropics/claude-code-action@v1
@@ -198,6 +244,25 @@ jobs:
             Pull request: #${{ github.event.pull_request.number }} in
             ${{ github.repository }}.
 
+            ## Review round (severity ratchet)
+
+            REVIEW_ROUND=${{ steps.review-round.outputs.round }}
+            LAST_REVIEWED_SHA=${{ steps.review-round.outputs.last_sha }}
+
+            * `REVIEW_ROUND == 1` — first time the bot is reviewing this
+              PR. Block on CRITICAL / HIGH / MEDIUM. LOW notes are
+              advisory.
+            * `REVIEW_ROUND >= 2` — a prior bot review already covered
+              this PR. Block ONLY on CRITICAL / HIGH. MEDIUM and LOW
+              findings on round 2+ are advisory inline comments posted
+              under an APPROVE verdict — they do not block the merge.
+
+            The ratchet exists because the bot has historically cycled
+            through 3-4 rounds of fresh nits per PR (see PR #237 for the
+            data point). After the first pass we trust the author to
+            handle minor concerns as follow-ups; only correctness-level
+            findings keep gating.
+
             ## Your job
 
             Delegate the actual review to the
@@ -245,8 +310,25 @@ jobs:
 
             1. `gh pr view ${{ github.event.pull_request.number }} --json title,body,files`
                for PR metadata and the file list.
-            2. `gh pr diff ${{ github.event.pull_request.number }}` for the
-               full diff. For surrounding context on PR-side files, use
+            2. **Fetch the diff to review.** Branch on `REVIEW_ROUND`:
+
+               * **Round 1**: full PR diff —
+                 `gh pr diff ${{ github.event.pull_request.number }}`.
+                 The subagent reviews everything new on the branch.
+
+               * **Round 2+**: incremental diff between the previous
+                 reviewed commit and the current head —
+                   gh api \
+                     -H "Accept: application/vnd.github.v3.diff" \
+                     "repos/${{ github.repository }}/compare/${LAST_REVIEWED_SHA}...${{ github.event.pull_request.head.sha }}"
+                 The subagent reviews ONLY the bytes that changed since
+                 the last review. This stops the bot from rediscovering
+                 issues that were already on the branch but not flagged
+                 on round 1 — it can't move goalposts on code it has
+                 already had a chance to look at.
+
+               For surrounding context on PR-side files (either round),
+               use
                  gh api "repos/${{ github.repository }}/contents/<path>?ref=${{ github.event.pull_request.head.sha }}" \
                    --jq '.content' | base64 -d
                The local checkout is the default branch, not the PR — see
@@ -350,23 +432,39 @@ jobs:
                exactly what we are trying to stop happening on every
                push.
 
-            ## Verdict rules
+            ## Verdict rules (severity ratchet)
 
-            * **`REQUEST_CHANGES`** if at least one *new* finding is
-              CRITICAL, HIGH, or MEDIUM. `duplicate` / `obsolete`
-              findings do NOT count toward the verdict — they have
-              already been flagged on a prior commit.
-            * **`APPROVE`** if there are no new MEDIUM-or-above
-              findings (clean, only `new` LOW notes, or every finding
-              was a duplicate/obsolete that got dropped).
+            The blocking severity tier depends on `REVIEW_ROUND`:
+
+            * **Round 1** (first review on this PR):
+              * `REQUEST_CHANGES` if any new CRITICAL / HIGH / MEDIUM
+                finding.
+              * `APPROVE` if no MEDIUM-or-above (clean, only new LOW
+                notes, or every finding was duplicate/obsolete).
+
+            * **Round 2+** (a prior bot review already covered this PR):
+              * `REQUEST_CHANGES` only if any new CRITICAL or HIGH
+                finding.
+              * `APPROVE` if no HIGH-or-above. MEDIUM and LOW findings
+                STILL get posted as inline comments — the author may
+                act on them or defer — but they do not block. The
+                verdict line should make this advisory status visible:
+                `**APPROVE** — round 2+ advisory: 2 MEDIUM · 1 LOW (non-blocking)`.
+
+            `duplicate` / `obsolete` findings do NOT count toward the
+            verdict in either round — they have already been flagged
+            on a prior commit.
+
             * **`COMMENT`** is the fallback for cases where you
               genuinely cannot make the call (diff too large, change
               is purely policy/config without a rubric).
-            * State the verdict and severity counts on the first line
-              of the overall body, e.g.
-              `**APPROVE** — 0 CRITICAL · 0 HIGH · 0 MEDIUM · 2 LOW (new) · 1 prior still applies`
+            * State the verdict, severity counts, AND the round on
+              the first line of the overall body, e.g.
+              `**APPROVE** — round 1 — 0 CRITICAL · 0 HIGH · 0 MEDIUM · 2 LOW (new) · 1 prior still applies`
               or
-              `**REQUEST_CHANGES** — 0 CRITICAL · 1 HIGH · 3 MEDIUM · 1 LOW (new) · 0 prior still applies`.
+              `**REQUEST_CHANGES** — round 1 — 0 CRITICAL · 1 HIGH · 3 MEDIUM · 1 LOW (new) · 0 prior still applies`
+              or
+              `**APPROVE** — round 2 advisory — 0 CRITICAL · 0 HIGH · 2 MEDIUM · 1 LOW (non-blocking)`.
               The repo owner reads this line first.
 
             ## Constraints
