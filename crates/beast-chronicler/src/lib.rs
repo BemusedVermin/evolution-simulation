@@ -33,6 +33,7 @@ pub mod chronicler;
 pub mod confidence;
 pub mod label;
 pub mod pattern;
+pub mod query;
 pub mod snapshot;
 pub mod tick_range;
 
@@ -40,5 +41,9 @@ pub use chronicler::Chronicler;
 pub use confidence::compute_confidence;
 pub use label::{Label, LabelEngine, LabelEngineError, LabelLoadError, LabelManifest};
 pub use pattern::{PatternObservation, PatternSignature};
+pub use query::{
+    BestiaryEntry, BestiaryFilter, BestiarySortBy, ChroniclerQuery, InMemoryChronicler, LabelId,
+    SpeciesId,
+};
 pub use snapshot::PrimitiveSnapshot;
 pub use tick_range::TickRange;

@@ -2,12 +2,16 @@
 //! snapshots and (S10.6) holds the latest manifest-driven label
 //! assignments. The read API for the UI layer (S10.7) layers on top.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use beast_core::TickCounter;
+use beast_core::{EntityId, TickCounter, Q3232};
 
 use crate::label::{Label, LabelEngine};
 use crate::pattern::{PatternObservation, PatternSignature};
+use crate::query::{
+    label_ids_match_search, sort_bestiary, BestiaryEntry, BestiaryFilter, ChroniclerQuery, LabelId,
+    SpeciesId,
+};
 use crate::snapshot::PrimitiveSnapshot;
 use crate::tick_range::TickRange;
 
@@ -26,6 +30,24 @@ use crate::tick_range::TickRange;
 pub struct Chronicler {
     observations: BTreeMap<PatternSignature, PatternObservation>,
     labels: BTreeMap<PatternSignature, Label>,
+    /// Reverse index from `EntityId` → per-signature ingestion count
+    /// for that entity. Built during [`Self::ingest`]; consumed by the
+    /// S10.7 query API.
+    ///
+    /// Per-entity counts are tracked separately from the global
+    /// `observations` count so the bestiary aggregator can attribute
+    /// snapshots to a single species without double-counting when two
+    /// entities of different species share a signature. The map per
+    /// entity is small (number of distinct primitive sets the entity
+    /// has ever produced), so the storage cost stays bounded.
+    entity_emissions: BTreeMap<EntityId, BTreeMap<PatternSignature, u64>>,
+    /// Map from `EntityId` → `SpeciesId`, populated by
+    /// [`Self::set_entity_species`]. The chronicler does not derive
+    /// species itself — higher-layer code (sim spawner, save loader) is
+    /// responsible for declaring it. Entities without a registered
+    /// species are excluded from bestiary queries; they still appear
+    /// under [`Self::labels_for_entity`].
+    entity_species: BTreeMap<EntityId, SpeciesId>,
 }
 
 impl Chronicler {
@@ -71,6 +93,34 @@ impl Chronicler {
         if snapshot.tick > entry.last_tick {
             entry.last_tick = snapshot.tick;
         }
+        // Maintain the entity → signatures reverse index for the S10.7
+        // query API, with per-entity per-signature counts so the
+        // bestiary aggregator can attribute snapshots to a single
+        // species without double-counting shared signatures.
+        let per_entity = self.entity_emissions.entry(snapshot.entity).or_default();
+        let count = per_entity.entry(signature).or_insert(0);
+        *count = count.saturating_add(1);
+    }
+
+    /// Register the species an entity belongs to.
+    ///
+    /// The chronicler does not derive species itself; higher-layer code
+    /// (sim spawner, save loader) is the source of truth. Repeated calls
+    /// for the same entity overwrite the prior species — useful for
+    /// speciation events where an entity transitions between species
+    /// ids over its lifetime.
+    pub fn set_entity_species(&mut self, entity: EntityId, species: SpeciesId) {
+        self.entity_species.insert(entity, species);
+    }
+
+    /// Read-only view of the entity → per-signature emission counts.
+    pub fn entity_emissions(&self) -> &BTreeMap<EntityId, BTreeMap<PatternSignature, u64>> {
+        &self.entity_emissions
+    }
+
+    /// Read-only view of the entity → species registration map.
+    pub fn entity_species(&self) -> &BTreeMap<EntityId, SpeciesId> {
+        &self.entity_species
     }
 
     /// All [`PatternObservation`]s whose `[first_tick, last_tick]` span
@@ -152,6 +202,119 @@ impl Chronicler {
     /// [`PatternSignature`].
     pub fn labels(&self) -> &BTreeMap<PatternSignature, Label> {
         &self.labels
+    }
+
+    /// Build a [`BestiaryEntry`] for one species by aggregating across
+    /// every registered entity that belongs to it.
+    ///
+    /// Returns `None` when no entity has been registered for `species`
+    /// or none of the registered entities have been ingested. Pulled out
+    /// of the [`ChroniclerQuery`] impl so [`Self::bestiary_entry`] and
+    /// [`Self::bestiary_entries`] share one aggregation pass.
+    fn build_bestiary_entry(&self, species: SpeciesId) -> Option<BestiaryEntry> {
+        let mut observation_count: u64 = 0;
+        let mut first_tick: Option<TickCounter> = None;
+        let mut confidence: Q3232 = Q3232::ZERO;
+        let mut label_ids: BTreeSet<LabelId> = BTreeSet::new();
+        let mut any_entity = false;
+
+        for (entity, registered_species) in &self.entity_species {
+            if *registered_species != species {
+                continue;
+            }
+            any_entity = true;
+            let Some(per_signature) = self.entity_emissions.get(entity) else {
+                continue;
+            };
+            for (sig, count) in per_signature {
+                observation_count = observation_count.saturating_add(*count);
+                if let Some(observation) = self.observations.get(sig) {
+                    first_tick = Some(match first_tick {
+                        Some(prev) if prev <= observation.first_tick => prev,
+                        _ => observation.first_tick,
+                    });
+                }
+                if let Some(label) = self.labels.get(sig) {
+                    label_ids.insert(label.id.clone());
+                    if label.confidence > confidence {
+                        confidence = label.confidence;
+                    }
+                }
+            }
+        }
+
+        if !any_entity {
+            return None;
+        }
+
+        Some(BestiaryEntry {
+            species,
+            label_ids: label_ids.into_iter().collect(),
+            observation_count,
+            confidence,
+            first_tick: first_tick.unwrap_or(TickCounter::ZERO),
+        })
+    }
+}
+
+impl ChroniclerQuery for Chronicler {
+    fn label_for_signature(&self, sig: &PatternSignature) -> Option<&Label> {
+        self.labels.get(sig)
+    }
+
+    fn labels_for_entity(&self, entity: EntityId) -> Vec<&Label> {
+        let Some(per_signature) = self.entity_emissions.get(&entity) else {
+            return Vec::new();
+        };
+        // Iterating the BTreeMap keys yields signatures in ascending
+        // byte order, so the resulting Vec is deterministic across calls.
+        per_signature
+            .keys()
+            .filter_map(|sig| self.labels.get(sig))
+            .collect()
+    }
+
+    fn entities_with_label(&self, label_id: &str) -> Vec<EntityId> {
+        // Collect signatures matching the requested label id first; the
+        // labels map is small relative to entity_emissions, so this
+        // narrows the work for the entity scan.
+        let signatures: BTreeSet<PatternSignature> = self
+            .labels
+            .iter()
+            .filter(|(_, label)| label.id == label_id)
+            .map(|(sig, _)| *sig)
+            .collect();
+        if signatures.is_empty() {
+            return Vec::new();
+        }
+        // Iteration over BTreeMap<EntityId, _> is ascending by EntityId,
+        // satisfying INVARIANTS §1.
+        self.entity_emissions
+            .iter()
+            .filter(|(_, per_signature)| per_signature.keys().any(|sig| signatures.contains(sig)))
+            .map(|(entity, _)| *entity)
+            .collect()
+    }
+
+    fn bestiary_entries(&self, filter: &BestiaryFilter) -> Vec<BestiaryEntry> {
+        // Distinct species, in ascending SpeciesId — gives a stable
+        // pre-sort baseline before applying the configured order.
+        let species_set: BTreeSet<SpeciesId> = self.entity_species.values().copied().collect();
+        let mut entries: Vec<BestiaryEntry> = species_set
+            .into_iter()
+            .filter_map(|s| self.build_bestiary_entry(s))
+            .filter(|entry| !filter.discovered_only || entry.observation_count >= 1)
+            .filter(|entry| match &filter.search {
+                None => true,
+                Some(needle) => label_ids_match_search(&entry.label_ids, needle),
+            })
+            .collect();
+        sort_bestiary(&mut entries, filter.sort_by);
+        entries
+    }
+
+    fn bestiary_entry(&self, species: SpeciesId) -> Option<BestiaryEntry> {
+        self.build_bestiary_entry(species)
     }
 }
 
