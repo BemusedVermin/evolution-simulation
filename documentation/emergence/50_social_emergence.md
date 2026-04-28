@@ -1,5 +1,11 @@
 # 50 — Pillar P5: Social Emergence
 
+> **Cross-reference (added with docs 56/57/58).** Two parts of this pillar are now superseded or reframed:
+> - The Voronoi single-membership assignment in §4.2 (`ind.population_culture_id = nearest`) is **superseded by [56_relationship_graph_emergence.md](56_relationship_graph_emergence.md)**: agents are members of an arbitrary set of overlapping clusters at multiple Leiden levels, derived from the typed agent-pair multigraph. The `population_culture` carrier is retained, but it is now itself a *derived node-cluster* rather than the primary membership target.
+> - The cultural-axis labelling pattern in §3.1 (axes labelled post-hoc by Chronicler if they stabilise) is **a special case of [58_channel_genesis.md](58_channel_genesis.md)**'s latent-extraction mechanism. The 32 pre-allocated `cultural_trait_vector` axes are seed slots; once a population's behaviour stabilises a coherent direction, the axis is registered with `genesis:<src_pop>:<tick>:cultural_axis:<sig_hash>` provenance and propagates through P6a iterated learning.
+>
+> Coalition formation, governance-policy drift, kinship-pedigree queries, and CMLS in this doc are all retained unchanged.
+
 **Replaces in v1:**
 - the **12-dimensional fixed opinion space** in `systems/01,03,08` (`individual_vs_collective`, `hoarding_vs_distribution`, `local_vs_global_trade`, `hierarchy_vs_egalitarianism`, `tradition_vs_innovation`, `isolation_vs_expansion`, `in_group_loyalty`, `aggression_vs_diplomacy`, `risk_tolerance`, `beast_exploitation_vs_coexistence`, `beast_knowledge_priority`, `player_cooperation`),
 - the **6-layer social-relationship enum** (`survival | economic | kinship | ideological | hierarchical | informational`),

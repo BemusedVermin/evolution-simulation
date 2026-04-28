@@ -1,5 +1,13 @@
 # Economic Simulation Layer
 
+> **Superseded by P6c (`emergence/60_culture_emergence.md`) and emergence/56 for settlement-as-cluster.** Specifically:
+> - `SettlementEconomic.faction_id` is **removed**; a settlement is a derived spatial Leiden-level-1 cluster (doc 56) whose dominant polity is a *derived* query (`dominant_polity = polity-cluster with highest mean-allegiance among settlement members`), not a stored field.
+> - Polanyi 3-mode exchange (reciprocity / redistribution / market) is replaced by ACE matching markets (P6c); the three named modes become Chronicler labels over a continuous mixing-weight vector.
+> - The 17-property `MaterialSignature` is replaced by P2's emergent material-composition vector + derived signature.
+> - Communal-share / redistribution formulas in this doc that read `faction_id` should be reframed to query the derived polity-cluster of the settlement.
+>
+> This doc remains useful as a reference for what the v1 design specified; the listed mechanics should be re-read through the emergence-doc lens.
+
 ## 1. Overview
 
 The economic layer simulates resource production, consumption, exchange, and distribution across agents, settlements, and factions. It operates on a canonical **MaterialStack** representation: every unit of goods in the world is a structured stack of materials with 17-property signatures, quantities, freshness tags, and source lineage. This unified model eliminates the distinction between "resources" and "inventory items"—all are MaterialStacks—creating emergent economies from bottom-up agent behavior, Polanyian exchange modes (reciprocity, redistribution, market), and settlement-level aggregation.

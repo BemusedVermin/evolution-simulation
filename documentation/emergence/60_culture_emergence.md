@@ -117,6 +117,10 @@ The Polanyi 3-mode taxonomy is not state. It is a Chronicler clustering label ov
 
 ## P6d Cognition — continuous Active-Inference channels
 
+> **Forward reference (added with doc 57/58).** This subsection sketches the *substrate* (seven channels). The full agent AI architecture that runs on these channels — discrete factored POMDP, variational message passing, MCTS-EFE planning, reduced-nested theory-of-mind, flat preference-channel registry, action-skill macros, sapience scaling, runtime/space complexity analysis — is specified in **[57_agent_ai.md](57_agent_ai.md)**. Per **Invariant 9**, doc 57 is the single decision-making engine for the entire project; combat AI / dialogue intent / foraging / migration policies are all sampled from the same engine over different parts of the same factor graph.
+>
+> P6a's iterated-learning lexical-transmission op (§1 of this doc) is extended in **[58_channel_genesis.md](58_channel_genesis.md)** §6.6 — newly registered channels propagate as memetic payloads through the same operator. No new mechanism is introduced; the op handles channel-id payloads alongside the lexeme payloads it already handles.
+
 **Replaces:** the cognition-tier enum (reactive / deliberative / reflective).
 
 ### New carrier: extension to existing `cognitive_agent` (every NPC creature)

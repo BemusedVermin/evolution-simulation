@@ -1,5 +1,9 @@
 # Formation Combat System: Simulation-First Design
 
+> **Combat AI subsumed under emergence/57_agent_ai.md (per Invariant 9).** Combat is no longer a separate FSM with its own decision logic; combatants run the same active-inference loop every other agent runs, sampling combat-policy actions from the same MCTS-EFE planner over the same factor graph. Combat-specific factors (target_health, weapon_in_hand, retreat_route_known) are registered factors in the agent's generative model; combat-specific skills (parry, flank, ambush) are registered `action_skill` macros (or genesis-born under doc 58 once they recur enough across agents).
+>
+> The force-application primitives, formation mechanics, and damage-as-physics aspects of this doc remain valid — only the *decision* layer is unified under doc 57. When implementing, read this doc for combat physics + formation + damage-as-primitive-emission, and doc 57 for how an agent decides to engage / flee / regroup / parry.
+
 ## 1. Overview & Sim-First Stance
 
 Combat is a **direct projection of underlying simulation state**, not a parallel gameplay system. The formation, crew capabilities, creature behaviors, and environmental interactions all emerge from continuous simulation rules. The player does not *play combat* in isolation; they observe and command an active simulation of their crew engaging threats.

@@ -1,5 +1,14 @@
 # System 17: Individual Cognition, Memory & Learning
 
+> **Subsumed under emergence/57_agent_ai.md and emergence/60_culture_emergence.md (P6d).** The memory subsystems described here — episodic, spatial, procedural, Bayesian belief updating, Ebbinghaus forgetting, combat-ability anticipation — remain valid in their behaviour, but the *implementation* is reframed as factor-graph marginals on the agent's discrete factored POMDP (doc 57):
+> - `episodic_log` → marginals on the "past-event" factor; consolidation = pruning low-belief entries.
+> - `spatial_map` → marginals on per-cell factors of the spatial layer of the factor graph.
+> - `known_techniques` → entries in the agent's `action_skill` proficiency vector; skill acquisition = Bayesian update on the proficiency factor.
+> - `learned_creature_abilities` → reduced generative models in the `tom_cache` for non-sapient species.
+> - `local_knowledge_facts` → KnowledgeFacts are observations on the corresponding factor's likelihood; **the Bayesian update in §4.2 below IS the active-inference perceptual update step**.
+>
+> The cognition-tier enum (reactive / deliberative / reflective) is removed per P6d; tiers are 1-NN Chronicler labels over `(predictive_horizon_ticks, model_depth, theory_of_mind_order)`. Per Invariant 9, all decision-making routes through doc 57's policy posterior; this doc's memory APIs remain user-facing.
+
 ## 1. Overview
 
 Individual cognition captures how agents (both human NPCs and sapient beasts) learn, remember, and adapt from direct experience. Unlike the faction-level knowledge diffusion (System 03, F4), this system models *per-agent* memory structures and online learning. An agent's memory forms through three independent systems:
