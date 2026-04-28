@@ -44,11 +44,16 @@ concurrency:
 
 jobs:
   rust-review:
-    # Same-repo PRs only — fork PRs running on `pull_request` would
-    # not have access to secrets anyway, but the explicit guard makes
-    # the intent obvious and prevents the action from spinning up only
-    # to fail on a missing OAuth token. Drafts skip too — there is no
-    # point reviewing a draft.
+    # Same-repo + non-draft guard. Under `pull_request` semantics this
+    # is *not* a security boundary — fork PRs already cannot read the
+    # workflow's secrets, so the OAuth token would be empty and the
+    # action would fail to start regardless. The guard exists for two
+    # reasons:
+    #
+    #   * Efficiency: skip spinning up a runner for a job that would
+    #     be DOA on a fork PR.
+    #   * UX: drafts are work-in-progress; reviewing them wastes
+    #     tokens and noises up the PR.
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.draft == false
@@ -64,13 +69,28 @@ jobs:
       issues: read
 
     steps:
-      # SECURITY: `pull_request` checks out the PR head by default,
-      # which means a malicious contributor with push access could
-      # tamper with `scripts/post-pr-review.sh`. Explicitly check out
-      # the default branch instead so trusted helpers come from
-      # master. The agent reads PR-side content over the GitHub API
+      # Defense-in-depth checkout. Under `pull_request`, the workflow
+      # only runs for same-repo PRs (fork PRs are gated out by `if:`
+      # above, and would have no secrets anyway). That means anyone
+      # who can open a PR here also has push access to master, so a
+      # determined insider can already tamper with
+      # `scripts/post-pr-review.sh` directly. Pinning the checkout to
+      # the default branch is therefore not a hard security boundary
+      # — it is a layered protection that:
+      #
+      #   * Blocks the easy mistake of a same-repo collaborator
+      #     accidentally landing a script change in their PR that
+      #     runs against another collaborator's PR before review.
+      #   * Keeps the trust model identical to the previous
+      #     `pull_request_target` version, so the move from
+      #     pull_request_target → pull_request is purely a fix for the
+      #     OIDC failure (issue tracker: anthropics/claude-code-action#1206)
+      #     without weakening any guarantee that was previously in place.
+      #
+      # The agent reads PR-side content over the GitHub API
       # (`gh pr diff`, `gh api repos/.../contents/...?ref=<head_sha>`)
-      # rather than from the local working copy.
+      # rather than from the local working copy, so PR-side files are
+      # never executed locally.
       - name: Checkout default branch (trusted)
         uses: actions/checkout@v6
         with:
@@ -96,17 +116,23 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
           # Tool allowlist for the orchestrator. The default agent-mode
-          # allowlist in the action does not cover the Task tool (used
-          # to spawn the rust-reviewer subagent) or the specific Bash
-          # commands the prompt invokes (`gh pr view`, `gh pr diff`,
-          # `gh issue view`, `scripts/post-pr-review.sh`). Without this
-          # the run completes "successfully" but with
+          # allowlist does not cover the Task tool (used to spawn the
+          # rust-reviewer subagent) or the Bash commands the prompt
+          # invokes (`gh pr view`, `gh pr diff`, `gh issue view`,
+          # `scripts/post-pr-review.sh`). Without this the run
+          # completes "successfully" but with
           # `permission_denials_count > 0` and no review posted —
           # observed on the first push of this branch (run
-          # 25042668043). Granting the tools below is the minimum the
-          # prompt needs.
+          # 25042668043).
+          #
+          # Scope is the minimum end-to-end run: Bash + Read + Write
+          # (one temp JSON payload) + Grep/Glob (navigating the
+          # default-branch checkout) + Task (subagent spawn).
+          # Deliberately excludes Edit and WebFetch — the orchestrator
+          # writes the payload once and never edits a file, and reads
+          # external content only via gh, never the open web.
           claude_args: |
-            --allowed-tools "Bash,Read,Write,Edit,Grep,Glob,Task,WebFetch"
+            --allowed-tools "Bash,Read,Write,Grep,Glob,Task"
 
           # Install the everything-claude-code plugin marketplace so the
           # rust-reviewer subagent (and its sibling reviewers, used
@@ -233,3 +259,81 @@ jobs:
 
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # for the full set of action options.
+
+      # Silent-failure guard.
+      #
+      # The action exits 0 even when Claude could not complete the
+      # task — observed on this branch when the tool allowlist was
+      # too narrow: 7 turns, $0.17 spent, `permission_denials_count:
+      # 4`, and zero review posted, but the job ended green. That
+      # masks regressions where a future tool change leaves the
+      # orchestrator unable to do its job.
+      #
+      # This step turns three failure modes into hard failures:
+      #
+      #   1. Claude reported `is_error: true`.
+      #   2. Claude had any permission denials — usually means the
+      #      `claude_args` allowlist or settings need updating.
+      #   3. Claude finished cleanly but no review was actually
+      #      posted on the PR's current head SHA.
+      #
+      # Runs `if: always()` against the action's outcome so it still
+      # fires when the action returns success-but-empty. Skipped when
+      # the action itself failed hard (the action's own error is
+      # already loud).
+      - name: Verify reviewer actually posted a review
+        if: always() && steps.claude-review.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          OUTPUT_FILE: /home/runner/work/_temp/claude-execution-output.json
+        run: |
+          set -euo pipefail
+
+          if [ ! -f "$OUTPUT_FILE" ]; then
+            echo "::error::No claude-execution-output.json at $OUTPUT_FILE — the action did not run Claude."
+            exit 1
+          fi
+
+          # The action emits a stream of JSON objects (one per SDK
+          # event); the final one with `"type":"result"` carries the
+          # is_error / permission_denials_count fields. `jq -s` slurps
+          # the stream into an array; we then pick the last result.
+          result=$(jq -s '[.[] | select(.type == "result")] | last' "$OUTPUT_FILE")
+
+          if [ -z "$result" ] || [ "$result" = "null" ]; then
+            echo "::error::No 'result' event in claude-execution-output.json. Action did not finish cleanly."
+            exit 1
+          fi
+
+          is_error=$(jq -r '.is_error // false' <<<"$result")
+          denials=$(jq -r '.permission_denials_count // 0' <<<"$result")
+
+          if [ "$is_error" = "true" ]; then
+            echo "::error::Claude reported is_error=true. Result event: $result"
+            exit 1
+          fi
+
+          if [ "$denials" != "0" ]; then
+            echo "::error::Claude had $denials permission denials — review likely incomplete. Update claude_args --allowed-tools."
+            echo "Result event: $result"
+            exit 1
+          fi
+
+          # Confirm a review actually landed on the PR for the head
+          # commit this run was triggered against. github-actions[bot]
+          # is the author once the OIDC App-token bypass is in place.
+          review_count=$(
+            gh api "repos/${REPO}/pulls/${PR}/reviews" \
+              --jq "[.[] | select(.commit_id == \"${HEAD_SHA}\")] | length"
+          )
+
+          if [ "$review_count" = "0" ]; then
+            echo "::error::Reviewer ran cleanly but no review was posted for ${HEAD_SHA}."
+            echo "Result event: $result"
+            exit 1
+          fi
+
+          echo "✓ Reviewer posted ${review_count} review(s) for ${HEAD_SHA} (denials=${denials})."
