@@ -5,19 +5,24 @@
 //! shared id machinery live here.
 
 use crate::event::{EventResult, UiEvent};
+use crate::layout::LayoutConstraints;
 use crate::paint::{PaintCtx, Rect, Size};
 
 mod button;
 mod card;
 mod dialog;
+mod grid;
 mod label;
 mod list;
+mod stack;
 
 pub use button::Button;
 pub use card::Card;
 pub use dialog::Dialog;
+pub use grid::Grid;
 pub use label::Label;
 pub use list::{List, ListItem};
+pub use stack::Stack;
 
 /// Stable, globally unique identifier for a widget.
 ///
@@ -133,6 +138,49 @@ pub trait Widget {
     /// event ([`EventResult::Consumed`]) or wants it to bubble
     /// ([`EventResult::Ignored`]).
     fn handle_event(&mut self, event: &UiEvent) -> EventResult;
+
+    /// Lay this widget out within the given constraints, recursively
+    /// laying out children if any. Returns the final [`Size`] the widget
+    /// occupies — the parent uses it to assign the widget's
+    /// [`Rect`](crate::paint::Rect).
+    ///
+    /// The default implementation is the leaf-widget contract: ignore
+    /// child structure, take the widget's own [`measure`] result, and
+    /// clamp it into the constraint envelope. Container widgets
+    /// (`Stack`, `Grid`) override this to walk and position their
+    /// children.
+    ///
+    /// `#[must_use]` because under loose constraints the returned
+    /// [`Size`] is the only signal of the child's preferred dimensions;
+    /// dropping the result silently throws that away. Container call
+    /// sites that intentionally discard (tight constraints make the
+    /// return equal to the child's already-known size) should use
+    /// `let _: Size = child.layout(...)` to silence the lint and
+    /// document that the discard is deliberate.
+    ///
+    /// [`measure`]: Widget::measure
+    #[must_use = "layout returns the widget's computed size; ignoring it loses the result under loose constraints"]
+    fn layout(&mut self, ctx: &LayoutCtx, constraints: LayoutConstraints) -> Size {
+        constraints.constrain(self.measure(ctx))
+    }
+
+    /// Pre-order traversal hook. Container widgets visit `self` then
+    /// recurse into children; leaf widgets just visit `self`. Used by
+    /// [`crate::dump_layout`] and any other tree-walking helper that
+    /// wants a deterministic, read-only view over the widget hierarchy.
+    ///
+    /// This method has no default body because the obvious one
+    /// (`visitor(self)`) requires `Self: Sized` to coerce to a trait
+    /// object — a constraint that would remove the method from the
+    /// `dyn Widget` vtable and break tree traversal. Each `impl Widget`
+    /// supplies its own one-line body instead.
+    fn visit_pre_order<'a>(&'a self, visitor: &mut dyn FnMut(&'a dyn Widget));
+
+    /// Stable, lowercase-free identifier for the widget's concrete type
+    /// (e.g. `"Button"`, `"Stack"`). Used by [`crate::dump_layout`] to
+    /// produce stable snapshot strings; tests assert on these names so
+    /// they need to outlive any internal renames.
+    fn kind(&self) -> &'static str;
 }
 
 #[cfg(test)]
