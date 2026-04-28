@@ -1,203 +1,202 @@
 name: Claude Rust Reviewer
 
 # Posts a single, line-anchored review on every PR — overall summary +
-# inline comments + COMMENT verdict — to mirror the local
-# `everything-claude-code:rust-reviewer` subagent. The previous
-# `/code-review:code-review` plugin only posted a top-level summary; this
-# replaces it with a self-contained prompt that:
+# inline comments + verdict — by delegating to the
+# `everything-claude-code:rust-reviewer` subagent so the in-CI review
+# matches what the local `/code-review` flow produces.
 #
-#   1. Reads the PR diff and the linked issue body via `gh`.
-#   2. Reviews against this repo's invariants (determinism, BTreeMap-only
-#      sim state, Q32.32 fixed-point, mechanics-label separation, etc.).
-#   3. POSTs a single review with `scripts/post-pr-review.sh`, which wraps
-#      `gh api POST /pulls/N/reviews` so the body + every inline comment
-#      lands in one atomic call.
+# ## Trigger choice: `pull_request_target`
 #
-# ## Trigger: `workflow_run` after CI, not `pull_request` directly
+# This was previously `workflow_run` after CI, on the theory that we
+# could gate the reviewer on a green CI signal and avoid burning tokens
+# on red builds. Empirically the trigger never fired for PR-originating
+# CI runs — every reviewer run instead came from master-push CI and
+# resolved to "no PR for this SHA" (see Cargo.lock-touching PRs after
+# the #223 rewrite, none of which received a review). The reliable
+# trigger for same-repo PRs is `pull_request_target`.
 #
-# The reviewer is gated on the CI workflow completing successfully so:
+# `pull_request_target` runs the workflow file from the default branch,
+# so the security note below still holds. The fork guard short-circuits
+# any PR opened from outside this repo before the OAuth token is ever
+# exposed.
 #
-#   * The review reflects the same code state CI just signed off on (no
-#     race where the reviewer posts before clippy/tests/quality-metrics
-#     have a verdict).
-#   * Tokens aren't burned reviewing PRs whose builds are red — the
-#     `if:` clause below skips when `workflow_run.conclusion != 'success'`.
-#   * Pushing a new commit to a PR branch re-runs CI which, on success,
-#     re-runs this reviewer automatically. No separate trigger needed.
-#
-# Caveats of `workflow_run`:
-#   * GitHub uses the workflow file that exists on the **default branch**
-#     when this trigger fires. Edits on a PR don't take effect for that
-#     PR — only for future PRs once merged.
-#   * `github.event.pull_request.*` is unavailable; the PR number is
-#     resolved from `workflow_run.pull_requests[0]` (or, for fork PRs,
-#     from a head-SHA → PRs API lookup).
+# We give up the "wait for CI green before reviewing" property; in
+# exchange the reviewer actually runs. Burning a few tokens on red
+# builds is cheaper than missing review coverage entirely. The agent
+# itself can choose to call out CI failure in its review if relevant.
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# Avoid stacking reviewer runs when a PR receives multiple pushes back
+# to back. The newest push wins; older runs are cancelled.
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   rust-review:
-    # Only review PR-triggered CI runs that finished green. Skips:
-    #   - direct pushes to master (workflow_run.event != 'pull_request')
-    #   - failed / cancelled / skipped CI runs (conclusion != 'success')
+    # Same-repo PRs only — `pull_request_target` is the right trigger
+    # for our case (same-repo feature branches), but it would also
+    # spawn for fork PRs with full secret access. Reject those up
+    # front. Drafts skip too — there is no point reviewing a draft.
     if: >-
-      ${{ github.event.workflow_run.event == 'pull_request' &&
-          github.event.workflow_run.conclusion == 'success' }}
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
       # `pull-requests: write` is required so the action can POST the
-      # review and inline comments. The previous `read` setting is why
-      # the plugin's review couldn't actually attach inline comments.
+      # review and inline comments.
       contents: read
       pull-requests: write
       issues: read
       id-token: write
 
     steps:
-      - name: Resolve PR number from workflow_run
-        id: pr
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # The same-repo case fills `pull_requests[]` directly; the
-          # fork-PR case leaves it empty and we fall back to a SHA lookup.
-          PR_HINT: ${{ toJSON(github.event.workflow_run.pull_requests) }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          set -eu
-          pr_number=$(jq -r '.[0].number // empty' <<<"$PR_HINT")
-          if [ -z "$pr_number" ]; then
-            pr_number=$(gh api \
-              "repos/${{ github.repository }}/commits/${HEAD_SHA}/pulls" \
-              --jq '.[0].number // empty')
-          fi
-          if [ -z "$pr_number" ]; then
-            echo "no PR associated with head_sha=${HEAD_SHA}; skipping review" >&2
-            exit 0
-          fi
-          echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
-          echo "Resolved PR number: ${pr_number}"
-
-      # SECURITY: workflow_run runs with full `pull-requests: write` against
-      # the trusted default-branch workflow file. Checking out the PR's
-      # head_sha would put untrusted code (e.g. a malicious
-      # scripts/post-pr-review.sh) on disk and run it with our token —
-      # CodeQL's "privileged workflow / untrusted code" pattern. So we
-      # check out the default branch instead, and the agent fetches the
-      # PR diff and any PR-side file content over the GitHub API
-      # (`gh pr diff`, `gh api repos/.../contents/...?ref=<head_sha>`).
+      # SECURITY: pull_request_target runs the workflow file from the
+      # default branch, but `actions/checkout` defaults to the PR head
+      # SHA. Force the checkout to the default branch so untrusted PR
+      # code never lands on disk for the reviewer to execute. The
+      # agent reads the PR diff and any PR-side file content over the
+      # GitHub API (`gh pr diff`, `gh api repos/.../contents/...?ref=<head_sha>`).
       # Trusted local files (post-pr-review.sh, README) come from
       # master.
       - name: Checkout default branch (trusted)
-        if: steps.pr.outputs.pr_number != ''
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.repository.default_branch }}
-          # Shallow is fine — we don't need PR history on disk; the
-          # agent reads the diff via the API.
           fetch-depth: 1
           persist-credentials: false
 
       - name: Run Claude rust-reviewer
-        if: steps.pr.outputs.pr_number != ''
         id: claude-review
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # Install the everything-claude-code plugin marketplace so the
+          # rust-reviewer subagent (and its sibling reviewers, used
+          # transitively) is available to the orchestrator.
+          plugin_marketplaces: |
+            https://github.com/affaan-m/everything-claude-code.git
+          plugins: |
+            everything-claude-code@everything-claude-code
+
           prompt: |
-            You are reviewing pull request #${{ steps.pr.outputs.pr_number }} in the
-            ${{ github.repository }} repository as a Rust code reviewer for the Beast
-            Evolution Game (a deterministic evolution-simulation game).
+            You are the orchestrator for a Rust pull-request review on the
+            Beast Evolution Game (a deterministic evolution-simulation game).
+            Pull request: #${{ github.event.pull_request.number }} in
+            ${{ github.repository }}.
 
-            ## Context that matters for this repo
+            ## Your job
 
-            * The non-negotiable invariants live in `documentation/INVARIANTS.md`. Read
-              it at the start of the review. Anything that violates one is a CRITICAL
-              finding regardless of how clean the rest of the diff looks.
-            * Determinism (§1) — sim state must use `BTreeMap` / `BTreeSet`, never
-              `HashMap` / `HashSet`. Q32.32 fixed-point everywhere on the sim path; no
-              floats below `beast-render`. No wall-clock reads. PRNG via Xoshiro256++,
-              one stream per subsystem.
-            * Mechanics-label separation (§2) — sim crates (everything except
-              `beast-chronicler` and the UI) must NOT contain hardcoded ability-name
-              string literals (`"echolocation"`, `"venom_injection"`, etc.). Those
-              come from `beast-chronicler`'s manifest catalog at runtime.
-            * UI-vs-sim state (§6) — `beast-ui` widgets must be read-only against sim
-              state. No `&mut Simulation` / `&mut Chronicler` from a widget.
-            * Render code (§1 carve-out) — floats are fine in `beast-render`, but
-              render-derived values must never feed back into sim state.
-            * `cargo-deny` is enforced. Any new transitive dep is worth calling out.
-            * Crates declare `unsafe_code = "forbid"` in their `Cargo.toml` lints.
-              Any `unsafe` block is a CRITICAL finding.
+            Delegate the actual review to the
+            `everything-claude-code:rust-reviewer` subagent via the Agent /
+            Task tool. The subagent already encodes the rubric for
+            idiomatic Rust, ownership, error handling, and unsafe usage —
+            do not re-derive that rubric in your prompt.
 
-            ## What to do
+            Brief the subagent with the repo-specific invariants below so
+            its findings line up with this codebase's contracts. Then
+            collect its findings, format them into the review payload
+            shape documented in `scripts/README.md`, and POST the review
+            with `scripts/post-pr-review.sh`.
 
-            1. Run `gh pr view ${{ steps.pr.outputs.pr_number }} --json title,body,files`
-               to get PR metadata and the file list.
-            2. Run `gh pr diff ${{ steps.pr.outputs.pr_number }}` to get the full
-               diff. For files where you need surrounding context **on the PR side**,
-               fetch them over the API rather than from disk:
-                 gh api "repos/${{ github.repository }}/contents/<path>?ref=${{ github.event.workflow_run.head_sha }}" \
+            ## Repo-specific context to brief the subagent with
+
+            * Non-negotiable invariants live in `documentation/INVARIANTS.md`.
+              Read it once before delegating, and pass the relevant excerpts
+              to the subagent. Anything that violates one of the ten
+              invariants is CRITICAL regardless of how clean the rest of
+              the diff looks.
+            * Determinism (§1) — sim state must use `BTreeMap` / `BTreeSet`,
+              never `HashMap` / `HashSet`. Q32.32 fixed-point everywhere on
+              the sim path; floats only inside `beast-render` and `beast-ui`.
+              No wall-clock reads on the sim path. PRNG via Xoshiro256++
+              with one stream per subsystem.
+            * Mechanics-Label Separation (§2) — sim crates (everything except
+              `beast-chronicler` and the UI) must NOT contain hardcoded
+              ability-name string literals (`"echolocation"`,
+              `"venom_injection"`, etc.). Those come from
+              `beast-chronicler`'s manifest catalog at runtime.
+            * UI vs sim state (§6) — `beast-ui` widgets must be read-only
+              against sim state. No `&mut Simulation` / `&mut Chronicler`
+              from a widget; bestiary_discovered is derived UI state and
+              must not appear in the save file.
+            * Render carve-out (§1) — floats are fine in `beast-render` and
+              `beast-ui`, but render-derived values must never feed back
+              into sim state.
+            * `cargo-deny` is enforced. Any new transitive dep is worth
+              calling out.
+            * Crates declare `unsafe_code = "forbid"` in their `Cargo.toml`
+              lints — any `unsafe` block is a CRITICAL finding.
+
+            ## Steps
+
+            1. `gh pr view ${{ github.event.pull_request.number }} --json title,body,files`
+               for PR metadata and the file list.
+            2. `gh pr diff ${{ github.event.pull_request.number }}` for the
+               full diff. For surrounding context on PR-side files, use
+                 gh api "repos/${{ github.repository }}/contents/<path>?ref=${{ github.event.pull_request.head.sha }}" \
                    --jq '.content' | base64 -d
-               The local checkout is the **default branch**, not the PR — see the
-               security note in the workflow file. Trusted helpers
-               (`scripts/post-pr-review.sh`, `scripts/README.md`) come from disk and
-               are safe to run; PR-side source files must be fetched.
-            3. If the PR body references a story issue (`Closes #N` or `Part of epic #N`),
-               read the issue with `gh issue view N` so you can check DoD coverage.
-            4. Review for: idiomatic Rust (ownership, error handling, naming, traits),
-               correctness bugs and edge cases, API design (types named appropriately
-               for the next sprint to extend without breaking changes — prefer `Vec<&T>`
-               over `impl Iterator` when callers will need to name the type), test
-               coverage of the issue's DoD items, and the invariants above.
-            5. Build the review payload as a JSON file with the shape documented in
-               `scripts/README.md` (`body`, `event: "COMMENT"`, `comments[]` of
-               `{path, line, side: "RIGHT", body}` — `start_line` for multi-line ranges).
-               Severity-prefix each inline comment (`**CRITICAL** —`, `**HIGH** —`,
-               `**MEDIUM** —`, `**LOW** —`) and put a severity-count summary in the
-               overall body.
-            6. POST the review with:
+               The local checkout is the default branch, not the PR — see
+               the security note in the workflow file. Trusted helpers
+               (`scripts/post-pr-review.sh`, `scripts/README.md`) come
+               from disk and are safe to run.
+            3. If the PR body references a story issue (`Closes #N` or
+               `Part of epic #N`), `gh issue view N` so the subagent can
+               check DoD coverage.
+            4. Spawn the `everything-claude-code:rust-reviewer` subagent
+               via the Agent tool. Pass it: the PR diff, the issue body
+               (if any), and the invariant excerpts above. Ask it to
+               return a list of findings as
+               `{path, line, severity, body, suggestion}` records plus
+               an overall summary line.
+            5. Build the review payload as a JSON file with the shape
+               documented in `scripts/README.md` (`body`, `event`,
+               `comments[]` of `{path, line, side: "RIGHT", body}` —
+               `start_line` for multi-line ranges). Severity-prefix each
+               inline comment (`**CRITICAL** —`, `**HIGH** —`,
+               `**MEDIUM** —`, `**LOW** —`) and put a severity-count
+               summary in the overall body.
+            6. POST the review:
                   scripts/post-pr-review.sh \
                     ${{ github.event.repository.owner.login }} \
                     ${{ github.event.repository.name }} \
-                    ${{ steps.pr.outputs.pr_number }} \
+                    ${{ github.event.pull_request.number }} \
                     <payload-path>
-               This is a single `gh api POST /pulls/N/reviews` call — body and every
-               inline comment land atomically.
+               Single `gh api POST /pulls/N/reviews` call — body and
+               every inline comment land atomically.
+
+            ## Verdict rules
+
+            * **`REQUEST_CHANGES`** if the subagent returned at least one
+              CRITICAL, HIGH, or MEDIUM finding.
+            * **`APPROVE`** if there are no MEDIUM-or-above findings
+              (clean, or only LOW notes).
+            * **`COMMENT`** is the fallback for cases where you genuinely
+              cannot make the call (diff too large, change is purely
+              policy/config without a rubric).
+            * State the verdict and severity counts on the first line of
+              the overall body, e.g.
+              `**APPROVE** — 0 CRITICAL · 0 HIGH · 0 MEDIUM · 2 LOW`
+              or
+              `**REQUEST_CHANGES** — 0 CRITICAL · 1 HIGH · 3 MEDIUM · 1 LOW`.
+              The repo owner reads this line first.
 
             ## Constraints
 
-            * **Verdict (`event`) is determined by the highest severity finding:**
-              * **`REQUEST_CHANGES`** if the review contains at least one
-                `CRITICAL`, `HIGH`, or `MEDIUM` finding.
-              * **`APPROVE`** if the review contains no `MEDIUM`-or-above findings
-                (i.e. clean, or only `LOW` notes).
-              The repo owner can still override the verdict — APPROVE is advisory,
-              REQUEST_CHANGES doesn't block merge by default.
-            * **`COMMENT`** is reserved for cases where you genuinely cannot make
-              the call (e.g. the diff is too large to inspect fully, or the change
-              is purely policy / config that you have no rubric for). Treat it as
-              a fallback, not the default.
-            * Inline comments must reference a specific line in the new file
-              (`side: "RIGHT"`). Don't post a top-level overall comment as a substitute
-              for an inline comment when a line anchor is appropriate.
-            * Be terse and specific — one issue per inline comment, with a concrete
-              suggestion (a code snippet, a doc reference, or a one-line fix).
-            * Stay grounded in what the diff actually contains. Do not invent issues
-              that aren't in the change.
-            * State the chosen verdict and severity counts in the first line of the
-              overall body, e.g. `**APPROVE** — 0 CRITICAL · 0 HIGH · 0 MEDIUM · 2 LOW`
-              or `**REQUEST_CHANGES** — 0 CRITICAL · 1 HIGH · 3 MEDIUM · 1 LOW`. The
-              repo owner reads this line first to decide whether to dive in.
-
-            ## Output
-
-            Whatever you print to stdout is logged into the workflow run, but the
-            authoritative output is the review you POST. Do not paraphrase the review
-            into a separate top-level comment after posting — the review IS the
-            comment.
+            * Inline comments must reference a specific line in the new
+              file (`side: "RIGHT"`). Don't fall back to a top-level
+              comment when a line anchor would work.
+            * Be terse and specific — one issue per inline comment with a
+              concrete suggestion (snippet, doc reference, or one-line
+              fix).
+            * Stay grounded in what the diff contains. Do not invent
+              issues that aren't in the change.
+            * The review you POST is the authoritative output. Do not
+              paraphrase it into a separate top-level comment after.
 
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # for the full set of action options.
