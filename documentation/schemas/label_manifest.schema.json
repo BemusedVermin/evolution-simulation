@@ -11,6 +11,7 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": false,
+      "description": "Sequence of label catalog entries. JSON Schema 2020-12 cannot enforce uniqueness by a sub-property, so duplicate `id`s are caught at load time by the Rust validator (`LabelLoadError::DuplicateId`); duplicate primitive sets are caught by `LabelLoadError::AmbiguousPrimitiveSet` when the engine is built.",
       "items": {
         "type": "object",
         "required": ["id", "primitives", "min_confidence"],

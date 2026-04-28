@@ -47,6 +47,21 @@ pub enum LabelLoadError {
     /// Two manifest entries shared the same `id`.
     #[error("duplicate label id `{0}` in manifest")]
     DuplicateId(String),
+
+    /// Two manifest entries declared the same primitive set, which would
+    /// make exact-match label assignment ambiguous. Distinct from
+    /// [`Self::BadShape`] because this is a manifest-author mistake, not
+    /// a schema/Rust drift.
+    #[error(
+        "label entries `{first}` and `{second}` share the same primitive set; \
+         exact-match assignment would be ambiguous"
+    )]
+    AmbiguousPrimitiveSet {
+        /// First entry id encountered.
+        first: String,
+        /// Conflicting entry id.
+        second: String,
+    },
 }
 
 impl From<SchemaLoadError> for LabelLoadError {
@@ -144,6 +159,18 @@ struct RawLabelEntry {
 /// query API in S10.7. The `signature` field lets the UI cross-reference
 /// the underlying [`PatternObservation`] without going through the
 /// observation index.
+///
+/// # Save-file contract
+///
+/// `Label`s are **derived** state — recomputed by
+/// [`crate::Chronicler::assign_labels`] from the observation index plus
+/// the active [`LabelEngine`]. `Serialize` / `Deserialize` are derived
+/// purely for in-process wire formats (e.g. the S10.7 UI query surface);
+/// they MUST NOT be written to versioned save files as authoritative
+/// state. Saving the underlying observations is sufficient — labels
+/// regenerate deterministically on the next `assign_labels` pass. This
+/// is the same discipline `INVARIANTS.md` §6 applies to
+/// `bestiary_discovered` and §7 applies to derived group memberships.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Label {
     /// Manifest-defined label id (snake_case).
@@ -209,7 +236,11 @@ impl LabelEngine {
     /// one call.
     pub fn from_json_str(source: &str) -> Result<Self, LabelLoadError> {
         let manifest = LabelManifest::from_json_str(source)?;
-        Self::from_manifest(manifest).map_err(|e| LabelLoadError::BadShape(e.to_string()))
+        Self::from_manifest(manifest).map_err(|e| match e {
+            LabelEngineError::AmbiguousPrimitiveSet { first, second } => {
+                LabelLoadError::AmbiguousPrimitiveSet { first, second }
+            }
+        })
     }
 
     /// Number of label entries the engine can match.
@@ -364,7 +395,22 @@ mod tests {
             ]
         }"#;
         let err = LabelEngine::from_json_str(src).unwrap_err();
-        assert!(matches!(err, LabelLoadError::BadShape(_)));
+        match err {
+            LabelLoadError::AmbiguousPrimitiveSet { first, second } => {
+                assert_eq!(first, "foo");
+                assert_eq!(second, "bar");
+            }
+            other => panic!("expected AmbiguousPrimitiveSet, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn embedded_schema_compiles() {
+        // Touching `compiled_schema()` runs the OnceLock initialiser,
+        // which panics if the embedded schema source is malformed —
+        // surfacing schema-edit mistakes at unit-test time rather than
+        // at first integration-test or runtime use.
+        let _ = compiled_schema();
     }
 
     #[test]
