@@ -219,16 +219,14 @@ jobs:
                the security note in the workflow file. Trusted helpers
                (`scripts/post-pr-review.sh`, `scripts/README.md`) come
                from disk and are safe to run.
-            3. **Read the PR's existing review history** so you do not
-               repeat findings the previous reviewer run already raised.
-               Save these as JSON for use in step 6:
-                  gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
-                    --paginate > /tmp/prior_reviews.json
+            3. **Read prior inline comments** so you do not duplicate
+               findings the previous reviewer run already raised at the
+               same line:
                   gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments" \
                     --paginate > /tmp/prior_inline_comments.json
-               `prior_inline_comments.json` is the line-anchored review
-               comments (`/pulls/N/comments`), which is what you'll
-               compare against to dedupe. Top-level issue comments
+               These are the line-anchored review comments
+               (`/pulls/N/comments`). You will pass this file to the
+               subagent and use it to dedupe. Top-level issue comments
                (`/issues/N/comments`) are not relevant to dedup.
             4. If the PR body references a story issue (`Closes #N` or
                `Part of epic #N`), `gh issue view N` so the subagent can
@@ -236,80 +234,84 @@ jobs:
             5. Spawn the `everything-claude-code:rust-reviewer` subagent
                via the Agent tool. Pass it: the PR diff, the issue body
                (if any), the invariant excerpts above, AND the contents
-               of `/tmp/prior_inline_comments.json`. Tell the subagent
-               to return findings as
-               `{path, line, severity, body, suggestion}` records plus
-               an overall summary line, and to flag each finding with
-               one of three dedup states relative to the prior comments:
-                 * `new`   — no overlap with any prior inline comment.
-                 * `reaffirm` — same `(path, line)` and same underlying
-                   concern as a prior comment that is still applicable
-                   on the new diff. Include the parent `id` from
-                   `prior_inline_comments.json`.
-                 * `resolved` — same `(path, line)` and same concern as
-                   a prior comment that is now addressed on the new
-                   diff. Include the parent `id`.
-            6. **Process the findings**:
-                 * For each `reaffirm` / `resolved` finding, post a
-                   short reply to the parent thread:
-                     gh api -X POST \
-                       "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments/<parent_id>/replies" \
-                       -f body="<one-line message>"
-                   `reaffirm` body: "Still applies on `<head_sha[:8]>` —
-                   <one-line reason>". `resolved` body: "Resolved on
-                   `<head_sha[:8]>`."
-                 * Build the review payload (per `scripts/README.md`)
-                   from ONLY the `new` findings. Severity-prefix each
-                   inline comment (`**CRITICAL** —`, `**HIGH** —`,
-                   `**MEDIUM** —`, `**LOW** —`) and put a severity-count
-                   summary in the overall body. Include a single
-                   sentence at the top noting how many prior threads
-                   you reaffirmed / resolved, e.g.
-                   "Compared against 4 prior inline comments: 2
-                   reaffirmed, 1 resolved, 1 unrelated to current
-                   diff."
-            7. **Post**:
-                 * If there is at least one `new` finding: POST the
-                   review with
-                     scripts/post-pr-review.sh \
-                       ${{ github.event.repository.owner.login }} \
-                       ${{ github.event.repository.name }} \
-                       ${{ github.event.pull_request.number }} \
-                       <payload-path>
-                 * If every finding was a `reaffirm` or `resolved` (no
-                   new findings) AND at least one reply was posted in
-                   step 6: post a one-line top-level issue comment so
-                   the run leaves a clear trail without stacking another
-                   review:
+               of `/tmp/prior_inline_comments.json`. Ask the subagent to
+               return findings as
+               `{path, line, severity, body, suggestion, status}`
+               records, where `status` is one of:
+                 * `new`   — no prior inline comment at `(path, line)`
+                   covers the same concern.
+                 * `duplicate` — a prior inline comment at the same
+                   `(path, line)` already raised the same concern AND
+                   it is still applicable on the new diff. Drop the
+                   finding from the new review entirely; the prior
+                   thread already records it.
+                 * `obsolete` — a prior inline comment at the same
+                   `(path, line)` raised a concern that is now resolved
+                   on the new diff. Drop the finding; the prior thread
+                   is still part of the PR's history but doesn't need
+                   reposting.
+               Include in the subagent's response a summary count of
+               how many prior comments were duplicate / obsolete /
+               unrelated to the new diff.
+            6. **Build the review payload** (per `scripts/README.md`)
+               from ONLY the `new` findings. Severity-prefix each
+               inline comment (`**CRITICAL** —`, `**HIGH** —`,
+               `**MEDIUM** —`, `**LOW** —`) and put a severity-count
+               summary in the overall body. Open the body with one
+               sentence noting the dedup state, e.g.
+               "Compared against 4 prior inline comments: 2 still
+               apply (not reposted), 1 resolved, 1 unrelated to current
+               diff."
+            7. **Post exactly one of these** (no more, no fewer):
+                 * If there is at least one `new` finding: invoke
+                   `scripts/post-pr-review.sh` ONCE with the payload
+                   above.
+                 * If every finding was `duplicate` or `obsolete` (no
+                   new findings) but at least one prior comment is
+                   still applicable: post a single top-level issue
+                   comment so the run leaves a trail:
                      gh api -X POST \
                        "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-                       -f body="No new findings on \`<head_sha[:8]>\`. Updated <N> prior thread(s)."
-                 * If there were no findings at all (clean diff, nothing
-                   to reaffirm or resolve): post an `APPROVE`-event
-                   review via `scripts/post-pr-review.sh` with an empty
-                   `comments[]` and a one-line body.
-               In every branch the silent-failure guard expects either a
-               new review OR a `github-actions[bot]` issue comment to
-               land for this run; do not exit without leaving one of the
-               two.
+                       -f body="No new findings on \`<head_sha[:8]>\`. Prior review's <N> finding(s) still apply on this commit."
+                 * If the diff is genuinely clean (no findings at all,
+                   no prior comments to reaffirm): submit an
+                   `APPROVE`-event review via `scripts/post-pr-review.sh`
+                   with an empty `comments[]` and a one-line body.
+               The silent-failure guard expects EITHER one new review
+               OR one `github-actions[bot]` issue comment after
+               JOB_START; do not exit without leaving exactly one of
+               those two artefacts.
+
+               **Hard rule on tool choice**: the only way to land an
+               authoritative output is `scripts/post-pr-review.sh`
+               (for a review) or
+               `gh api -X POST .../issues/N/comments` (for the no-new-
+               findings comment). Do NOT call the GitHub REST reviews
+               API directly, do NOT call the
+               `add_comment_to_pending_review` /
+               `add_reply_to_pull_request_comment` MCP tools, and do
+               NOT invoke `scripts/post-pr-review.sh` more than once.
+               Each of those creates a fresh review record, which is
+               exactly what we are trying to stop happening on every
+               push.
 
             ## Verdict rules
 
             * **`REQUEST_CHANGES`** if at least one *new* finding is
-              CRITICAL, HIGH, or MEDIUM. Reaffirmed prior threads do
-              NOT count toward the verdict — they have already been
-              flagged.
-            * **`APPROVE`** if there are no new MEDIUM-or-above findings
-              (clean, only `new` LOW notes, or every finding was a
-              reaffirm/resolved reply).
-            * **`COMMENT`** is the fallback for cases where you genuinely
-              cannot make the call (diff too large, change is purely
-              policy/config without a rubric).
-            * State the verdict and severity counts on the first line of
-              the overall body, e.g.
-              `**APPROVE** — 0 CRITICAL · 0 HIGH · 0 MEDIUM · 2 LOW (new) · 1 reaffirmed`
+              CRITICAL, HIGH, or MEDIUM. `duplicate` / `obsolete`
+              findings do NOT count toward the verdict — they have
+              already been flagged on a prior commit.
+            * **`APPROVE`** if there are no new MEDIUM-or-above
+              findings (clean, only `new` LOW notes, or every finding
+              was a duplicate/obsolete that got dropped).
+            * **`COMMENT`** is the fallback for cases where you
+              genuinely cannot make the call (diff too large, change
+              is purely policy/config without a rubric).
+            * State the verdict and severity counts on the first line
+              of the overall body, e.g.
+              `**APPROVE** — 0 CRITICAL · 0 HIGH · 0 MEDIUM · 2 LOW (new) · 1 prior still applies`
               or
-              `**REQUEST_CHANGES** — 0 CRITICAL · 1 HIGH · 3 MEDIUM · 1 LOW (new) · 0 reaffirmed`.
+              `**REQUEST_CHANGES** — 0 CRITICAL · 1 HIGH · 3 MEDIUM · 1 LOW (new) · 0 prior still applies`.
               The repo owner reads this line first.
 
             ## Constraints
@@ -325,10 +327,9 @@ jobs:
             * The review you POST is the authoritative output. Do not
               paraphrase it into a separate top-level comment after.
             * Do not stack duplicate findings — if a prior inline
-              comment already raised the same concern at the same
-              `(path, line)` and the concern still applies, reply to
-              that thread (`reaffirm` flow above) rather than opening
-              a new comment on the same line.
+              comment at the same `(path, line)` already raised the
+              same concern, drop the finding (`duplicate` status). The
+              prior thread already documents it; reposting is noise.
 
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # for the full set of action options.
@@ -445,6 +446,22 @@ jobs:
           if [ "$review_count" = "0" ] && [ "$comment_count" = "0" ]; then
             echo "::error::Reviewer ran cleanly but neither a review nor a bot comment was posted for ${HEAD_SHA} after ${JOB_START}."
             echo "Result event: $result"
+            exit 1
+          fi
+
+          # The orchestrator must post exactly one review or one
+          # comment per run. Anything more means either:
+          #   * Claude misused the GitHub API (e.g. created a separate
+          #     review per "reply" instead of dropping duplicates), as
+          #     observed on run 25045232173 where 7 empty COMMENTED
+          #     reviews stacked on top of the actual review.
+          #   * `scripts/post-pr-review.sh` was invoked more than once.
+          # Either way the PR ends up with stacked review records,
+          # which is exactly the noise this workflow was rewritten to
+          # avoid. Fail the job so the regression is loud.
+          total=$(( review_count + comment_count ))
+          if [ "$total" -gt 1 ]; then
+            echo "::error::Reviewer landed ${total} artefacts (${review_count} review(s) + ${comment_count} comment(s)) for ${HEAD_SHA} since ${JOB_START}; expected exactly one. Inspect the prompt's 'Hard rule on tool choice' constraint."
             exit 1
           fi
 
