@@ -140,24 +140,45 @@ jobs:
           # rather than `claude[bot]`.
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-          # Tool allowlist for the orchestrator. The default agent-mode
-          # allowlist does not cover the Task tool (used to spawn the
-          # rust-reviewer subagent) or the Bash commands the prompt
-          # invokes (`gh pr view`, `gh pr diff`, `gh issue view`,
-          # `scripts/post-pr-review.sh`). Without this the run
-          # completes "successfully" but with
-          # `permission_denials_count > 0` and no review posted —
-          # observed on the first push of this branch (run
-          # 25042668043).
+          # CLI flags for the orchestrator session. The orchestrator
+          # is deliberately small — it gathers PR metadata, delegates
+          # the actual rubric work to the rust-reviewer subagent, and
+          # posts the result. Three flags keep that lean:
           #
-          # Scope is the minimum end-to-end run: Bash + Read + Write
-          # (one temp JSON payload) + Grep/Glob (navigating the
-          # default-branch checkout) + Task (subagent spawn).
-          # Deliberately excludes Edit and WebFetch — the orchestrator
-          # writes the payload once and never edits a file, and reads
-          # external content only via gh, never the open web.
+          # * `--allowed-tools` — minimum tool surface for the
+          #   orchestrator. Does NOT cover everything the agent-mode
+          #   default allows because the prompt invokes specific
+          #   binaries (`gh pr view`, `gh pr diff`, `gh issue view`,
+          #   `scripts/post-pr-review.sh`) and spawns the subagent
+          #   via Task. Edit and WebFetch are deliberately excluded:
+          #   the orchestrator writes the payload once with Write
+          #   and reads external content only via gh, never the open
+          #   web. Without this allowlist the run "succeeds" with
+          #   `permission_denials_count > 0` and no review posted
+          #   (observed on run 25042668043).
+          #
+          # * `--model claude-haiku-4-5-20251001` — Haiku is plenty
+          #   for the orchestrator's actual work (gh calls, JSON
+          #   shaping, single Task spawn, post-script invoke) and is
+          #   roughly 3× faster + cheaper than Sonnet on this kind
+          #   of mechanical glue. The rust-reviewer subagent declares
+          #   its own model in the everything-claude-code plugin, so
+          #   review *quality* is unaffected — only the orchestrator
+          #   half of the wall-clock budget shrinks.
+          #
+          # * `--max-turns 20` — backstop against pathological turn
+          #   counts. The orchestrator's normal path is ~7 turns
+          #   (gather PR data → read prior comments → spawn subagent
+          #   → build payload → post). 20 leaves a healthy 2.8×
+          #   margin for retry/clarification turns; anything beyond
+          #   that means the prompt is being misinterpreted (the
+          #   reply-flow regression on run 25045232173 burned ~30+
+          #   turns). Hitting the cap is a louder failure than
+          #   silently spending 14 minutes.
           claude_args: |
             --allowed-tools "Bash,Read,Write,Grep,Glob,Task"
+            --model "claude-haiku-4-5-20251001"
+            --max-turns 20
 
           # Install the everything-claude-code plugin marketplace so the
           # rust-reviewer subagent (and its sibling reviewers, used
