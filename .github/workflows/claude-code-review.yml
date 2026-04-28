@@ -39,6 +39,15 @@ name: Claude Rust Reviewer
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+    # Only fire when something the rust-reviewer agent actually
+    # reviews has changed. PRs that only touch CI workflows, docs,
+    # JSON manifests, scripts, etc. skip the reviewer entirely —
+    # saves Anthropic API spend on diffs the agent isn't equipped to
+    # rate (and would mostly produce noise on).
+    paths:
+      - '**/*.rs'
+      - '**/Cargo.toml'
+      - 'Cargo.lock'
 
 # Avoid stacking reviewer runs when a PR receives multiple pushes back
 # to back. The newest push wins; older runs are cancelled.
