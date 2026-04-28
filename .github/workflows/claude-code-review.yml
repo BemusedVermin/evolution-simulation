@@ -5,28 +5,35 @@ name: Claude Rust Reviewer
 # `everything-claude-code:rust-reviewer` subagent so the in-CI review
 # matches what the local `/code-review` flow produces.
 #
-# ## Trigger choice: `pull_request_target`
+# ## Trigger choice: `pull_request`
 #
-# This was previously `workflow_run` after CI, on the theory that we
-# could gate the reviewer on a green CI signal and avoid burning tokens
-# on red builds. Empirically the trigger never fired for PR-originating
-# CI runs — every reviewer run instead came from master-push CI and
-# resolved to "no PR for this SHA" (see Cargo.lock-touching PRs after
-# the #223 rewrite, none of which received a review). The reliable
-# trigger for same-repo PRs is `pull_request_target`.
+# Trigger history:
 #
-# `pull_request_target` runs the workflow file from the default branch,
-# so the security note below still holds. The fork guard short-circuits
-# any PR opened from outside this repo before the OAuth token is ever
-# exposed.
+# 1. `workflow_run` (original): gated on CI green, but never actually
+#    fired for PR-originating runs — see PR #223. Net effect: PRs after
+#    #223 received no automated review.
+# 2. `pull_request_target`: replaced workflow_run to make the reviewer
+#    actually run. Hit a fresh failure mode on PR #234 — the
+#    `claude-code-action` does an OIDC → GitHub App installation token
+#    exchange so it can post as `claude[bot]`, and that exchange
+#    returned 401 "Invalid OIDC token" on every retry. This is a known
+#    open bug (anthropics/claude-code-action#1206) with no upstream fix.
+# 3. `pull_request` + explicit `github_token` (current): drops the
+#    OIDC/App-token exchange entirely. We pass `secrets.GITHUB_TOKEN`
+#    directly to the action so it posts the review as
+#    `github-actions[bot]` instead of `claude[bot]`. Fork PRs are
+#    rejected by the same-repo `if:` guard below; same-repo PRs run
+#    with secrets and post successfully.
 #
-# We give up the "wait for CI green before reviewing" property; in
-# exchange the reviewer actually runs. Burning a few tokens on red
-# builds is cheaper than missing review coverage entirely. The agent
-# itself can choose to call out CI failure in its review if relevant.
+# We still check out the default branch explicitly so the review
+# helpers (`scripts/post-pr-review.sh`, `scripts/README.md`) come from
+# master rather than the PR head — preserves the same security profile
+# as the `pull_request_target` version. The agent reads PR-side
+# content via `gh pr diff` / `gh api .../contents?ref=<head_sha>` so
+# untrusted PR code is never executed locally.
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
 # Avoid stacking reviewer runs when a PR receives multiple pushes back
@@ -37,31 +44,33 @@ concurrency:
 
 jobs:
   rust-review:
-    # Same-repo PRs only — `pull_request_target` is the right trigger
-    # for our case (same-repo feature branches), but it would also
-    # spawn for fork PRs with full secret access. Reject those up
-    # front. Drafts skip too — there is no point reviewing a draft.
+    # Same-repo PRs only — fork PRs running on `pull_request` would
+    # not have access to secrets anyway, but the explicit guard makes
+    # the intent obvious and prevents the action from spinning up only
+    # to fail on a missing OAuth token. Drafts skip too — there is no
+    # point reviewing a draft.
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
       # `pull-requests: write` is required so the action can POST the
-      # review and inline comments.
+      # review and inline comments. `id-token` is intentionally NOT
+      # requested — the action's OIDC → GitHub App token exchange is
+      # the failure mode we are sidestepping by passing
+      # `secrets.GITHUB_TOKEN` directly (see header comment).
       contents: read
       pull-requests: write
       issues: read
-      id-token: write
 
     steps:
-      # SECURITY: pull_request_target runs the workflow file from the
-      # default branch, but `actions/checkout` defaults to the PR head
-      # SHA. Force the checkout to the default branch so untrusted PR
-      # code never lands on disk for the reviewer to execute. The
-      # agent reads the PR diff and any PR-side file content over the
-      # GitHub API (`gh pr diff`, `gh api repos/.../contents/...?ref=<head_sha>`).
-      # Trusted local files (post-pr-review.sh, README) come from
-      # master.
+      # SECURITY: `pull_request` checks out the PR head by default,
+      # which means a malicious contributor with push access could
+      # tamper with `scripts/post-pr-review.sh`. Explicitly check out
+      # the default branch instead so trusted helpers come from
+      # master. The agent reads PR-side content over the GitHub API
+      # (`gh pr diff`, `gh api repos/.../contents/...?ref=<head_sha>`)
+      # rather than from the local working copy.
       - name: Checkout default branch (trusted)
         uses: actions/checkout@v6
         with:
@@ -74,6 +83,17 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # Pass the workflow's automatic GitHub token directly so the
+          # action skips its OIDC → GitHub App installation token
+          # exchange. That exchange has been failing with
+          # 401 "Invalid OIDC token" on this repo (upstream bug
+          # anthropics/claude-code-action#1206); the action's
+          # `github_token` input is documented as "optional if using
+          # GitHub App" and lets us bypass the App path entirely.
+          # Side effect: the review is posted as `github-actions[bot]`
+          # rather than `claude[bot]`.
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
           # Install the everything-claude-code plugin marketplace so the
           # rust-reviewer subagent (and its sibling reviewers, used
