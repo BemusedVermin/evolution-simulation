@@ -297,11 +297,14 @@ jobs:
             exit 1
           fi
 
-          # The action emits a stream of JSON objects (one per SDK
-          # event); the final one with `"type":"result"` carries the
-          # is_error / permission_denials_count fields. `jq -s` slurps
-          # the stream into an array; we then pick the last result.
-          result=$(jq -s '[.[] | select(.type == "result")] | last' "$OUTPUT_FILE")
+          # The action writes the SDK event log as a single JSON
+          # array — `[ {init…}, {assistant…}, …, {result…} ]`. We
+          # filter to the final element with `"type":"result"`, which
+          # carries the is_error / permission_denials_count fields.
+          # No `jq -s` here: the file is already an array, so
+          # slurping would wrap it in *another* array and break the
+          # `.type` index (observed on run 25044362984).
+          result=$(jq '[.[] | select(.type == "result")] | last' "$OUTPUT_FILE")
 
           if [ -z "$result" ] || [ "$result" = "null" ]; then
             echo "::error::No 'result' event in claude-execution-output.json. Action did not finish cleanly."
