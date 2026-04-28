@@ -1,0 +1,88 @@
+name: Cancel stale PR runs
+
+# Belt-and-suspenders catch-all that cancels any in-flight workflow run
+# whose head SHA is older than a PR's current head SHA. The individual
+# workflows (`ci.yml`, `codeql.yml`, `claude-code-review.yml`) already
+# have `concurrency: cancel-in-progress: true` blocks keyed on the PR
+# ref or PR number, which handles cancellation when those specific
+# workflows re-trigger. This workflow exists as a safety net so:
+#
+#   * A future workflow added without a concurrency block still has its
+#     stale runs cleaned up automatically.
+#   * Workflows triggered by different events on the same ref (e.g.
+#     `workflow_run` chains, scheduled jobs that happen to be in-flight)
+#     get cancelled too, which `concurrency` cannot do across event
+#     types.
+#
+# How it works:
+#   1. Fires only on `pull_request: synchronize` / `reopened` — the
+#      events where a PR's head SHA actually changes. `opened` is
+#      excluded because there is nothing older to cancel.
+#   2. Lists in-flight runs (`status in {queued, in_progress, requested,
+#      waiting}`) on the PR's head branch.
+#   3. For each one, cancels it iff its `head_sha` differs from the new
+#      head SHA of the current `pull_request` event. That guarantees we
+#      never cancel a run that was just kicked off by the same push.
+#
+# We use `pull_request` (not `pull_request_target`) on purpose: this
+# job needs no secrets, only the GITHUB_TOKEN with `actions: write`,
+# and `pull_request` runs in a sandbox that's safe even for fork PRs.
+
+on:
+  pull_request:
+    types: [synchronize, reopened]
+
+permissions:
+  # Cancellation requires `actions: write`. No checkout, no PR
+  # write — this workflow only calls the Actions REST API.
+  actions: write
+  contents: read
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Cancel stale runs on this PR's head branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          # `head.ref` is the branch name (e.g. `feat/s10-6-label-engine`),
+          # which is what the GitHub API filters runs by — `head_branch`
+          # in the response. For fork PRs this is the fork-side branch
+          # name; the API still scopes correctly because runs from a
+          # fork PR are listed against the fork's branch.
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          NEW_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          echo "Looking for stale runs on branch=${HEAD_REF} that are not at ${NEW_SHA}"
+
+          # Pull every in-flight run on this branch. The Actions API
+          # accepts a comma-separated `status` query but enumerates
+          # easier as one request per status; the union of these four
+          # states covers everything that is consuming a runner or a
+          # queue slot.
+          stale_ids=()
+          for status in queued in_progress requested waiting; do
+            mapfile -t ids < <(
+              gh api \
+                "repos/${REPO}/actions/runs?branch=${HEAD_REF}&status=${status}&per_page=100" \
+                --jq ".workflow_runs[] | select(.head_sha != \"${NEW_SHA}\") | .id"
+            )
+            stale_ids+=("${ids[@]}")
+          done
+
+          if [ "${#stale_ids[@]}" -eq 0 ]; then
+            echo "No stale runs to cancel."
+            exit 0
+          fi
+
+          # Dedupe (a run can briefly appear in two states between API
+          # calls) and cancel each. `|| true` per-run so a 409 (already
+          # finishing) on one run doesn't abort the rest.
+          printf '%s\n' "${stale_ids[@]}" | sort -u | while read -r run_id; do
+            echo "Cancelling run ${run_id}"
+            gh api -X POST "repos/${REPO}/actions/runs/${run_id}/cancel" \
+              --silent || echo "  (already finishing or not cancellable; skipping)"
+          done
