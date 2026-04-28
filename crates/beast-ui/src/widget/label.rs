@@ -77,6 +77,14 @@ impl Widget for Label {
     fn handle_event(&mut self, _event: &UiEvent) -> EventResult {
         EventResult::Ignored
     }
+
+    fn visit_pre_order<'a>(&'a self, visitor: &mut dyn FnMut(&'a dyn Widget)) {
+        visitor(self);
+    }
+
+    fn kind(&self) -> &'static str {
+        "Label"
+    }
 }
 
 #[cfg(test)]

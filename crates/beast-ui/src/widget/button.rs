@@ -144,6 +144,14 @@ impl Widget for Button {
             _ => EventResult::Ignored,
         }
     }
+
+    fn visit_pre_order<'a>(&'a self, visitor: &mut dyn FnMut(&'a dyn Widget)) {
+        visitor(self);
+    }
+
+    fn kind(&self) -> &'static str {
+        "Button"
+    }
 }
 
 #[cfg(test)]

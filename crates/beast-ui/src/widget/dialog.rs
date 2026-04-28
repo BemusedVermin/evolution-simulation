@@ -111,6 +111,20 @@ impl Widget for Dialog {
         }
         EventResult::Ignored
     }
+
+    fn visit_pre_order<'a>(&'a self, visitor: &mut dyn FnMut(&'a dyn Widget)) {
+        visitor(self);
+        // Reuse Card's traversal so the dialog body — its title bar plus
+        // any child widgets pushed via push_child — appears in
+        // dump_layout output without duplication.
+        for child in self.inner.children() {
+            child.visit_pre_order(visitor);
+        }
+    }
+
+    fn kind(&self) -> &'static str {
+        "Dialog"
+    }
 }
 
 #[cfg(test)]

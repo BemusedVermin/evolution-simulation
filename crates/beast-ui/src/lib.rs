@@ -27,11 +27,16 @@
 #![warn(missing_docs)]
 
 pub mod event;
+pub mod layout;
 pub mod paint;
+pub mod tree;
 pub mod widget;
 
 pub use event::{EventResult, KeyCode, KeyMods, Modifiers, MouseButton, UiEvent};
+pub use layout::{Align, Axis, LayoutConstraints};
 pub use paint::{Color, DrawCmd, PaintCtx, Point, Rect, Size};
+pub use tree::{dump_layout, WidgetTree};
 pub use widget::{
-    Button, Card, Dialog, IdAllocator, Label, LayoutCtx, List, ListItem, Widget, WidgetId,
+    Button, Card, Dialog, Grid, IdAllocator, Label, LayoutCtx, List, ListItem, Stack, Widget,
+    WidgetId,
 };

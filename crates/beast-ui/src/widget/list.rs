@@ -201,6 +201,14 @@ impl<T: Clone + std::fmt::Debug> Widget for List<T> {
             _ => EventResult::Ignored,
         }
     }
+
+    fn visit_pre_order<'a>(&'a self, visitor: &mut dyn FnMut(&'a dyn Widget)) {
+        visitor(self);
+    }
+
+    fn kind(&self) -> &'static str {
+        "List"
+    }
 }
 
 #[cfg(test)]

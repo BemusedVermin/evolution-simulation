@@ -134,6 +134,17 @@ impl Widget for Card {
         }
         EventResult::Ignored
     }
+
+    fn visit_pre_order<'a>(&'a self, visitor: &mut dyn FnMut(&'a dyn Widget)) {
+        visitor(self);
+        for child in &self.children {
+            child.visit_pre_order(visitor);
+        }
+    }
+
+    fn kind(&self) -> &'static str {
+        "Card"
+    }
 }
 
 #[cfg(test)]
