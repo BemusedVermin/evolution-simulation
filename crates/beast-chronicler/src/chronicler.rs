@@ -48,6 +48,17 @@ pub struct Chronicler {
     /// species are excluded from bestiary queries; they still appear
     /// under [`Self::labels_for_entity`].
     entity_species: BTreeMap<EntityId, SpeciesId>,
+    /// Reverse index of [`Self::entity_species`] — the set of entities
+    /// registered for each species. Maintained in lockstep with
+    /// `entity_species` by [`Self::set_entity_species`].
+    ///
+    /// Without this, [`ChroniclerQuery::bestiary_entries`] would scan
+    /// every entry of `entity_species` once per distinct species —
+    /// O(S * E) work on every render. With the reverse index a single
+    /// bestiary build is O(members) and the full sweep is O(E * P)
+    /// (each entity contributes its own signatures exactly once),
+    /// matching the optimal cost.
+    species_entities: BTreeMap<SpeciesId, BTreeSet<EntityId>>,
 }
 
 impl Chronicler {
@@ -108,9 +119,28 @@ impl Chronicler {
     /// (sim spawner, save loader) is the source of truth. Repeated calls
     /// for the same entity overwrite the prior species — useful for
     /// speciation events where an entity transitions between species
-    /// ids over its lifetime.
+    /// ids over its lifetime. The `species_entities` reverse index is
+    /// kept in sync: the entity is removed from the previous species'
+    /// set (and that set dropped if it became empty) before being
+    /// inserted into the new one.
     pub fn set_entity_species(&mut self, entity: EntityId, species: SpeciesId) {
-        self.entity_species.insert(entity, species);
+        if let Some(prev) = self.entity_species.insert(entity, species) {
+            if prev == species {
+                // Same species, set already contains the entity — fast
+                // path skips the reverse-index churn.
+                return;
+            }
+            if let Some(prev_members) = self.species_entities.get_mut(&prev) {
+                prev_members.remove(&entity);
+                if prev_members.is_empty() {
+                    self.species_entities.remove(&prev);
+                }
+            }
+        }
+        self.species_entities
+            .entry(species)
+            .or_default()
+            .insert(entity);
     }
 
     /// Read-only view of the entity → per-signature emission counts.
@@ -207,22 +237,30 @@ impl Chronicler {
     /// Build a [`BestiaryEntry`] for one species by aggregating across
     /// every registered entity that belongs to it.
     ///
-    /// Returns `None` when no entity has been registered for `species`
-    /// or none of the registered entities have been ingested. Pulled out
-    /// of the [`ChroniclerQuery`] impl so [`Self::bestiary_entry`] and
-    /// [`Self::bestiary_entries`] share one aggregation pass.
+    /// Returns `None` when no entity has been registered for `species`.
+    /// Pulled out of the [`ChroniclerQuery`] impl so
+    /// [`Self::bestiary_entry`] and [`Self::bestiary_entries`] share
+    /// one aggregation pass.
+    ///
+    /// Uses [`Self::species_entities`] for an O(members) member walk
+    /// instead of an O(E) scan over every registered entity — required
+    /// for the bestiary screen to stay within its render budget at
+    /// 1000+ species × 10000+ entities.
     fn build_bestiary_entry(&self, species: SpeciesId) -> Option<BestiaryEntry> {
+        let members = self.species_entities.get(&species)?;
+        if members.is_empty() {
+            // Defensive: the index invariant is "no empty sets" but
+            // returning None here keeps the contract identical to the
+            // pre-index version regardless.
+            return None;
+        }
+
         let mut observation_count: u64 = 0;
         let mut first_tick: Option<TickCounter> = None;
         let mut confidence: Q3232 = Q3232::ZERO;
         let mut label_ids: BTreeSet<LabelId> = BTreeSet::new();
-        let mut any_entity = false;
 
-        for (entity, registered_species) in &self.entity_species {
-            if *registered_species != species {
-                continue;
-            }
-            any_entity = true;
+        for entity in members {
             let Some(per_signature) = self.entity_emissions.get(entity) else {
                 continue;
             };
@@ -241,10 +279,6 @@ impl Chronicler {
                     }
                 }
             }
-        }
-
-        if !any_entity {
-            return None;
         }
 
         Some(BestiaryEntry {
@@ -297,11 +331,15 @@ impl ChroniclerQuery for Chronicler {
     }
 
     fn bestiary_entries(&self, filter: &BestiaryFilter) -> Vec<BestiaryEntry> {
-        // Distinct species, in ascending SpeciesId — gives a stable
-        // pre-sort baseline before applying the configured order.
-        let species_set: BTreeSet<SpeciesId> = self.entity_species.values().copied().collect();
-        let mut entries: Vec<BestiaryEntry> = species_set
-            .into_iter()
+        // BTreeMap iteration over species_entities yields species in
+        // ascending SpeciesId order — gives a stable pre-sort baseline
+        // before applying the configured order, and avoids the O(E)
+        // scan a `entity_species.values().copied().collect()` would
+        // otherwise cost.
+        let mut entries: Vec<BestiaryEntry> = self
+            .species_entities
+            .keys()
+            .copied()
             .filter_map(|s| self.build_bestiary_entry(s))
             .filter(|entry| !filter.discovered_only || entry.observation_count >= 1)
             .filter(|entry| match &filter.search {
@@ -330,6 +368,49 @@ mod tests {
             EntityId::new(entity),
             primitives.iter().copied(),
         )
+    }
+
+    #[test]
+    fn set_entity_species_maintains_reverse_index() {
+        let mut c = Chronicler::new();
+        c.set_entity_species(EntityId::new(1), SpeciesId::new(0));
+        c.set_entity_species(EntityId::new(2), SpeciesId::new(0));
+        c.set_entity_species(EntityId::new(3), SpeciesId::new(1));
+        assert_eq!(
+            c.species_entities.get(&SpeciesId::new(0)).map(|s| s.len()),
+            Some(2)
+        );
+        assert_eq!(
+            c.species_entities.get(&SpeciesId::new(1)).map(|s| s.len()),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn set_entity_species_speciation_moves_entity_between_sets() {
+        // Speciation event: entity 1 starts as species 0, then transitions
+        // to species 1. The reverse index must follow.
+        let mut c = Chronicler::new();
+        c.set_entity_species(EntityId::new(1), SpeciesId::new(0));
+        c.set_entity_species(EntityId::new(1), SpeciesId::new(1));
+        assert!(
+            !c.species_entities.contains_key(&SpeciesId::new(0)),
+            "empty species set should be removed"
+        );
+        assert_eq!(
+            c.species_entities.get(&SpeciesId::new(1)).map(|s| s.len()),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn set_entity_species_repeat_same_species_is_idempotent() {
+        let mut c = Chronicler::new();
+        c.set_entity_species(EntityId::new(1), SpeciesId::new(0));
+        c.set_entity_species(EntityId::new(1), SpeciesId::new(0));
+        let members = c.species_entities.get(&SpeciesId::new(0)).unwrap();
+        assert_eq!(members.len(), 1);
+        assert!(members.contains(&EntityId::new(1)));
     }
 
     #[test]

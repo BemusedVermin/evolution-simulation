@@ -13,6 +13,16 @@ use beast_chronicler::{
 };
 use beast_core::{EntityId, TickCounter};
 
+// Intentionally simplified fixture — does NOT match
+// `assets/manifests/labels.json`. The real `echolocation` entry uses a
+// three-primitive set (`emit_acoustic_pulse`, `receive_acoustic_signal`,
+// `spatial_integrate`) and a `min_confidence` of 0.6; this test stub
+// uses two short primitive ids and `min_confidence: 0.0` so the
+// integration test exercises the query API surface with a minimal
+// number of ingest calls per finding. Keep the names recognisable to
+// the shipped catalog (`echolocation`, `bioluminescence`) so test
+// failure traces still read clearly, but do not treat them as the
+// canonical definition.
 const ECHO_MANIFEST: &str = r#"{
     "labels": [
         { "id": "echolocation",   "primitives": ["echo", "spatial"], "min_confidence": 0.0 },

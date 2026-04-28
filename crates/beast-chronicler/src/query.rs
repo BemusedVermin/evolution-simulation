@@ -170,8 +170,8 @@ pub trait ChroniclerQuery {
 /// [`Chronicler`](crate::Chronicler) and ingesting snapshots. Push values
 /// into the public fields directly — none of them are checked for
 /// consistency, so test authors are responsible for keeping the maps
-/// coherent (e.g. don't reference an [`EntityId`] in
-/// `entities_by_label_id` that isn't in `entity_signatures`).
+/// coherent (e.g. don't list an [`EntityId`] under a `bestiary` entry
+/// that isn't also in `entity_signatures`).
 #[derive(Clone, Debug, Default)]
 pub struct InMemoryChronicler {
     /// `signature → label` map mirroring [`Chronicler::labels`](crate::Chronicler::labels).
@@ -243,8 +243,32 @@ impl ChroniclerQuery for InMemoryChronicler {
 }
 
 pub(crate) fn label_ids_match_search(label_ids: &[LabelId], needle: &str) -> bool {
-    let lc = needle.to_lowercase();
-    label_ids.iter().any(|id| id.to_lowercase().contains(&lc))
+    // The label-manifest schema constrains ids to `^[a-z][a-z0-9_]*$`
+    // (see `documentation/schemas/label_manifest.schema.json`), so the
+    // haystack is always ASCII. A user-typed needle may include
+    // uppercase, but ASCII case-insensitive byte comparison is enough
+    // to match the user's intent without allocating a lowercased copy
+    // per label id. The previous implementation called
+    // `id.to_lowercase()` once per id, which scaled the per-search
+    // allocation count with the bestiary catalog size.
+    label_ids
+        .iter()
+        .any(|id| ascii_icase_contains(id.as_bytes(), needle.as_bytes()))
+}
+
+fn ascii_icase_contains(haystack: &[u8], needle: &[u8]) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    if needle.len() > haystack.len() {
+        return false;
+    }
+    haystack.windows(needle.len()).any(|window| {
+        window
+            .iter()
+            .zip(needle.iter())
+            .all(|(h, n)| h.eq_ignore_ascii_case(n))
+    })
 }
 
 pub(crate) fn sort_bestiary(entries: &mut [BestiaryEntry], sort_by: BestiarySortBy) {
