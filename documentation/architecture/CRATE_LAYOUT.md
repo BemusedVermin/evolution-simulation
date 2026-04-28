@@ -16,6 +16,9 @@ beast-evolution-game/
 │   ├── beast-ecs/               (L3: ECS framework)
 │   ├── beast-sim/               (L4: Orchestration)
 │   ├── beast-chronicler/        (L4: Labeling & queries)
+│   ├── beast-graph/             (L4: Relationship-graph engine — planned, doc 56)
+│   ├── beast-cog/               (L4: Active-inference agent AI — planned, doc 57)
+│   ├── beast-genesis/           (L4: Channel genesis pipeline — planned, doc 58)
 │   ├── beast-serde/             (L4: Persistence)
 │   ├── beast-render/            (L5: SDL3 graphics)
 │   ├── beast-ui/                (L5: Widget framework)
@@ -380,6 +383,94 @@ impl Chronicler {
 S10.6 adds `assign_labels` against a manifest catalog; S10.7 adds the
 `ChroniclerQuery` trait (`label_for_signature`, `entities_with_label`,
 `bestiary_entries`, …) for the UI layer to consume.
+
+---
+
+### beast-graph (planned — doc 56)
+
+**Purpose**: Q32.32 implementations of the typed agent-pair multigraph and community-detection algorithms that produce the project's emergent group structure (households, settlements, polities, guilds, religions, packs).
+
+**Key Types**:
+- `RelationshipEdge` (sparse Q32.32 vector + ring buffer of recent EdgeEvents)
+- `EdgeEvent` (per-tick primitive emission record)
+- `LinkCommunityPartition` (edge-cluster outputs, Ahn 2010 / Pelka & Skoulakis 2025)
+- `LeidenLevel` (per-recursion-level partition; nested Leiden hierarchy)
+- `ClusterFeatureVector` (size, density, persistence, edge-type composition, internal-hierarchy-index, spatial-extent, overlap-fraction)
+
+**Dependencies**: `beast-core`, `beast-channels`, `beast-primitives`
+
+**Modules**:
+```rust
+pub mod edge;              // RelationshipEdge component, decay, GC
+pub mod link_community;    // Q32.32 link-community partition
+pub mod leiden;            // Hierarchical Leiden with deterministic UCT seeding
+pub mod characterize;      // ClusterFeatureVector computation
+pub mod persist_id;        // Jaccard-based cluster-id persistence across detection passes
+```
+
+**Determinism**: All algorithms iterate sorted-id; `rng_link`, `rng_leiden` Xoshiro streams; Q32.32 throughout.
+
+**Status**: planned crate; see `documentation/emergence/56_relationship_graph_emergence.md` §12 implementation touch-points.
+
+---
+
+### beast-cog (planned — doc 57)
+
+**Purpose**: Q32.32 active-inference engine that runs every agent's per-tick perceptual update and policy planning. Substrate for P6d cognition.
+
+**Key Types**:
+- `GenerativeModelState` (per-agent factor-graph beliefs, policy posterior, habit prior, ToM cache)
+- `BeliefDist` (sparse Q32.32 distribution over factor bins)
+- `ReducedGenerativeModel` (one ToM-nesting-level reduced model)
+- `PolicyHash` (deterministic id for sampled policies)
+- `ActionTuple` (`primitive_id, target_id_or_none, intensity_bin`)
+
+**Dependencies**: `beast-core`, `beast-channels`, `beast-primitives`, `beast-graph` (for relationship-edge factors)
+
+**Modules**:
+```rust
+pub mod factor_graph;      // factor graph DS; Q32.32 marginals
+pub mod vmp;               // variational message passing (Bethe approximation)
+pub mod efe;               // Expected Free Energy computation
+pub mod mcts;              // MCTS-EFE planner with UCT
+pub mod tom;               // ToM cache, reduced-model bookkeeping
+pub mod habit;             // habit-prior Bayesian update
+pub mod budget;            // per-agent cognitive_budget scheduler with greedy fallback
+```
+
+**Determinism**: `rng_belief_<id>`, `rng_policy_<id>` per-agent Xoshiro streams seeded at agent birth; all math Q32.32; sorted-id iteration.
+
+**Status**: planned crate; see `documentation/emergence/57_agent_ai.md` §13 implementation touch-points.
+
+---
+
+### beast-genesis (planned — doc 58)
+
+**Purpose**: Q32.32 channel-genesis pipeline. Runs at low cadence in Stage 7; promotes per-agent latent-slot pressure into newly registered channels via composition + latent-extraction + mutation; bounded by Quality-Diversity per-niche archives + activity-score GC.
+
+**Key Types**:
+- `LatentSlotBuffer` (per-agent component; sparse map from `SlotId` to `LatentSlot`)
+- `LatentSlot` (signature, accumulated weight, last-touched tick, promoted-to optional id)
+- `GenesisEvent` (append-only record of every birth: mechanism, parents, source-pop, fitness)
+- `CompositionOperator` (registry-backed per-channel-kind operator)
+- `QDArchive` (per-niche dominator-tracking for active-channel cap)
+
+**Dependencies**: `beast-core`, `beast-channels`, `beast-primitives`, `beast-cog` (for EFE-residual signal), `beast-graph` (for population-cluster context)
+
+**Modules**:
+```rust
+pub mod latent_slot;       // LatentSlotBuffer, per-tick pressure update
+pub mod composition;       // CompositionOperator registry, candidate generation
+pub mod latent_extract;    // Q32.32 power iteration for IBP-style extraction
+pub mod mutation;          // schema-aware Q32.32 perturbation
+pub mod qd_archive;        // Quality-Diversity per-niche dominance
+pub mod activity_gc;       // Bedau evolutionary activity decay + retire
+pub mod event_log;         // append-only genesis_event_log + serialisation
+```
+
+**Determinism**: `rng_genesis` Xoshiro stream; sorted operator and parent-subset iteration; Q32.32 power iteration with per-step normalisation; deterministic Q32.32 hash for new-channel ids.
+
+**Status**: planned crate; see `documentation/emergence/58_channel_genesis.md` §13 implementation touch-points.
 
 ---
 

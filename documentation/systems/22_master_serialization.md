@@ -1,5 +1,15 @@
 # System 22: Master Serialization & Save State
 
+> **Extended (not superseded) by emergence docs 56 / 57 / 58 and P7.** New components flow through this doc's serialization framework without changing the file format:
+> - `RelationshipEdge` per agent pair (sparse Q32.32 vector + ring buffer of recent EdgeEvents) — doc 56.
+> - `GenerativeModelState` per agent (factor-graph beliefs / policy posterior / habit prior / ToM cache) — doc 57.
+> - `LatentSlotBuffer` per agent — doc 58.
+> - `genesis_registry` (active runtime-born channels) — doc 58.
+> - `genesis_event_log` (append-only lineage) — doc 58.
+> - `population.lexicon` (per-population emic names for cluster signatures) — P7.
+>
+> **Per Invariant 7, the following are NOT saved** (recomputed by Stage 7 on load): cluster memberships, edge-cluster types, node-cluster labels, containment DAG, dominant-polity-of-settlement, genesis QD-archive niches, P7 bestiary entry rendering. The `SaveValidator` (CRATE_LAYOUT.md §beast-serde) must reject save files that contain these derived keys.
+
 ## 1. Overview
 
 The simulation is the single source of truth. World state is serialized at tick boundaries into a canonical, version-tagged schema. This enables:

@@ -6,6 +6,8 @@
 
 This is the simplest pillar by design. Its short length is the point.
 
+> **Cross-reference (added with docs 56/58).** The biome prototype-gallery pattern formalised here is the **template** for every other label gallery in the project: `relationship_label_gallery.json` and `cluster_label_gallery.json` (doc 56), the `cluster_label.*` cognitive-tier gallery (doc 57), and runtime-born gallery entries (doc 58). When the relationship-graph engine detects a node-cluster shape unmatched by any registered prototype, the **same cluster-extraction-and-1-NN-fit pattern documented here** is applied — and per doc 58, the new prototype itself can be registered at runtime with `genesis:` provenance, propagated through P6a iterated learning, and named by the P7 pipeline. Per Invariant 8, the kernel never declares cluster-label strings — they live exclusively in JSON galleries.
+
 ---
 
 ## 1. Why this pillar exists

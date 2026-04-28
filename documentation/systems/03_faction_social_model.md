@@ -1,5 +1,13 @@
 # Faction & Social Dynamics: Emergent Politics & Cooperation
 
+> **Superseded by emergence/56_relationship_graph_emergence.md (and emergence/50_social_emergence.md for the cultural/governance carriers).** Specifically:
+> - `Agent.faction_id` (single-slot political membership) is **removed**. Memberships are derived from edge-clusters in the typed agent-pair multigraph; agents may sit in many overlapping clusters at multiple Leiden levels.
+> - The 12-axis fixed opinion space is replaced by P5's continuous `cultural_trait_vector` (32 axes by default, axes labelled post-hoc per doc 58).
+> - Treaty-type and governance-type enums become Chronicler 1-NN labels over continuous coalition / governance channels.
+> - Faction-affinity probabilities used by this doc's interaction logic now read from doc 57's active-inference engine (per Invariant 9).
+>
+> This doc remains useful as a reference for what the v1 design specified; the listed mechanics should be re-read through the emergence-doc lens.
+
 ## 1. Overview
 
 This document specifies how NPCs (humans and sapient beasts) form relationships, develop opinions, coalesce into factions, and make collective decisions. The system is grounded in real-world social dynamics research and designed for **emergent politics**: no faction types are hardcoded. Instead, factions crystallize from social network dynamics and opinion convergence.

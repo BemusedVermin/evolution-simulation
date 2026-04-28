@@ -25,11 +25,16 @@ The simulation executes in **8 ordered stages per tick**. Systems within a stage
  └─────────────────────────────────────────────────────────┘
       ↓
  ┌─────────────────────────────────────────────────────────┐
- │ Stage 1: GENETICS                                       │
- │ (Parallel: per-creature mutation)                       │
+ │ Stage 1: GENETICS + COGNITIVE PERCEPTION                │
+ │ (Parallel: per-creature)                                │
  ├─────────────────────────────────────────────────────────┤
  │ • MutationSystem (point mutations, regulatory rewiring)
- │ • ChannelGenesisSystem (rare duplication → divergence)
+ │ • CognitivePerceptionSystem (per agent, doc 57):
+ │     - VMP perceptual update on factor graph
+ │     - ToM cache update for visible co-agents
+ │ • CognitivePlanningSystem (off-cadence, doc 57):
+ │     - MCTS-EFE expansion every PLANNING_CADENCE ticks
+ │ • Note: ChannelGenesisSystem moved to Stage 7 per doc 58
  └─────────────────────────────────────────────────────────┘
       ↓
  ┌─────────────────────────────────────────────────────────┐
@@ -58,7 +63,15 @@ The simulation executes in **8 ordered stages per tick**. Systems within a stage
  │ Stage 4: INTERACTION & COMBAT                           │
  │ (Parallel: per-creature-pair in spatial grid)           │
  ├─────────────────────────────────────────────────────────┤
+ │ • ActionSamplingSystem (doc 57):
+ │     - sample action tuple from policy_posterior
+ │     - dispatch by primitive target_kind: self / broadcast / pair / group
+ │ • RelationshipEdgeUpdateSystem (doc 56):
+ │     - pair primitives → write into RelationshipEdge accum + ring buffer
+ │ • LatentPressureSystem (doc 58):
+ │     - per-agent EFE-residual → latent_slot accumulation
  │ • CombatResolutionSystem (melee, ranged, abilities)
+ │     - subsumed: combat actions are policies sampled from agent.gm
  │ • PreyPredatorSystem (predation, herbivory checks)
  │ • ParasitismSystem (pathogen transmission, host damage)
  └─────────────────────────────────────────────────────────┘
@@ -84,10 +97,27 @@ The simulation executes in **8 ordered stages per tick**. Systems within a stage
  └─────────────────────────────────────────────────────────┘
       ↓
  ┌─────────────────────────────────────────────────────────┐
- │ Stage 7: LABELING & PERSISTENCE                         │
- │ (Serial or sampled)                                     │
+ │ Stage 7: LABELING, EMERGENCE & PERSISTENCE              │
+ │ (Serial or sampled, multiple registered cadences)       │
  ├─────────────────────────────────────────────────────────┤
- │ • ChroniclerSystem (every N ticks: pattern detection)
+ │ • EdgeDecaySystem (every D_EDGE ticks, doc 56):
+ │     - apply lambda decay to RelationshipEdge.accum
+ │     - GC fully-decayed edges
+ │ • CommunityDetectionSystem (doc 56):
+ │     - LinkCommunitySystem (every CADENCE_LINK ticks)
+ │     - HierarchicalLeidenSystem (per-level cadences L0..L3)
+ │     - ClusterCharacterizationSystem
+ │ • ChannelGenesisSystem (every CADENCE_GENESIS ticks, doc 58):
+ │     - bucket latent slots, run 3 proposal mechanisms,
+ │       register winners with genesis: provenance,
+ │       seed P6a propagation, GC retired channels
+ │ • ChroniclerSystem (every N ticks):
+ │     - pattern detection over primitive emissions
+ │     - 1-NN labelling against etic galleries (doc 56 §5.5)
+ │     - cluster-feature labelling (biomes, governance, …)
+ │ • NamingSystem (doc 70):
+ │     - phonotactic-gen for new cluster signatures
+ │     - P6a iterated-learning lexical pass
  │ • SaveCheckpointSystem (every M ticks: write to disk)
  └─────────────────────────────────────────────────────────┘
       ↓
@@ -128,24 +158,27 @@ The simulation executes in **8 ordered stages per tick**. Systems within a stage
 
 ---
 
-### Stage 1: Genetics
+### Stage 1: Genetics + Cognitive Perception
 
 **Systems**:
 1. `MutationSystem` — Mutate all creatures' genomes
-2. `ChannelGenesisSystem` — Rare gene duplication and reclassification
+2. `CognitivePerceptionSystem` (doc 57) — VMP perceptual update on per-agent factor graph; ToM cache update
+3. `CognitivePlanningSystem` (doc 57) — MCTS-EFE policy posterior, off-cadence (every `PLANNING_CADENCE` ticks per agent)
 
-**Components Read**: Genome
-**Components Write**: Genome
+**Components Read**: Genome (mutation), GenerativeModelState (cognition), Carriers, RelationshipEdge (read for ToM input)
+**Components Write**: Genome, GenerativeModelState.beliefs, GenerativeModelState.tom_cache, GenerativeModelState.policy_posterior
 
-**Parallelism**: Parallel per-creature (no inter-creature dependencies)
+**Parallelism**: Parallel per-creature (no inter-creature dependencies during perception)
 
-**RNG Stream**: `rng_evolution`
+**RNG Streams**: `rng_evolution` (mutation), `rng_belief` (VMP if randomised init), `rng_policy` (MCTS UCT)
 
 **Notes**:
 - Each creature's genome mutated independently
 - Mutation rates: point ~1e-3, duplication ~5e-5, reclassification ~1e-5
-- Duplication events marked in Genome.provenance: `genesis:parent_id:generation`
-- No channel registry modifications; only genome values change
+- Cognitive perception: VMP iterates the agent's factor graph; bounded by `VMP_MAX_ITER` (default 8)
+- Cognitive planning: MCTS expansions per agent capped by `cognitive_budget` (function of `neural_speed × resting_metabolic_rate`)
+- ChannelGenesisSystem moved to Stage 7 (doc 58) — its trigger is per-population, not per-creature, and it runs at low cadence
+- Duplication-only genesis events from MutationSystem still mark `Genome.provenance` as `genesis:parent_id:generation`; full channel-genesis events from doc 58 use the four-component form `genesis:<src_pop>:<tick>:<kind>:<sig_hash>`
 
 ---
 
@@ -303,25 +336,46 @@ For each creature C1:
 
 ---
 
-### Stage 7: Labeling & Persistence
+### Stage 7: Labeling, Emergence & Persistence
 
-**Systems**:
-1. `ChroniclerSystem` — Pattern detection (every 100 ticks)
-2. `SaveCheckpointSystem` — Checkpoint to disk (every 1000 ticks or on user save)
+**Systems** (each at its own registered cadence):
+1. `EdgeDecaySystem` (doc 56) — apply Q32.32 decay to `RelationshipEdge.accum`; GC fully-decayed edges
+2. `LinkCommunitySystem` (doc 56) — edge-first link communities (Ahn 2010 / Pelka & Skoulakis 2025); produces overlapping vertex memberships
+3. `HierarchicalLeidenSystem` (doc 56) — recursive Leiden levels L0..L3 with per-level cadences
+4. `ClusterCharacterizationSystem` (doc 56) — feature vectors over detected clusters (size, density, persistence, edge-type composition, internal hierarchy index, spatial extent, overlap fraction)
+5. `LatentBucketingSystem` (doc 58) — cluster per-agent latent slots by signature similarity; identify candidate buckets
+6. `ChannelGenesisSystem` (doc 58) — three proposal mechanisms (composition, latent extraction, mutation); QD-archive admission; register winners with `genesis:` provenance
+7. `ChroniclerSystem` — etic 1-NN gallery match for cluster signatures (biomes, governance archetypes, edge-cluster labels, node-cluster labels); produces *layer-5* candidate names for the P7 chain
+8. `NamingSystem` (doc 70) — phonotactic-gen seeded by `(cluster_sig, lang_id, world_seed)`; P6a iterated-learning lexical-transmission op; emits NamingEvents and processes player-typed alias inputs from the input log
+9. `SaveCheckpointSystem` — checkpoint to disk
 
-**Components Read**: All (immutable snapshot)
-**Components Write**: Chronicler (pattern index, label map)
+**Components Read**: All (immutable snapshot for labelling); RelationshipEdge (decay/community-detection); LatentSlotBuffer per agent
+**Components Write**: RelationshipEdge.accum (decay), GroupClusters (derived; not saved), `genesis_registry`, `genesis_event_log`, `population.lexicon`
 
-**Parallelism**: Serial (but could be parallelized with careful locking)
+**Parallelism**: Serial within Stage 7 (Stage 7 carries cross-cutting state); each substage is internally parallelisable per-edge or per-agent or per-cluster as noted in doc 56/57/58
 
-**Determinism**: ChroniclerSystem is deterministic (clustering is seeded). SaveCheckpointSystem is I/O (inherently non-deterministic timing, but doesn't affect sim state).
+**Determinism**: All substages deterministic (Q32.32, sorted-id iteration, named PRNG streams: `rng_link`, `rng_leiden`, `rng_genesis`, `rng_naming`)
+
+**Cadences (defaults — registered, mod-tunable)**:
+| System | Cadence (ticks) |
+|---|---|
+| EdgeDecay | every `D_EDGE` (default 8) |
+| LinkCommunity | `CADENCE_LINK` (64) |
+| Leiden L0 | `CADENCE_LEIDEN_L0` (64) |
+| Leiden L1 | `CADENCE_LEIDEN_L1` (256) |
+| Leiden L2 | `CADENCE_LEIDEN_L2` (1024) |
+| Leiden L3 | `CADENCE_LEIDEN_L3` (4096) |
+| ClusterCharacterization | `CADENCE_CHARACTERIZE` (256) |
+| ChannelGenesis | `CADENCE_GENESIS` (1024) |
+| Chronicler | every 100 (existing) |
+| Naming | every 60 (per doc 70 §3) |
+| SaveCheckpoint | every 1000 |
 
 **Notes**:
-- ChroniclerSystem runs every N ticks (configurable; MVP: N=100)
-- Computes primitive signatures per creature (sorted primitive effect IDs)
-- Clusters signatures (count occurrences)
-- Assigns labels to stable patterns (confidence > threshold)
-- SaveCheckpointSystem writes sim state to disk; blocks tick loop briefly (order-of-10ms)
+- Group memberships, containment, and edge-cluster types are recomputed every Stage 7; per Invariant 7 they are NOT saved.
+- `genesis_registry` and `genesis_event_log` ARE saved (sim state, per Invariant 10).
+- Chronicler 1-NN labels are *etic* candidate names (P7 layer 5) — they enter the bestiary alongside player aliases, loan-words from contact populations, and phonotactic-gen names; the literal `"uncategorised"` / `"unlabelled"` strings are never shown in player view.
+- The naming pass is Q32.32-deterministic via the dedicated `rng_naming` stream and seeded phonotactic n-gram (doc 70 §4.3).
 
 ---
 

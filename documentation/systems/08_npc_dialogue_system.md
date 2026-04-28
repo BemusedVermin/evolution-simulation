@@ -1,5 +1,13 @@
 # NPC Dialogue System: Simulation-First Conversation
 
+> **Superseded by P5 + emergence/56 + emergence/57.** Specifically:
+> - Dialogue *intents* (the "what does this NPC want to say" enum) are **emergent** from doc 57's active-inference policy posterior. There is no fixed dialogue-intent set; intents are policy regions sampled from the MCTS-EFE planner.
+> - `FactionGate { faction: faction_id, relation }` becomes `MembershipGate { cluster_id?, label?, role? }` (doc 56 §12) and more generally `BeliefGate` reading the agent's posterior over (cluster, role, kinship) factors. Gates are continuous activation thresholds over arbitrary belief factors, not hardcoded enums.
+> - The 7-band disposition classification → continuous attitude vector emerging from cultural-trait-vector + active-inference belief about co-agents.
+> - Speech is broadcast / pair primitive emission whose phonotactic content comes from the speaker's P6a language channels. Translation is gameplay (linguistic study), not a UI affordance.
+>
+> The dialogue UX surface (encounter view, response options) is preserved; the *decision logic* underneath is now one engine (doc 57).
+
 ## 1. Overview & Sim-First Stance
 
 Dialogue is not a parallel system. It is a **high-frequency variant of social interaction**, using the same opinion dynamics as the faction social model (System 03) but applied to immediate conversation. NPCs do not have separate "dialogue trees" and "faction relations"—they have a unified AgentMind that drives both.
