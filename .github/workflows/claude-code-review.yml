@@ -21,9 +21,13 @@ name: Claude Rust Reviewer
 # 3. `pull_request` + explicit `github_token` (current): drops the
 #    OIDC/App-token exchange entirely. We pass `secrets.GITHUB_TOKEN`
 #    directly to the action so it posts the review as
-#    `github-actions[bot]` instead of `claude[bot]`. Fork PRs are
-#    rejected by the same-repo `if:` guard below; same-repo PRs run
-#    with secrets and post successfully.
+#    `github-actions[bot]` instead of `claude[bot]`. Under
+#    `pull_request` semantics the trigger itself is the security
+#    boundary — fork PRs receive a read-only `GITHUB_TOKEN` with no
+#    access to repository secrets, so the action would fail to
+#    authenticate even without the `if:` guard. The same-repo guard
+#    below is belt-and-suspenders against a noisy "missing OAuth
+#    token" failure rather than a security control.
 #
 # We still check out the default branch explicitly so the review
 # helpers (`scripts/post-pr-review.sh`, `scripts/README.md`) come from
@@ -97,6 +101,18 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
           persist-credentials: false
+
+      # Capture the wall-clock time before the reviewer runs. The
+      # silent-failure guard below uses this as a lower bound when
+      # asking GitHub "did the THIS run's reviewer post?" — without
+      # it, a review left over from an earlier (concurrency-cancelled)
+      # run on the same head SHA would let a silent-success regression
+      # slip through.
+      - name: Record job start
+        id: job-start
+        run: |
+          set -euo pipefail
+          echo "iso=$(date -u --iso-8601=seconds)" >> "$GITHUB_OUTPUT"
 
       - name: Run Claude rust-reviewer
         id: claude-review
@@ -203,45 +219,97 @@ jobs:
                the security note in the workflow file. Trusted helpers
                (`scripts/post-pr-review.sh`, `scripts/README.md`) come
                from disk and are safe to run.
-            3. If the PR body references a story issue (`Closes #N` or
+            3. **Read the PR's existing review history** so you do not
+               repeat findings the previous reviewer run already raised.
+               Save these as JSON for use in step 6:
+                  gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
+                    --paginate > /tmp/prior_reviews.json
+                  gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments" \
+                    --paginate > /tmp/prior_inline_comments.json
+               `prior_inline_comments.json` is the line-anchored review
+               comments (`/pulls/N/comments`), which is what you'll
+               compare against to dedupe. Top-level issue comments
+               (`/issues/N/comments`) are not relevant to dedup.
+            4. If the PR body references a story issue (`Closes #N` or
                `Part of epic #N`), `gh issue view N` so the subagent can
                check DoD coverage.
-            4. Spawn the `everything-claude-code:rust-reviewer` subagent
+            5. Spawn the `everything-claude-code:rust-reviewer` subagent
                via the Agent tool. Pass it: the PR diff, the issue body
-               (if any), and the invariant excerpts above. Ask it to
-               return a list of findings as
+               (if any), the invariant excerpts above, AND the contents
+               of `/tmp/prior_inline_comments.json`. Tell the subagent
+               to return findings as
                `{path, line, severity, body, suggestion}` records plus
-               an overall summary line.
-            5. Build the review payload as a JSON file with the shape
-               documented in `scripts/README.md` (`body`, `event`,
-               `comments[]` of `{path, line, side: "RIGHT", body}` —
-               `start_line` for multi-line ranges). Severity-prefix each
-               inline comment (`**CRITICAL** —`, `**HIGH** —`,
-               `**MEDIUM** —`, `**LOW** —`) and put a severity-count
-               summary in the overall body.
-            6. POST the review:
-                  scripts/post-pr-review.sh \
-                    ${{ github.event.repository.owner.login }} \
-                    ${{ github.event.repository.name }} \
-                    ${{ github.event.pull_request.number }} \
-                    <payload-path>
-               Single `gh api POST /pulls/N/reviews` call — body and
-               every inline comment land atomically.
+               an overall summary line, and to flag each finding with
+               one of three dedup states relative to the prior comments:
+                 * `new`   — no overlap with any prior inline comment.
+                 * `reaffirm` — same `(path, line)` and same underlying
+                   concern as a prior comment that is still applicable
+                   on the new diff. Include the parent `id` from
+                   `prior_inline_comments.json`.
+                 * `resolved` — same `(path, line)` and same concern as
+                   a prior comment that is now addressed on the new
+                   diff. Include the parent `id`.
+            6. **Process the findings**:
+                 * For each `reaffirm` / `resolved` finding, post a
+                   short reply to the parent thread:
+                     gh api -X POST \
+                       "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments/<parent_id>/replies" \
+                       -f body="<one-line message>"
+                   `reaffirm` body: "Still applies on `<head_sha[:8]>` —
+                   <one-line reason>". `resolved` body: "Resolved on
+                   `<head_sha[:8]>`."
+                 * Build the review payload (per `scripts/README.md`)
+                   from ONLY the `new` findings. Severity-prefix each
+                   inline comment (`**CRITICAL** —`, `**HIGH** —`,
+                   `**MEDIUM** —`, `**LOW** —`) and put a severity-count
+                   summary in the overall body. Include a single
+                   sentence at the top noting how many prior threads
+                   you reaffirmed / resolved, e.g.
+                   "Compared against 4 prior inline comments: 2
+                   reaffirmed, 1 resolved, 1 unrelated to current
+                   diff."
+            7. **Post**:
+                 * If there is at least one `new` finding: POST the
+                   review with
+                     scripts/post-pr-review.sh \
+                       ${{ github.event.repository.owner.login }} \
+                       ${{ github.event.repository.name }} \
+                       ${{ github.event.pull_request.number }} \
+                       <payload-path>
+                 * If every finding was a `reaffirm` or `resolved` (no
+                   new findings) AND at least one reply was posted in
+                   step 6: post a one-line top-level issue comment so
+                   the run leaves a clear trail without stacking another
+                   review:
+                     gh api -X POST \
+                       "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+                       -f body="No new findings on \`<head_sha[:8]>\`. Updated <N> prior thread(s)."
+                 * If there were no findings at all (clean diff, nothing
+                   to reaffirm or resolve): post an `APPROVE`-event
+                   review via `scripts/post-pr-review.sh` with an empty
+                   `comments[]` and a one-line body.
+               In every branch the silent-failure guard expects either a
+               new review OR a `github-actions[bot]` issue comment to
+               land for this run; do not exit without leaving one of the
+               two.
 
             ## Verdict rules
 
-            * **`REQUEST_CHANGES`** if the subagent returned at least one
-              CRITICAL, HIGH, or MEDIUM finding.
-            * **`APPROVE`** if there are no MEDIUM-or-above findings
-              (clean, or only LOW notes).
+            * **`REQUEST_CHANGES`** if at least one *new* finding is
+              CRITICAL, HIGH, or MEDIUM. Reaffirmed prior threads do
+              NOT count toward the verdict — they have already been
+              flagged.
+            * **`APPROVE`** if there are no new MEDIUM-or-above findings
+              (clean, only `new` LOW notes, or every finding was a
+              reaffirm/resolved reply).
             * **`COMMENT`** is the fallback for cases where you genuinely
               cannot make the call (diff too large, change is purely
               policy/config without a rubric).
             * State the verdict and severity counts on the first line of
               the overall body, e.g.
-              `**APPROVE** — 0 CRITICAL · 0 HIGH · 0 MEDIUM · 2 LOW`
+              `**APPROVE** — 0 CRITICAL · 0 HIGH · 0 MEDIUM · 2 LOW (new) · 1 reaffirmed`
               or
-              `**REQUEST_CHANGES** — 0 CRITICAL · 1 HIGH · 3 MEDIUM · 1 LOW`.
+              `**REQUEST_CHANGES** — 0 CRITICAL · 1 HIGH · 3 MEDIUM · 1 LOW (new) · 0 reaffirmed`.
               The repo owner reads this line first.
 
             ## Constraints
@@ -256,6 +324,11 @@ jobs:
               issues that aren't in the change.
             * The review you POST is the authoritative output. Do not
               paraphrase it into a separate top-level comment after.
+            * Do not stack duplicate findings — if a prior inline
+              comment already raised the same concern at the same
+              `(path, line)` and the concern still applies, reply to
+              that thread (`reaffirm` flow above) rather than opening
+              a new comment on the same line.
 
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # for the full set of action options.
@@ -274,8 +347,13 @@ jobs:
       #   1. Claude reported `is_error: true`.
       #   2. Claude had any permission denials — usually means the
       #      `claude_args` allowlist or settings need updating.
-      #   3. Claude finished cleanly but no review was actually
-      #      posted on the PR's current head SHA.
+      #   3. Claude finished cleanly but neither a review nor a
+      #      `github-actions[bot]` issue comment landed for the PR
+      #      after this job started. Reviews are the normal output;
+      #      the comment branch covers the dedup case where Claude
+      #      decided everything actionable had already been raised
+      #      and posted a one-line "no new findings" note instead of
+      #      duplicating an earlier review.
       #
       # Runs `if: always()` against the action's outcome so it still
       # fires when the action returns success-but-empty. Skipped when
@@ -288,7 +366,18 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          OUTPUT_FILE: /home/runner/work/_temp/claude-execution-output.json
+          # Job-start ISO timestamp from the `Record job start` step.
+          # Used as a lower bound when scanning reviews / comments so
+          # an artefact left over from a concurrency-cancelled earlier
+          # run on the same head SHA does not count as "this run
+          # posted something".
+          JOB_START: ${{ steps.job-start.outputs.iso }}
+          # `RUNNER_TEMP` is portable (Linux: /home/runner/work/_temp,
+          # macOS: /Users/runner/work/_temp, Windows: D:\a\_temp,
+          # self-hosted: configurable). Hardcoding the Linux path
+          # would silently break on every other runner type.
+          OUTPUT_FILE: ${{ runner.temp }}/claude-execution-output.json
+          BOT_LOGIN: github-actions[bot]
         run: |
           set -euo pipefail
 
@@ -325,18 +414,38 @@ jobs:
             exit 1
           fi
 
-          # Confirm a review actually landed on the PR for the head
-          # commit this run was triggered against. github-actions[bot]
-          # is the author once the OIDC App-token bypass is in place.
+          # Confirm a review or a `github-actions[bot]` comment
+          # actually landed AFTER this job started. Filtering on
+          # `submitted_at > $JOB_START` excludes any review/comment
+          # left over from a concurrency-cancelled earlier run on the
+          # same head SHA.
+          #
+          # Shell variables are passed through `--arg` rather than
+          # interpolated into the jq filter source. Today HEAD_SHA is
+          # GitHub-controlled (40-char hex) so direct interpolation
+          # would be safe; using `--arg` is cheap insurance against
+          # someone later wiring a user-controlled value into the
+          # same env binding.
+          reviews_json=$(gh api "repos/${REPO}/pulls/${PR}/reviews")
           review_count=$(
-            gh api "repos/${REPO}/pulls/${PR}/reviews" \
-              --jq "[.[] | select(.commit_id == \"${HEAD_SHA}\")] | length"
+            jq --arg head_sha "$HEAD_SHA" \
+               --arg job_start "$JOB_START" \
+               '[.[] | select(.commit_id == $head_sha and .submitted_at > $job_start)] | length' \
+               <<<"$reviews_json"
           )
 
-          if [ "$review_count" = "0" ]; then
-            echo "::error::Reviewer ran cleanly but no review was posted for ${HEAD_SHA}."
+          comments_json=$(gh api "repos/${REPO}/issues/${PR}/comments")
+          comment_count=$(
+            jq --arg login "$BOT_LOGIN" \
+               --arg job_start "$JOB_START" \
+               '[.[] | select(.user.login == $login and .created_at > $job_start)] | length' \
+               <<<"$comments_json"
+          )
+
+          if [ "$review_count" = "0" ] && [ "$comment_count" = "0" ]; then
+            echo "::error::Reviewer ran cleanly but neither a review nor a bot comment was posted for ${HEAD_SHA} after ${JOB_START}."
             echo "Result event: $result"
             exit 1
           fi
 
-          echo "✓ Reviewer posted ${review_count} review(s) for ${HEAD_SHA} (denials=${denials})."
+          echo "✓ Reviewer landed ${review_count} review(s) and ${comment_count} bot comment(s) for ${HEAD_SHA} since ${JOB_START} (denials=${denials})."
