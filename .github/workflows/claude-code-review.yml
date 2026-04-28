@@ -143,7 +143,7 @@ jobs:
           # CLI flags for the orchestrator session. The orchestrator
           # is deliberately small — it gathers PR metadata, delegates
           # the actual rubric work to the rust-reviewer subagent, and
-          # posts the result. Three flags keep that lean:
+          # posts the result. Two flags keep that lean:
           #
           # * `--allowed-tools` — minimum tool surface for the
           #   orchestrator. Does NOT cover everything the agent-mode
@@ -157,15 +157,6 @@ jobs:
           #   `permission_denials_count > 0` and no review posted
           #   (observed on run 25042668043).
           #
-          # * `--model claude-haiku-4-5-20251001` — Haiku is plenty
-          #   for the orchestrator's actual work (gh calls, JSON
-          #   shaping, single Task spawn, post-script invoke) and is
-          #   roughly 3× faster + cheaper than Sonnet on this kind
-          #   of mechanical glue. The rust-reviewer subagent declares
-          #   its own model in the everything-claude-code plugin, so
-          #   review *quality* is unaffected — only the orchestrator
-          #   half of the wall-clock budget shrinks.
-          #
           # * `--max-turns 20` — backstop against pathological turn
           #   counts. The orchestrator's normal path is ~7 turns
           #   (gather PR data → read prior comments → spawn subagent
@@ -175,9 +166,22 @@ jobs:
           #   reply-flow regression on run 25045232173 burned ~30+
           #   turns). Hitting the cap is a louder failure than
           #   silently spending 14 minutes.
+          #
+          # No `--model` flag — let the action default to Sonnet 4.6.
+          # An earlier revision passed `--model claude-haiku-4-5-20251001`
+          # for the orchestrator on the theory that the orchestrator
+          # is mechanical glue; in practice (run 25047756097, PR #234)
+          # Haiku miscounted prior_inline_comments.json (1 instead of
+          # 4) and took the wrong terminal branch (issue comment
+          # carrying new findings instead of `scripts/post-pr-review.sh`
+          # for a review). Both failure modes are JSON inspection +
+          # conditional flow — the kind of work that's brittle on a
+          # smaller model. Sonnet adds ~2-3 minutes and a few cents
+          # per run; cheap insurance against branch-selection
+          # mistakes that bypass the silent-failure guard's review
+          # contract.
           claude_args: |
             --allowed-tools "Bash,Read,Write,Grep,Glob,Task"
-            --model "claude-haiku-4-5-20251001"
             --max-turns 20
 
           # Install the everything-claude-code plugin marketplace so the
@@ -292,25 +296,46 @@ jobs:
                "Compared against 4 prior inline comments: 2 still
                apply (not reposted), 1 resolved, 1 unrelated to current
                diff."
-            7. **Post exactly one of these** (no more, no fewer):
-                 * If there is at least one `new` finding: invoke
-                   `scripts/post-pr-review.sh` ONCE with the payload
-                   above.
-                 * If every finding was `duplicate` or `obsolete` (no
-                   new findings) but at least one prior comment is
-                   still applicable: post a single top-level issue
-                   comment so the run leaves a trail:
+            7. **Pick exactly ONE branch and post exactly ONE
+               artefact.** Compute `new_findings = count(status ==
+               "new")` first, then branch on that count alone:
+
+                 * `new_findings >= 1` →
+                   **submit a REVIEW** via `scripts/post-pr-review.sh`.
+                   This is the ONLY path where the issue-comment
+                   endpoint is forbidden — even if every `new` finding
+                   is LOW, even if you also have duplicate/obsolete
+                   prior threads, the review payload is the
+                   authoritative output. Inline-comment EVERY `new`
+                   finding (no top-level summary substitute).
+
+                 * `new_findings == 0` AND prior_inline_comments.json
+                   has at least one entry (i.e. a previous review run
+                   left feedback) →
+                   **post a top-level ISSUE COMMENT** via
                      gh api -X POST \
                        "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
                        -f body="No new findings on \`<head_sha[:8]>\`. Prior review's <N> finding(s) still apply on this commit."
-                 * If the diff is genuinely clean (no findings at all,
-                   no prior comments to reaffirm): submit an
-                   `APPROVE`-event review via `scripts/post-pr-review.sh`
-                   with an empty `comments[]` and a one-line body.
-               The silent-failure guard expects EITHER one new review
-               OR one `github-actions[bot]` issue comment after
-               JOB_START; do not exit without leaving exactly one of
-               those two artefacts.
+                   Do NOT include a verdict line, severity tally, or
+                   any finding text in the comment body — by
+                   definition there are no new findings to report.
+
+                 * `new_findings == 0` AND prior_inline_comments.json
+                   is empty (clean diff, first review) →
+                   **submit an APPROVE-event REVIEW** via
+                   `scripts/post-pr-review.sh` with an empty
+                   `comments[]` and a one-line body.
+
+               These three branches are mutually exclusive and
+               exhaustive. The silent-failure guard expects EITHER
+               exactly one new review OR exactly one
+               `github-actions[bot]` issue comment after JOB_START;
+               anything else fails the job. If you find yourself
+               about to post an issue comment whose body contains
+               severity tallies or finding text, STOP — you have
+               taken the wrong branch and should be calling
+               `scripts/post-pr-review.sh` instead (run 25047756097
+               on PR #234 made exactly this mistake).
 
                **Hard rule on tool choice**: the only way to land an
                authoritative output is `scripts/post-pr-review.sh`
