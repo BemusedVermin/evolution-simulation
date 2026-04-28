@@ -10,15 +10,22 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
-# beast-core supplies TickCounter + EntityId + Q3232 (the latter for the
-# label confidence work that lands in S10.6). beast-primitives is not a
-# direct dep yet — primitive ids are passed as `&str` so the chronicler
-# stays decoupled from the registry's manifest types until S10.6 needs
-# them. blake3 backs PatternSignature and is already a workspace dep used
-# by the determinism gate.
+# beast-core supplies TickCounter + EntityId + Q3232. Q3232 is the
+# fixed-point type used for label confidence so the [0,1] result stays
+# bit-identical across platforms. beast-manifest gives us the shared
+# JSON-Schema validator + violation type that the channel and primitive
+# loaders already use, so the label-manifest loader follows the same
+# two-stage pipeline. beast-primitives is intentionally still not a
+# direct dep — primitive ids are matched as `&str`/`String`, keeping the
+# chronicler decoupled from the registry's manifest types. blake3 backs
+# PatternSignature and is already a workspace dep used by the
+# determinism gate.
 beast-core = { workspace = true }
+beast-manifest = { workspace = true }
 blake3 = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 # proptest powers the property test that asserts signature stability

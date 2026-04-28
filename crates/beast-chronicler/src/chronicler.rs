@@ -1,27 +1,31 @@
 //! [`Chronicler`] — accumulates pattern observations from primitive
-//! snapshots.
-//!
-//! S10.5 surface only — the read API for the UI layer (S10.7) and the
-//! manifest-driven label assignment (S10.6) layer on top of this struct
-//! in later stories.
+//! snapshots and (S10.6) holds the latest manifest-driven label
+//! assignments. The read API for the UI layer (S10.7) layers on top.
 
 use std::collections::BTreeMap;
 
 use beast_core::TickCounter;
 
+use crate::label::{Label, LabelEngine};
 use crate::pattern::{PatternObservation, PatternSignature};
 use crate::snapshot::PrimitiveSnapshot;
 use crate::tick_range::TickRange;
 
-/// Pattern observation accumulator.
+/// Pattern observation accumulator with cached label assignments.
 ///
 /// Stores one [`PatternObservation`] per unique [`PatternSignature`] that
 /// has ever been ingested. Iteration order over the storage is the
 /// natural total order of `PatternSignature` (lexicographic over its 32
 /// bytes), which keeps tests and downstream UI views deterministic.
+///
+/// Labels are *derived* from observations + a [`LabelEngine`] via
+/// [`Self::assign_labels`]. They are not produced by `ingest()` — per
+/// `INVARIANTS.md` §2, labels remain off the sim path until an
+/// explicit assignment pass runs them against the manifest catalog.
 #[derive(Clone, Debug, Default)]
 pub struct Chronicler {
     observations: BTreeMap<PatternSignature, PatternObservation>,
+    labels: BTreeMap<PatternSignature, Label>,
 }
 
 impl Chronicler {
@@ -114,6 +118,40 @@ impl Chronicler {
             .map(|o| o.last_tick)
             .max()
             .unwrap_or(TickCounter::ZERO)
+    }
+
+    /// Run the manifest-driven [`LabelEngine`] against every stored
+    /// observation, replacing the cached label index.
+    ///
+    /// Each pass starts from an empty index so labels whose backing
+    /// pattern slipped below `min_confidence` (because newer
+    /// observations diluted their frequency, or their stability span
+    /// did not keep pace with the sim clock) drop out. Iteration is
+    /// over the `BTreeMap`'s sorted key set, so the resulting label
+    /// index is identical between two equally-ingested chroniclers
+    /// regardless of insertion order.
+    ///
+    /// `current_tick` is normally [`Self::last_observed_tick`] but
+    /// callers running the assignment ahead of the world clock can
+    /// supply a different value.
+    pub fn assign_labels(&mut self, engine: &LabelEngine, current_tick: TickCounter) {
+        let total = self.total_ingested();
+        let mut next: BTreeMap<PatternSignature, Label> = BTreeMap::new();
+        for (signature, observation) in &self.observations {
+            if let Some(label) = engine.assign(observation, total, current_tick) {
+                next.insert(*signature, label);
+            }
+        }
+        self.labels = next;
+    }
+
+    /// Read-only view of the cached label index.
+    ///
+    /// Empty until [`Self::assign_labels`] has been called at least
+    /// once. Iteration order is the natural total order of
+    /// [`PatternSignature`].
+    pub fn labels(&self) -> &BTreeMap<PatternSignature, Label> {
+        &self.labels
     }
 }
 
@@ -256,5 +294,60 @@ mod tests {
         c.observations.get_mut(&sig).unwrap().count = u64::MAX;
         c.ingest(&key);
         assert_eq!(c.observation(&sig).unwrap().count, u64::MAX);
+    }
+
+    #[test]
+    fn labels_starts_empty_until_assign_runs() {
+        let c = Chronicler::new();
+        assert!(c.labels().is_empty());
+    }
+
+    #[test]
+    fn assign_labels_is_idempotent_for_stable_state() {
+        let manifest = r#"{
+            "labels": [
+                { "id": "marker", "primitives": ["a"], "min_confidence": 0.0 }
+            ]
+        }"#;
+        let engine = LabelEngine::from_json_str(manifest).unwrap();
+        let mut c = Chronicler::new();
+        for tick in 0..50 {
+            c.ingest(&snap(tick, 1, &["a"]));
+        }
+        c.assign_labels(&engine, c.last_observed_tick());
+        let first_pass: Vec<_> = c
+            .labels()
+            .values()
+            .map(|l| (l.id.clone(), l.confidence.to_bits()))
+            .collect();
+        c.assign_labels(&engine, c.last_observed_tick());
+        let second_pass: Vec<_> = c
+            .labels()
+            .values()
+            .map(|l| (l.id.clone(), l.confidence.to_bits()))
+            .collect();
+        assert_eq!(first_pass, second_pass);
+        assert_eq!(first_pass.len(), 1);
+    }
+
+    #[test]
+    fn assign_labels_drops_entries_below_min_confidence() {
+        // Two patterns; only the one whose frequency clears the bar gets
+        // labelled. The other observation sits in storage unlabelled.
+        let manifest = r#"{
+            "labels": [
+                { "id": "common", "primitives": ["a"], "min_confidence": 0.5 },
+                { "id": "rare",   "primitives": ["b"], "min_confidence": 0.5 }
+            ]
+        }"#;
+        let engine = LabelEngine::from_json_str(manifest).unwrap();
+        let mut c = Chronicler::new();
+        for tick in 0..99 {
+            c.ingest(&snap(tick, 1, &["a"]));
+        }
+        c.ingest(&snap(99, 1, &["b"]));
+        c.assign_labels(&engine, c.last_observed_tick());
+        let label_ids: Vec<&str> = c.labels().values().map(|l| l.id.as_str()).collect();
+        assert_eq!(label_ids, vec!["common"]);
     }
 }

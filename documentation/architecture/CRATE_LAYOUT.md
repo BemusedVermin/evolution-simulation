@@ -338,14 +338,17 @@ pub fn compute_state_hash(&self) -> u64;  // For determinism testing
 
 **Purpose**: Pattern recognition, labeling, query API.
 
-**Key Types** (S10.5 surface; later sprints extend):
-- `Chronicler` (signature index, accumulated observations)
+**Key Types** (S10.5 + S10.6 surface; S10.7 extends):
+- `Chronicler` (signature index, accumulated observations, cached label index)
 - `PrimitiveSnapshot` (per-tick `(tick, entity, BTreeSet<primitive_id>)`)
 - `PatternSignature([u8; 32])` (BLAKE3 of length-prefixed sorted primitive ids)
 - `PatternObservation` (count, first_tick, last_tick, primitives) — keyed by signature
 - `TickRange` (half-open `[start, end)` window for `cluster()` queries)
+- `LabelEngine` / `LabelManifest` — manifest-driven exact-match label assignment (S10.6)
+- `Label { id, signature, confidence }` — Q32.32 confidence on `[0, 1]`
 
-**Dependencies**: `beast-core`, `blake3`, `serde`
+**Dependencies**: `beast-core`, `beast-manifest`, `blake3`, `serde`,
+`serde_json`, `thiserror`
 
 The crate intentionally does **not** depend on `beast-ecs` or `beast-primitives`:
 
@@ -353,36 +356,49 @@ The crate intentionally does **not** depend on `beast-ecs` or `beast-primitives`
   ECS layer is also built on. Depending on `beast-ecs` would couple the
   chronicler to `specs` for no gain — snapshots arrive pre-projected.
 - Primitive ids are passed as `&str` / `String` so the chronicler stays
-  decoupled from the registry's manifest types until S10.6 needs the
-  manifest itself.
+  decoupled from the registry's manifest types; the label engine likewise
+  matches by primitive-id string-set without touching `beast-primitives`.
 
-This keeps the L4 dep DAG narrow and avoids round-tripping `specs::Entity` through
-the chronicler.
+`beast-manifest` is reused so the label-manifest loader follows the same
+two-stage pipeline (JSON-Schema validation → typed deserialize) as the
+channel and primitive loaders.
 
-**Modules** (full target shape; S10.5 ships only the first three):
+**Modules** (full target shape; S10.7 fills in `query`):
 ```rust
 pub mod chronicler;        // Chronicler struct
+pub mod confidence;        // Q32.32 confidence scoring (S10.6)
+pub mod label;             // Manifest-driven label assignment (S10.6)
 pub mod pattern;           // PatternSignature + PatternObservation
 pub mod snapshot;          // PrimitiveSnapshot
 pub mod tick_range;        // TickRange (half-open [start, end))
-pub mod label;             // Label generation, naming heuristics (S10.6)
 pub mod query;             // Query API for UI (S10.7)
-pub mod confidence;        // Confidence scoring for labels (S10.6)
 ```
 
-**Key Functions** (S10.5):
+**Key Functions** (S10.5 + S10.6):
 ```rust
 impl Chronicler {
     pub fn ingest(&mut self, snapshot: &PrimitiveSnapshot);
-    pub fn cluster(&self, window: TickRange) -> impl Iterator<Item = &PatternObservation>;
+    pub fn cluster(&self, window: TickRange) -> Vec<&PatternObservation>;
     pub fn observations(&self) -> &BTreeMap<PatternSignature, PatternObservation>;
     pub fn observation(&self, signature: &PatternSignature) -> Option<&PatternObservation>;
+    pub fn assign_labels(&mut self, engine: &LabelEngine, current_tick: TickCounter);
+    pub fn labels(&self) -> &BTreeMap<PatternSignature, Label>;
+}
+
+impl LabelEngine {
+    pub fn from_json_str(source: &str) -> Result<Self, LabelLoadError>;
+    pub fn assign(
+        &self,
+        observation: &PatternObservation,
+        total_observations: u64,
+        current_tick: TickCounter,
+    ) -> Option<Label>;
 }
 ```
 
-S10.6 adds `assign_labels` against a manifest catalog; S10.7 adds the
-`ChroniclerQuery` trait (`label_for_signature`, `entities_with_label`,
-`bestiary_entries`, …) for the UI layer to consume.
+S10.7 adds the `ChroniclerQuery` trait (`label_for_signature`,
+`entities_with_label`, `bestiary_entries`, …) for the UI layer to
+consume.
 
 ---
 
