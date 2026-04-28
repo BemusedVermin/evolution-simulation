@@ -117,9 +117,12 @@ name = "beast-chronicler"
 version = "0.1.0"
 dependencies = [
  "beast-core",
+ "beast-manifest",
  "blake3",
  "proptest",
  "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

@@ -1,0 +1,30 @@
+{
+  "labels": [
+    {
+      "id": "echolocation",
+      "primitives": [
+        "emit_acoustic_pulse",
+        "receive_acoustic_signal",
+        "spatial_integrate"
+      ],
+      "min_confidence": 0.6
+    },
+    {
+      "id": "bioluminescence",
+      "primitives": [
+        "emit_chemical_marker",
+        "elevate_metabolic_rate"
+      ],
+      "min_confidence": 0.5
+    },
+    {
+      "id": "pack_hunting",
+      "primitives": [
+        "form_pair_bond",
+        "apply_bite_force",
+        "apply_locomotive_thrust"
+      ],
+      "min_confidence": 0.7
+    }
+  ]
+}
