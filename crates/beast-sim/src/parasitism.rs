@@ -1,7 +1,9 @@
 //! Parasitism — sustained host coupling between attacker and defender.
 //!
-//! Backs `documentation/systems/06_combat_system.md` §3.4 ("host
-//! coupling profile") and `documentation/systems/16_disease_parasitism.md`.
+//! Backs `documentation/systems/16_disease_parasitism.md` — the
+//! authoritative source for host-coupling state, decay, and per-tick
+//! draw semantics. `06_combat_system.md` §4 covers the underlying
+//! combat math the install path piggy-backs on.
 //!
 //! Where [`crate::predation::resolve_predation`] is a one-shot
 //! consumption, parasitism is a *channel projection* between the
@@ -115,6 +117,10 @@ pub fn install_host_coupling(
     installed_tick: u64,
 ) -> HostCoupling {
     let mut coupling = HostCoupling::new(host, parasite, installed_tick);
+    // `Q3232::AddAssign` dispatches to `saturating_add` via the
+    // beast-core overload (see `fixed_point.rs`), so the `+=` below
+    // is saturating — sums past `Q3232::MAX` cap rather than
+    // wrapping. No unsafe arithmetic here despite the bare operator.
     for effect in parasite_effects {
         for channel_id in &effect.source_channels {
             *coupling
@@ -128,16 +134,35 @@ pub fn install_host_coupling(
 
 /// Decay every projection magnitude by multiplying by `decay_factor`.
 ///
-/// `decay_factor` is expected to be in `[0, 1]` — `0.99` for a slow
-/// burn, `0.5` for a half-life-per-tick cull. Saturating Q3232
-/// multiplication; values cannot wrap. Entries that decay to or
-/// below `Q3232::ZERO` (i.e. negative `decay_factor`) are clamped at
-/// zero.
+/// `decay_factor` is expected to be in `[0, 1]`:
+///
+/// * `0.99` — slow burn, half-life of ~69 ticks
+/// * `0.5`  — aggressive half-life-per-tick cull
+/// * `0.0`  — single-tick wipe (entries zero on the next call)
+///
+/// A negative `decay_factor` is rejected by `debug_assert!` in dev
+/// builds; in release it would still produce well-defined output
+/// (the `.max(Q3232::ZERO)` floor ensures no negative entries
+/// escape) but the caller is almost certainly buggy. A factor
+/// `> 1.0` is similarly suspect — the projection would *grow*
+/// instead of decay — and is asserted out in dev too. Production
+/// callers (S13 encounter loop, Stage 5 Physiology) supply a fixed
+/// per-encounter rate and never violate the contract.
+///
+/// Saturating Q3232 multiplication — values cannot wrap.
 ///
 /// Stage 5 (Physiology) of the tick loop is the natural caller — the
 /// per-tick decay is a metabolic process from the host's
 /// perspective.
 pub fn decay_host_coupling(coupling: &mut HostCoupling, decay_factor: Q3232) {
+    debug_assert!(
+        decay_factor >= Q3232::ZERO,
+        "decay_factor must be >= 0; got {decay_factor:?}",
+    );
+    debug_assert!(
+        decay_factor <= Q3232::ONE,
+        "decay_factor must be <= 1; got {decay_factor:?}",
+    );
     for v in coupling.projection.values_mut() {
         *v = (*v * decay_factor).max(Q3232::ZERO);
     }

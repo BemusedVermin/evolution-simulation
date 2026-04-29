@@ -1,7 +1,9 @@
 //! Predation — one-shot mass + integrity consumption.
 //!
-//! Backs `documentation/systems/06_combat_system.md` §3.4 ("host
-//! coupling profile") and `documentation/systems/16_disease_parasitism.md`.
+//! Backs `documentation/systems/16_disease_parasitism.md` — the
+//! authoritative source for host coupling and consumption semantics.
+//! `06_combat_system.md` §4 ("Damage Formula: From Primitives")
+//! covers the underlying combat math this module wraps.
 //!
 //! Predation runs the same primitive-aggregation pipeline as
 //! [`crate::combat::resolve_round`] then layers a one-shot consumption
@@ -26,6 +28,12 @@ use crate::combat::{resolve_round, RoundOutcome};
 /// Wraps a [`RoundOutcome`] (the same per-category aggregation every
 /// combat round produces) and adds the predation-specific
 /// consumption fields. All Q3232; saturating arithmetic throughout.
+///
+/// Transient round result — `Serialize` / `Deserialize` are
+/// intentionally **not** derived. Only [`crate::HostCoupling`]
+/// (persistent parasitic state) appears in save files; predation
+/// outcomes are recomputed from the primitive sets on each round
+/// and have no need to round-trip through bincode.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PredationOutcome {
     /// The underlying combat round — same fields as [`resolve_round`]
@@ -47,10 +55,19 @@ pub struct PredationOutcome {
     /// Defender integrity remaining after the round.
     /// `defender_integrity.saturating_sub(round.damage).max(Q3232::ZERO)`.
     pub defender_integrity_after: Q3232,
-    /// `true` if both `defender_mass_after` and
-    /// `defender_integrity_after` are zero — the predation event
-    /// killed the defender outright. Convenience flag for the S13
-    /// encounter loop's death check.
+    /// `true` when *either* `defender_mass_after` or
+    /// `defender_integrity_after` has been driven to zero by the
+    /// round. Either resource exhausted is a death event:
+    ///
+    /// * mass = 0 → the defender was eaten / fully consumed; the
+    ///   creature ceases to exist as a body even if its remaining
+    ///   integrity is positive.
+    /// * integrity = 0 → the defender took lethal structural damage
+    ///   regardless of how much mass was extracted.
+    ///
+    /// Convenience flag for the S13 encounter loop's death check.
+    /// Locked in by `predation_kills_when_only_mass_drains` and
+    /// `predation_kills_when_only_integrity_drains`.
     pub kill: bool,
 }
 
@@ -66,7 +83,7 @@ pub struct PredationOutcome {
 /// mass_consumed   = max(0, round.net[MassTransfer] * defender.exposure)
 /// mass_after      = max(0, defender_mass      - mass_consumed)
 /// integrity_after = max(0, defender_integrity - round.damage)
-/// kill            = mass_after == 0 && integrity_after == 0
+/// kill            = mass_after == 0 || integrity_after == 0
 /// ```
 ///
 /// Each saturating subtraction is followed by `.max(Q3232::ZERO)`
@@ -92,6 +109,11 @@ pub struct PredationOutcome {
 /// even produce primitives in the first place; the combat layer is
 /// uniform downstream.
 #[must_use]
+// 7 fixed-role positional args (registry, both effect sets, both
+// slots, both defender resources). Grouping into a `PredationInput`
+// struct deferred — issue #265 tracks the refactor once a second
+// caller (S13 encounter loop) lands and the call-site ergonomics
+// can be measured rather than guessed at.
 #[allow(clippy::too_many_arguments)]
 pub fn resolve_predation(
     registry: &PrimitiveRegistry,
@@ -122,7 +144,7 @@ pub fn resolve_predation(
     let defender_integrity_after = defender_integrity
         .saturating_sub(round.damage)
         .max(Q3232::ZERO);
-    let kill = defender_mass_after == Q3232::ZERO && defender_integrity_after == Q3232::ZERO;
+    let kill = defender_mass_after == Q3232::ZERO || defender_integrity_after == Q3232::ZERO;
 
     PredationOutcome {
         round,
@@ -226,6 +248,55 @@ mod tests {
 
         assert!(outcome.kill, "expected kill, got {outcome:?}");
         assert_eq!(outcome.defender_mass_after, Q3232::ZERO);
+        assert_eq!(outcome.defender_integrity_after, Q3232::ZERO);
+    }
+
+    #[test]
+    fn predation_kills_when_only_mass_drains() {
+        // Pure mass-extraction predation: attacker emits MassTransfer
+        // only, no force damage. Defender's mass is exhausted but
+        // integrity is untouched. The kill flag must still fire —
+        // being eaten alive is a death event.
+        let reg = registry_with(&[("mass_a", PrimitiveCategory::MassTransfer)]);
+        let attacker = vec![effect("mass_a", q(0.9))];
+        let slot = live_slot(Q3232::ONE, Q3232::ONE);
+        let outcome = resolve_predation(
+            &reg,
+            &attacker,
+            &[],
+            &slot,
+            &slot,
+            /* defender_mass */ q(0.2),
+            /* defender_integrity */ q(1.0),
+        );
+        assert!(outcome.kill, "mass-only drain should kill, got {outcome:?}");
+        assert_eq!(outcome.defender_mass_after, Q3232::ZERO);
+        assert!(outcome.defender_integrity_after > Q3232::ZERO);
+    }
+
+    #[test]
+    fn predation_kills_when_only_integrity_drains() {
+        // Pure structural-damage attack: attacker emits force only,
+        // no mass extraction. Defender's integrity goes to zero but
+        // mass is intact. The kill flag fires — lethal damage is a
+        // death event regardless of how much mass survived.
+        let reg = registry_with(&[("force_a", PrimitiveCategory::ForceApplication)]);
+        let attacker = vec![effect("force_a", q(0.9))];
+        let slot = live_slot(Q3232::ONE, Q3232::ONE);
+        let outcome = resolve_predation(
+            &reg,
+            &attacker,
+            &[],
+            &slot,
+            &slot,
+            /* defender_mass */ q(1.0),
+            /* defender_integrity */ q(0.2),
+        );
+        assert!(
+            outcome.kill,
+            "integrity-only drain should kill, got {outcome:?}"
+        );
+        assert!(outcome.defender_mass_after > Q3232::ZERO);
         assert_eq!(outcome.defender_integrity_after, Q3232::ZERO);
     }
 
