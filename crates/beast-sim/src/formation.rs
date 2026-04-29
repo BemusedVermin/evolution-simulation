@@ -847,6 +847,28 @@ mod tests {
         assert_eq!(d, [u8::MAX; SLOT_COUNT]);
     }
 
+    #[test]
+    fn slot_distances_table_matches_canonical_topology() {
+        // The cached 5×5 matrix is what `Push` / `Pull` actually read on
+        // the hot path; the underlying single-source `slot_distances`
+        // is the cache builder. Pin every row so any future adjacency-
+        // graph change either lands a paired update here or fails fast.
+        let t = slot_distances_table();
+        assert_eq!(t[0], [0, 1, 1, 2, 3]); // vanguard
+        assert_eq!(t[1], [1, 0, 2, 1, 2]); // flank-L
+        assert_eq!(t[2], [1, 2, 0, 1, 2]); // flank-R
+        assert_eq!(t[3], [2, 1, 1, 0, 1]); // center
+        assert_eq!(t[4], [3, 2, 2, 1, 0]); // rear
+    }
+
+    #[test]
+    fn slot_distances_table_is_static() {
+        // OnceLock should produce the same allocation across calls.
+        let a = slot_distances_table() as *const _;
+        let b = slot_distances_table() as *const _;
+        assert_eq!(a, b);
+    }
+
     // --- Displacement: Push / Pull --------------------------------------
 
     #[test]
