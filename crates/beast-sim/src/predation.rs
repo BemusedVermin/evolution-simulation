@@ -224,28 +224,45 @@ mod tests {
         Q3232::from_num(v)
     }
 
+    /// Build a registry containing both ForceApplication and
+    /// MassTransfer test primitives. Cheap to call per-test —
+    /// `PrimitiveRegistry` is BTreeMap-backed.
+    fn force_and_mass_registry() -> PrimitiveRegistry {
+        registry_with(&[
+            ("force_a", PrimitiveCategory::ForceApplication),
+            ("mass_a", PrimitiveCategory::MassTransfer),
+        ])
+    }
+
+    /// Drive a single predation round through a unit-engagement /
+    /// unit-exposure slot. Centralises the boilerplate that would
+    /// otherwise repeat across every kill / drain test.
+    fn predation_with(
+        registry: &PrimitiveRegistry,
+        attacker: &[PrimitiveEffect],
+        defender_mass: Q3232,
+        defender_integrity: Q3232,
+    ) -> PredationOutcome {
+        let slot = live_slot(Q3232::ONE, Q3232::ONE);
+        resolve_predation(
+            registry,
+            attacker,
+            &[],
+            &slot,
+            &slot,
+            defender_mass,
+            defender_integrity,
+        )
+    }
+
     // --- One-shot kill path -----------------------------------------------
 
     #[test]
     fn predation_kills_when_force_and_mass_overwhelm_defender() {
-        // Heavy attacker against a small defender — both mass and
-        // integrity should drain to zero, kill = true.
-        let reg = registry_with(&[
-            ("force_a", PrimitiveCategory::ForceApplication),
-            ("mass_a", PrimitiveCategory::MassTransfer),
-        ]);
-        let attacker = vec![effect("force_a", q(0.9)), effect("mass_a", q(0.9))];
-        let slot = live_slot(Q3232::ONE, Q3232::ONE);
-        let outcome = resolve_predation(
-            &reg,
-            &attacker,
-            &[],
-            &slot,
-            &slot,
-            /* defender_mass */ q(0.5),
-            /* defender_integrity */ q(0.5),
-        );
-
+        // Heavy attacker on both axes — mass + integrity both drain.
+        let reg = force_and_mass_registry();
+        let attacker = [effect("force_a", q(0.9)), effect("mass_a", q(0.9))];
+        let outcome = predation_with(&reg, &attacker, q(0.5), q(0.5));
         assert!(outcome.kill, "expected kill, got {outcome:?}");
         assert_eq!(outcome.defender_mass_after, Q3232::ZERO);
         assert_eq!(outcome.defender_integrity_after, Q3232::ZERO);
@@ -253,22 +270,9 @@ mod tests {
 
     #[test]
     fn predation_kills_when_only_mass_drains() {
-        // Pure mass-extraction predation: attacker emits MassTransfer
-        // only, no force damage. Defender's mass is exhausted but
-        // integrity is untouched. The kill flag must still fire —
-        // being eaten alive is a death event.
+        // Pure mass-extraction (eaten alive). Integrity untouched.
         let reg = registry_with(&[("mass_a", PrimitiveCategory::MassTransfer)]);
-        let attacker = vec![effect("mass_a", q(0.9))];
-        let slot = live_slot(Q3232::ONE, Q3232::ONE);
-        let outcome = resolve_predation(
-            &reg,
-            &attacker,
-            &[],
-            &slot,
-            &slot,
-            /* defender_mass */ q(0.2),
-            /* defender_integrity */ q(1.0),
-        );
+        let outcome = predation_with(&reg, &[effect("mass_a", q(0.9))], q(0.2), q(1.0));
         assert!(outcome.kill, "mass-only drain should kill, got {outcome:?}");
         assert_eq!(outcome.defender_mass_after, Q3232::ZERO);
         assert!(outcome.defender_integrity_after > Q3232::ZERO);
@@ -276,25 +280,12 @@ mod tests {
 
     #[test]
     fn predation_kills_when_only_integrity_drains() {
-        // Pure structural-damage attack: attacker emits force only,
-        // no mass extraction. Defender's integrity goes to zero but
-        // mass is intact. The kill flag fires — lethal damage is a
-        // death event regardless of how much mass survived.
+        // Pure structural damage (lethal blow). Mass untouched.
         let reg = registry_with(&[("force_a", PrimitiveCategory::ForceApplication)]);
-        let attacker = vec![effect("force_a", q(0.9))];
-        let slot = live_slot(Q3232::ONE, Q3232::ONE);
-        let outcome = resolve_predation(
-            &reg,
-            &attacker,
-            &[],
-            &slot,
-            &slot,
-            /* defender_mass */ q(1.0),
-            /* defender_integrity */ q(0.2),
-        );
+        let outcome = predation_with(&reg, &[effect("force_a", q(0.9))], q(1.0), q(0.2));
         assert!(
             outcome.kill,
-            "integrity-only drain should kill, got {outcome:?}"
+            "integrity-only drain should kill, got {outcome:?}",
         );
         assert!(outcome.defender_mass_after > Q3232::ZERO);
         assert_eq!(outcome.defender_integrity_after, Q3232::ZERO);
@@ -303,23 +294,11 @@ mod tests {
     #[test]
     fn predation_does_not_kill_when_defender_resists() {
         // Defender's same-category defense covers the attacker.
-        let reg = registry_with(&[
-            ("force_a", PrimitiveCategory::ForceApplication),
-            ("mass_a", PrimitiveCategory::MassTransfer),
-        ]);
+        let reg = force_and_mass_registry();
         let attacker = vec![effect("force_a", q(0.3)), effect("mass_a", q(0.3))];
         let defender = vec![effect("force_a", q(0.5)), effect("mass_a", q(0.5))];
         let slot = live_slot(q(0.8), q(0.8));
-        let outcome = resolve_predation(
-            &reg,
-            &attacker,
-            &defender,
-            &slot,
-            &slot,
-            /* defender_mass */ q(1.0),
-            /* defender_integrity */ q(1.0),
-        );
-
+        let outcome = resolve_predation(&reg, &attacker, &defender, &slot, &slot, q(1.0), q(1.0));
         assert!(!outcome.kill);
         // Defender state preserved exactly — no consumption when net is zero.
         assert_eq!(outcome.mass_consumed, Q3232::ZERO);
@@ -332,49 +311,26 @@ mod tests {
 
     #[test]
     fn mass_consumed_floors_at_zero() {
-        // Defender has no MassTransfer offense — net is zero, so mass
-        // consumed is zero (not negative via signed underflow).
+        // Defender has no MassTransfer offense — net is zero, so
+        // mass_consumed is zero (not negative via signed underflow).
         let reg = registry_with(&[("force_a", PrimitiveCategory::ForceApplication)]);
-        let attacker = vec![effect("force_a", q(0.1))];
-        let slot = live_slot(q(0.5), q(0.5));
-        let outcome = resolve_predation(&reg, &attacker, &[], &slot, &slot, q(1.0), q(1.0));
+        let outcome = predation_with(&reg, &[effect("force_a", q(0.1))], q(1.0), q(1.0));
         assert_eq!(outcome.mass_consumed, Q3232::ZERO);
     }
 
     #[test]
     fn mass_after_floors_at_zero_when_consumption_exceeds_balance() {
         // Net MassTransfer * exposure = full extraction, but defender
-        // mass is small. defender_mass_after must be exactly zero,
-        // never negative.
+        // mass is small. defender_mass_after must be exactly zero.
         let reg = registry_with(&[("mass_a", PrimitiveCategory::MassTransfer)]);
-        let attacker = vec![effect("mass_a", q(0.9))];
-        let slot = live_slot(Q3232::ONE, Q3232::ONE);
-        let outcome = resolve_predation(
-            &reg,
-            &attacker,
-            &[],
-            &slot,
-            &slot,
-            /* defender_mass */ q(0.2),
-            /* defender_integrity */ q(1.0),
-        );
+        let outcome = predation_with(&reg, &[effect("mass_a", q(0.9))], q(0.2), q(1.0));
         assert_eq!(outcome.defender_mass_after, Q3232::ZERO);
     }
 
     #[test]
     fn integrity_after_floors_at_zero_when_damage_exceeds_balance() {
         let reg = registry_with(&[("force_a", PrimitiveCategory::ForceApplication)]);
-        let attacker = vec![effect("force_a", q(0.9))];
-        let slot = live_slot(Q3232::ONE, Q3232::ONE);
-        let outcome = resolve_predation(
-            &reg,
-            &attacker,
-            &[],
-            &slot,
-            &slot,
-            q(1.0),
-            /* defender_integrity */ q(0.2),
-        );
+        let outcome = predation_with(&reg, &[effect("force_a", q(0.9))], q(1.0), q(0.2));
         assert_eq!(outcome.defender_integrity_after, Q3232::ZERO);
     }
 
