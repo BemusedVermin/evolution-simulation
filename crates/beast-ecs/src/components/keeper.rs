@@ -10,7 +10,7 @@
 //! the active-inference loop in `documentation/emergence/57_agent_ai.md`
 //! per INVARIANTS §9, and lands in a later sprint.
 
-use beast_core::Q3232;
+use beast_core::{clamp01, Q3232};
 use serde::{Deserialize, Serialize};
 use specs::{Component, DenseVecStorage};
 
@@ -18,10 +18,16 @@ use specs::{Component, DenseVecStorage};
 /// per-round Leadership Presence budget.
 ///
 /// All five fields are [`Q3232`] and are expected to lie in the unit
-/// interval `[0, 1]`. Saturating Q32.32 arithmetic in
-/// [`leadership_presence`] keeps the function total — feeding values
-/// outside that interval will clamp to a stable, deterministic result
-/// rather than panicking.
+/// interval `[0, 1]`. The two input classes are treated differently by
+/// [`leadership_presence`]:
+///
+/// * `stress` and `fatigue` are clamped to `[0, 1]` on entry so the
+///   multipliers stay in the unit interval — out-of-range values
+///   produce the same result as the corresponding endpoint.
+/// * Personality fields (`charisma`, `neural_speed`, `empathy`) are
+///   consumed as-is. Saturating Q32.32 arithmetic prevents panics, but
+///   the *output* is not bounded: a Keeper with `charisma = 2.0` will
+///   contribute `2.0` to the personality sum, not `1.0`.
 ///
 /// Fields:
 ///
@@ -82,15 +88,24 @@ impl Component for KeeperState {
 ///
 /// ```text
 ///   personality = charisma + neural_speed + empathy
-///   stress_mult  = clamp(1 - stress,  0, 1)
-///   fatigue_mult = clamp(1 - fatigue, 0, 1)
+///   stress_mult  = clamp01(1 - stress)
+///   fatigue_mult = clamp01(1 - fatigue)
 ///   presence = personality * stress_mult * fatigue_mult
 /// ```
 ///
-/// `stress` and `fatigue` are clamped to `[0, 1]` on entry so the
-/// multipliers stay in the unit interval — feeding `stress > 1` then
-/// flipping the sign of the personality term via wrap-around would
-/// silently break monotonicity.
+/// `stress` and `fatigue` are clamped to `[0, 1]` on entry via
+/// [`beast_core::clamp01`] so the multipliers stay in the unit interval
+/// — feeding `stress > 1` then flipping the sign of the personality
+/// term via wrap-around would silently break monotonicity.
+///
+/// # Returns
+///
+/// A value in `[0, charisma + neural_speed + empathy]`. When all three
+/// personality channels are in `[0, 1]` the result lies in `[0, 3]`;
+/// callers that need a unit-interval budget must scale or clamp the
+/// returned value. The output is *not* bounded by `Q3232::ONE` —
+/// saturating arithmetic prevents panics on extreme inputs but does
+/// not normalise the personality sum.
 ///
 /// Monotonicity (locked in by unit tests):
 ///
@@ -101,8 +116,8 @@ impl Component for KeeperState {
 /// * `stress = 1` *or* `fatigue = 1` produces [`Q3232::ZERO`].
 #[must_use]
 pub fn leadership_presence(state: &KeeperState) -> Q3232 {
-    let stress = state.stress.clamp(Q3232::ZERO, Q3232::ONE);
-    let fatigue = state.fatigue.clamp(Q3232::ZERO, Q3232::ONE);
+    let stress = clamp01(state.stress);
+    let fatigue = clamp01(state.fatigue);
     let stress_mult = Q3232::ONE - stress;
     let fatigue_mult = Q3232::ONE - fatigue;
     let personality = state.charisma + state.neural_speed + state.empathy;
@@ -110,6 +125,11 @@ pub fn leadership_presence(state: &KeeperState) -> Q3232 {
 }
 
 #[cfg(test)]
+// Test helpers compute step values like `f64::from(step) * 0.1` to drive
+// monotonicity checks. The crate-wide `clippy::float_arithmetic = warn`
+// gate (promoted to deny in CI) targets sim state — these expressions
+// are confined to test-only fixtures and never appear on the sim path.
+#[allow(clippy::float_arithmetic)]
 mod tests {
     use super::*;
 
@@ -154,12 +174,13 @@ mod tests {
         let base = personality(0.4, 0.3, 0.2);
         let mut prev = leadership_presence(&base);
         for step in 1..=10 {
+            let stress = f64::from(step) * 0.1;
             let mut state = base;
-            state.stress = q(f64::from(step) * 0.1);
+            state.stress = q(stress);
             let curr = leadership_presence(&state);
             assert!(
                 curr <= prev,
-                "stress={step:.1} produced {curr:?} > prev {prev:?}",
+                "stress={stress:.1} produced {curr:?} > prev {prev:?}",
             );
             prev = curr;
         }
@@ -170,12 +191,13 @@ mod tests {
         let base = personality(0.4, 0.3, 0.2);
         let mut prev = leadership_presence(&base);
         for step in 1..=10 {
+            let fatigue = f64::from(step) * 0.1;
             let mut state = base;
-            state.fatigue = q(f64::from(step) * 0.1);
+            state.fatigue = q(fatigue);
             let curr = leadership_presence(&state);
             assert!(
                 curr <= prev,
-                "fatigue={step:.1} produced {curr:?} > prev {prev:?}",
+                "fatigue={fatigue:.1} produced {curr:?} > prev {prev:?}",
             );
             prev = curr;
         }
