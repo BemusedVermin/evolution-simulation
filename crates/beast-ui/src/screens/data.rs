@@ -74,8 +74,15 @@ impl BiomeView {
     /// Construct a uniform-colour biome view of the given dimensions.
     /// Snapshot tests use this so the recorded paint commands don't
     /// drift when `beast_render::biome_tint` is tweaked.
+    ///
+    /// Panics if `width * height` overflows `usize` — that's a
+    /// programming bug, not a valid input. The check guards against
+    /// silent truncation on 32-bit targets where two values above
+    /// `u16::MAX` would otherwise wrap.
     pub fn solid(width: u32, height: u32, color: [u8; 4]) -> Self {
-        let len = width as usize * height as usize;
+        let len = (width as usize)
+            .checked_mul(height as usize)
+            .expect("BiomeView tile count overflows usize");
         Self {
             width,
             height,
@@ -91,7 +98,16 @@ impl BiomeView {
 }
 
 /// One creature in an [`EncounterSnapshot`].
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+///
+/// Render-only DTO: must NOT be serialized into save files. Per
+/// `documentation/INVARIANTS.md` §1, all sim-state math runs in
+/// Q32.32 fixed-point — `hp_pct: f32` lives here strictly because
+/// the encounter renderer needs a render-side hp fraction. If you
+/// find yourself wanting to persist this, convert it to `Q3232`
+/// (or to whatever sim-side type drives it) before serialising.
+/// `Serialize` / `Deserialize` are intentionally NOT derived to
+/// keep the type out of bincode save paths.
+#[derive(Clone, Debug, PartialEq)]
 pub struct EncounterCreatureSnapshot {
     /// Stable entity id.
     pub id: u32,
@@ -105,7 +121,10 @@ pub struct EncounterCreatureSnapshot {
 
 /// Read-only snapshot of an active encounter — what the encounter
 /// renderer + creature list / action bar need to paint a frame.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+///
+/// Render-only DTO: must NOT be serialized into save files (see
+/// [`EncounterCreatureSnapshot`] doc comment + INVARIANTS §1).
+#[derive(Clone, Debug, PartialEq)]
 pub struct EncounterSnapshot {
     /// Display label for the host biome (e.g. `"forest"`). Surfaced
     /// in the encounter status bar.

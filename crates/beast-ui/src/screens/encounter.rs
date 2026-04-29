@@ -26,7 +26,28 @@ use crate::{Size, WidgetTree};
 pub fn encounter(snapshot: &EncounterSnapshot) -> WidgetTree {
     let mut ids = IdAllocator::new();
 
-    // --- Left column: render viewport + creature list ---
+    let left = build_left_column(&mut ids, snapshot);
+    let right = build_right_column(&mut ids, snapshot);
+
+    let mut content = Stack::new(ids.allocate(), Axis::Horizontal)
+        .with_gap(8.0)
+        .with_align(Align::Start);
+    content.push_child(Box::new(left));
+    content.push_child(Box::new(right));
+
+    let biome = snapshot.biome_label.clone();
+    let active_for_status = active_creature_name(snapshot, "(none)");
+    let frame = screen_frame(
+        &mut ids,
+        move || format!("encounter | biome: {biome} | active: {active_for_status}"),
+        Box::new(content),
+    );
+
+    WidgetTree::new(Box::new(frame), Size::new(1280.0, 720.0))
+}
+
+/// Render-viewport + creature list, packed vertically.
+fn build_left_column(ids: &mut IdAllocator, snapshot: &EncounterSnapshot) -> Stack {
     let mut left = Stack::new(ids.allocate(), Axis::Vertical)
         .with_gap(8.0)
         .with_align(Align::Start);
@@ -35,7 +56,12 @@ pub fn encounter(snapshot: &EncounterSnapshot) -> WidgetTree {
         .with_tint(Color::rgb(0.18, 0.20, 0.10))
         .with_preferred_size(Size::new(900.0, 460.0));
     left.push_child(Box::new(viewport));
+    left.push_child(Box::new(build_creature_list(ids, snapshot)));
+    left
+}
 
+/// `List<u32>` populated with creature labels + applied selection.
+fn build_creature_list(ids: &mut IdAllocator, snapshot: &EncounterSnapshot) -> List<u32> {
     let mut creature_list: List<u32> = List::new(ids.allocate());
     let items: Vec<ListItem<u32>> = snapshot
         .creatures
@@ -55,24 +81,23 @@ pub fn encounter(snapshot: &EncounterSnapshot) -> WidgetTree {
             creature_list.set_selected(Some(idx));
         }
     }
-    left.push_child(Box::new(creature_list));
+    creature_list
+}
 
-    // --- Right column: action button bar ---
+/// Action-bar buttons + info card, packed vertically.
+fn build_right_column(ids: &mut IdAllocator, snapshot: &EncounterSnapshot) -> Stack {
     let mut right = Stack::new(ids.allocate(), Axis::Vertical)
         .with_gap(8.0)
         .with_align(Align::Start);
 
     let mut action_bar = Stack::new(ids.allocate(), Axis::Horizontal).with_gap(8.0);
-    action_bar.push_child(Box::new(Button::new(ids.allocate(), "Attack")));
-    action_bar.push_child(Box::new(Button::new(ids.allocate(), "Defend")));
-    action_bar.push_child(Box::new(Button::new(ids.allocate(), "Flee")));
+    for label in ["Attack", "Defend", "Flee"] {
+        action_bar.push_child(Box::new(Button::new(ids.allocate(), label)));
+    }
     right.push_child(Box::new(action_bar));
 
     let mut info_card = Card::new(ids.allocate(), "encounter");
-    let active_name = snapshot
-        .selected_creature()
-        .map(|c| c.name.clone())
-        .unwrap_or_else(|| "(no selection)".to_owned());
+    let active_name = active_creature_name(snapshot, "(no selection)");
     info_card.push_child(Box::new(Label::new(
         ids.allocate(),
         format!(
@@ -83,26 +108,17 @@ pub fn encounter(snapshot: &EncounterSnapshot) -> WidgetTree {
         ),
     )));
     right.push_child(Box::new(info_card));
+    right
+}
 
-    // --- Content row: left + right ---
-    let mut content = Stack::new(ids.allocate(), Axis::Horizontal)
-        .with_gap(8.0)
-        .with_align(Align::Start);
-    content.push_child(Box::new(left));
-    content.push_child(Box::new(right));
-
-    let biome = snapshot.biome_label.clone();
-    let active_for_status = snapshot
+/// Active creature's display name, or `fallback` when no creature is
+/// selected. Centralised so the status-bar and info-card strings
+/// stay in lockstep when the snapshot's selection shape changes.
+fn active_creature_name(snapshot: &EncounterSnapshot, fallback: &str) -> String {
+    snapshot
         .selected_creature()
         .map(|c| c.name.clone())
-        .unwrap_or_else(|| "(none)".to_owned());
-    let frame = screen_frame(
-        &mut ids,
-        move || format!("encounter | biome: {biome} | active: {active_for_status}"),
-        Box::new(content),
-    );
-
-    WidgetTree::new(Box::new(frame), Size::new(1280.0, 720.0))
+        .unwrap_or_else(|| fallback.to_owned())
 }
 
 #[cfg(test)]

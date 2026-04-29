@@ -25,13 +25,18 @@ use crate::widget::{Button, Card, IdAllocator, Label, RenderViewport, Stack};
 use crate::{Bound, FnBinding, Size, WidgetTree};
 
 /// Width of the right-hand action bar column.
-pub(crate) const ACTION_BAR_WIDTH: f32 = 200.0;
+const ACTION_BAR_WIDTH: f32 = 200.0;
 
 /// Build the world-map screen for a 1280×720 viewport.
 ///
-/// The returned tree's status bar is bound to live closures, so the
-/// caller can keep mutating `world` between frames; the next paint
-/// will re-evaluate the bindings.
+/// Status values are *snapped* from `world` and `biomes` at call time
+/// and captured by value into the status-bar / world-card closures.
+/// Subsequent mutations of the source `world` are not reflected by
+/// later paints — to refresh, rebuild the screen. A truly live
+/// binding (e.g. `Rc<Cell<u64>>`) is planned for S13 once the
+/// application layer wires real input handling; until then each
+/// frame's status reflects the world handed to `world_map(..)`
+/// at construction.
 pub fn world_map(world: &dyn WorldStatus, biomes: &BiomeView) -> WidgetTree {
     let mut ids = IdAllocator::new();
 

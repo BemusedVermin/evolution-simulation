@@ -82,7 +82,6 @@ pub struct BestiaryPanel {
     id: WidgetId,
     bounds: Rect,
     list: List<SpeciesId>,
-    detail_id: WidgetId,
     detail_bounds: Rect,
     detail_texts: Vec<String>,
     last_selected: Option<usize>,
@@ -109,7 +108,10 @@ impl BestiaryPanel {
     pub fn new(ids: &mut IdAllocator, entries: Vec<BestiaryEntry>) -> Self {
         let panel_id = ids.allocate();
         let list_id = ids.allocate();
-        let detail_id = ids.allocate();
+        // The detail surface is rendered inline by `paint()`; it has
+        // no separate widget object and therefore no allocated id —
+        // an orphaned id would silently confuse future focus /
+        // accessibility passes that walk the id space.
 
         let mut list: List<SpeciesId> = List::new(list_id);
         let detail_texts: Vec<String> = entries.iter().map(format_detail).collect();
@@ -131,7 +133,6 @@ impl BestiaryPanel {
             id: panel_id,
             bounds: Rect::ZERO,
             list,
-            detail_id,
             detail_bounds: Rect::ZERO,
             detail_texts,
             last_selected: None,
@@ -279,15 +280,10 @@ impl Widget for BestiaryPanel {
         if self.id == id {
             return Some(self);
         }
-        if id == self.detail_id {
-            // The detail panel is rendered by `BestiaryPanel::paint`
-            // directly; there is no separate widget object whose
-            // mutable handle we could return. Returning `None`
-            // matches "no separate widget" — tests that want to
-            // assert the detail text use `Self::detail_text`
-            // instead.
-            return None;
-        }
+        // The detail surface has no separate widget object — its
+        // bounds live on `self.detail_bounds` and are painted inline
+        // by `paint()`. Tests assert detail content via
+        // `Self::detail_text` rather than walking the tree.
         self.list.find_widget_mut(id)
     }
 }

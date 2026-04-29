@@ -77,9 +77,17 @@ fn populated_chronicler() -> InMemoryChronicler {
 }
 
 fn assert_kind_sequence(dump: &str, expected_kinds: &[&str]) {
+    // `dump_layout` ends with a trailing `\n`; without the empty
+    // filter, `.lines()` here would still yield the right number of
+    // entries (since `lines()` swallows the trailing newline), but
+    // any future format tweak that emits double newlines or blank
+    // separator lines would surface as a confusing
+    // "expected `Foo` at position N, got ``" diff. The filter
+    // tolerates both shapes.
     let kinds: Vec<&str> = dump
         .lines()
         .map(|line| line.split('#').next().unwrap_or(""))
+        .filter(|kind| !kind.is_empty())
         .collect();
     assert_eq!(
         kinds, expected_kinds,

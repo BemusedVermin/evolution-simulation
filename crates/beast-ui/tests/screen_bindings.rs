@@ -47,14 +47,25 @@ fn collect_text(tree: &WidgetTree) -> Vec<String> {
 
 #[test]
 fn world_map_status_bar_reads_world_status_through_binding() {
-    // The DoD requires the status bar binding to read both
-    // `current_tick` and `creature_count` from the fake world. We
-    // mutate the fake between paints to verify the binding really
-    // re-evaluates rather than caching at build time. (The world
-    // status is captured by value into the closure today, so the
-    // *binding* re-fires on every paint — what we lock here is that
-    // the rendered string reflects whatever the binding closure
-    // returns.)
+    // The S10.4 DoD says the status bar binding "reads `current_tick`
+    // and `creature_count` from a fake `World` snapshot." Today the
+    // status values are *snapped* from `WorldStatus` at construction
+    // time and captured by value into the `FnBinding` closure (see
+    // `world_map.rs` doc comment) — the binding still re-fires on
+    // every paint, but always returns the same snapped values. A
+    // genuinely live binding lands in S13.
+    //
+    // We pin two contracts here:
+    //
+    //  1. `WorldStatus::current_tick()` and `creature_count()` are
+    //     called during construction and the rendered status reflects
+    //     them on the first paint.
+    //  2. Re-paints with the same screen produce the same status —
+    //     no per-paint mutation source is hidden in the closure.
+    //
+    // To verify (1) we use distinctive integers that can't appear in
+    // any other rendered text. To verify (2) we paint twice and
+    // compare the recovered status strings.
     let world = FakeWorld {
         tick: 1234,
         creatures: 17,
@@ -63,15 +74,33 @@ fn world_map_status_bar_reads_world_status_through_binding() {
     let mut tree = world_map(&world, &biomes);
     assert!(tree.layout(), "first layout should be a cache miss");
 
-    let texts = collect_text(&tree);
+    let first = collect_text(&tree);
     assert!(
-        texts.iter().any(|t| t.contains("tick: 1234")),
-        "status bar should surface current_tick from WorldStatus, got: {texts:?}"
+        first.iter().any(|t| t.contains("tick: 1234")),
+        "first paint must surface current_tick from WorldStatus, got: {first:?}"
     );
     assert!(
-        texts.iter().any(|t| t.contains("creatures: 17")),
-        "status bar should surface creature_count from WorldStatus, got: {texts:?}"
+        first.iter().any(|t| t.contains("creatures: 17")),
+        "first paint must surface creature_count from WorldStatus, got: {first:?}"
     );
+
+    // Repaint without touching the source world. The closure
+    // captured snapped values, so the tick text must reproduce
+    // exactly across paints. If a future refactor wires a live
+    // binding (e.g. `Rc<Cell<u64>>`), this assertion becomes an
+    // explicit regression marker — the world_map.rs doc + this
+    // comment need to be updated together at that point.
+    let later = collect_text(&tree);
+    assert_eq!(
+        first.iter().filter(|t| t.contains("tick: 1234")).count(),
+        later.iter().filter(|t| t.contains("tick: 1234")).count(),
+        "snapshot binding must keep tick text stable across paints"
+    );
+    // Borrow check: `world` was only used during construction, so
+    // it doesn't need to outlive the second paint — but holding the
+    // reference here documents the contract that `WorldStatus` is
+    // queried at build time and never again.
+    let _ = world.creature_count();
 }
 
 #[test]
@@ -212,12 +241,26 @@ fn bestiary_screen_routes_selection_through_widget_tree() {
 
 fn parse_bounds_origin(line: &str) -> (f32, f32) {
     // Format: `Kind#id x,y wxh`. Split on whitespace; bounds start
-    // at index 1.
+    // at index 1. A regression in `dump_layout`'s output format
+    // would otherwise panic with a non-descriptive index/parse
+    // error pointing at this helper rather than the layout bug.
     let parts: Vec<&str> = line.split_whitespace().collect();
-    let xy = parts[1];
+    let xy = parts
+        .get(1)
+        .unwrap_or_else(|| panic!("malformed dump line, expected `Kind#id x,y wxh`: {line:?}"));
     let mut iter = xy.split(',');
-    let x: f32 = iter.next().unwrap().parse().unwrap();
-    let y: f32 = iter.next().unwrap().parse().unwrap();
+    let x_str = iter
+        .next()
+        .unwrap_or_else(|| panic!("missing x coord in dump line: {line:?}"));
+    let y_str = iter
+        .next()
+        .unwrap_or_else(|| panic!("missing y coord in dump line: {line:?}"));
+    let x: f32 = x_str
+        .parse()
+        .unwrap_or_else(|e| panic!("cannot parse x coord {x_str:?} in {line:?}: {e}"));
+    let y: f32 = y_str
+        .parse()
+        .unwrap_or_else(|e| panic!("cannot parse y coord {y_str:?} in {line:?}: {e}"));
     (x, y)
 }
 
