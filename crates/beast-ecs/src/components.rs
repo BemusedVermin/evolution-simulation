@@ -10,12 +10,17 @@
 //! path (S7) can round-trip them without further plumbing.
 
 pub mod biome;
+pub mod formation;
 pub mod markers;
 pub mod physiology;
 pub mod spatial;
 pub mod traits;
 
 pub use biome::{BiomeCell, BiomeKind};
+pub use formation::{
+    compute_engagement, compute_exposure, slot_adjacency, Formation, FormationSlot, SLOT_COUNT,
+    SLOT_NAMES,
+};
 pub use markers::{Agent, Biome, Creature, Faction, Pathogen, Settlement};
 pub use physiology::{Age, DevelopmentalStage, HealthState, Mass, Species};
 pub use spatial::{Position, Velocity};
@@ -45,6 +50,8 @@ pub fn register_all(world: &mut crate::EcsWorld) {
     world.register_component::<PhenotypeComponent>();
 
     world.register_component::<BiomeCell>();
+
+    world.register_component::<Formation>();
 }
 
 #[cfg(test)]
@@ -94,5 +101,6 @@ mod tests {
         is_dense::<GenomeComponent>();
         is_dense::<PhenotypeComponent>();
         is_dense::<BiomeCell>();
+        is_dense::<Formation>();
     }
 }
