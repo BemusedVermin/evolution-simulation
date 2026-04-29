@@ -11,6 +11,7 @@
 
 pub mod biome;
 pub mod formation;
+pub mod keeper;
 pub mod markers;
 pub mod physiology;
 pub mod spatial;
@@ -18,6 +19,7 @@ pub mod traits;
 
 pub use biome::{BiomeCell, BiomeKind};
 pub use formation::{Formation, FormationSlot, SLOT_COUNT, SLOT_NAMES};
+pub use keeper::{leadership_presence, KeeperState};
 pub use markers::{Agent, Biome, Creature, Faction, Pathogen, Settlement};
 pub use physiology::{Age, DevelopmentalStage, HealthState, Mass, Species};
 pub use spatial::{Position, Velocity};
@@ -49,6 +51,7 @@ pub fn register_all(world: &mut crate::EcsWorld) {
     world.register_component::<BiomeCell>();
 
     world.register_component::<Formation>();
+    world.register_component::<KeeperState>();
 }
 
 #[cfg(test)]
@@ -99,5 +102,6 @@ mod tests {
         is_dense::<PhenotypeComponent>();
         is_dense::<BiomeCell>();
         is_dense::<Formation>();
+        is_dense::<KeeperState>();
     }
 }
