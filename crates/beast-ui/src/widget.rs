@@ -14,6 +14,7 @@ mod dialog;
 mod grid;
 mod label;
 mod list;
+mod render_viewport;
 mod stack;
 
 pub use button::Button;
@@ -22,6 +23,7 @@ pub use dialog::Dialog;
 pub use grid::Grid;
 pub use label::Label;
 pub use list::{List, ListItem};
+pub use render_viewport::RenderViewport;
 pub use stack::Stack;
 
 /// Stable, globally unique identifier for a widget.
