@@ -13,15 +13,15 @@
 //! > snapshots come from the existing interpreter pipeline (no new sim
 //! > work).
 //!
-//! The interpreter pipeline (`beast_interpreter::interpret_phenotype`)
-//! has its own per-pipeline determinism gate
-//! (`crates/beast-interpreter/tests/determinism.rs`). To keep this test
-//! focused on the S10 stack — and within the ≤5 s wall-clock budget —
-//! per-tick snapshots are synthesised here from `(entity_id, tick)`
-//! using the same `BTreeSet<String>` shape `interpret_phenotype` would
-//! produce. The deterministic-replay assertion below pins that
-//! contract for the integration boundary regardless of how the
-//! interpreter wires into the sim path in S11+.
+//! The interpreter pipeline (`beast_interpreter::interpret_phenotype`,
+//! crate not pulled in as a direct dep here) has its own per-pipeline
+//! determinism gate (`crates/beast-interpreter/tests/determinism.rs`).
+//! To keep this test focused on the S10 stack — and within the ≤5 s
+//! wall-clock budget — per-tick snapshots are synthesised here from
+//! `(entity_id, tick)` using the same `BTreeSet<String>` shape
+//! `interpret_phenotype` would produce. The deterministic-replay
+//! assertion below pins that contract for the integration boundary
+//! regardless of how the interpreter wires into the sim path in S11+.
 //!
 //! The DoD says `cargo test -p beast-ui --features headless --test
 //! bestiary_integration` must be green; no feature gate is applied
@@ -30,6 +30,7 @@
 //! workspace-wide `cargo test --workspace --all-targets --locked` run.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 
 use beast_chronicler::{
     BestiaryFilter, BestiarySortBy, Chronicler, ChroniclerQuery, LabelEngine, PrimitiveSnapshot,
@@ -69,10 +70,14 @@ const CONFIDENCE_FLOOR: f64 = 0.7;
 /// `crates/beast-chronicler/tests/no_hardcoded_label_strings.rs`.
 const COHORTS: &[&[&str]] = &[&["echo", "spatial"], &["glow"], &["pulse", "tremor"]];
 
-/// Label manifest local to this test; deliberately distinct from the
-/// shipped `assets/manifests/labels.json`. Picks ids that
-/// `format_detail` will surface so the detail-card assertion below has
-/// a stable substring to look for.
+/// Label manifest local to this test. Reuses the shipped label ids
+/// `echolocation` and `bioluminescence` from
+/// `assets/manifests/labels.json` so the detail-card assertion below
+/// has stable substrings to look for, but binds them to the short
+/// synthetic primitive ids `echo`/`spatial` and `glow` (instead of
+/// the shipped multi-token sets) so ingestion is self-contained and
+/// each cohort can drive its own signature with two-character
+/// fixtures. `drumming` is test-only.
 const LABEL_MANIFEST_JSON: &str = r#"{
     "labels": [
         { "id": "echolocation",   "primitives": ["echo", "spatial"], "min_confidence": 0.6 },
@@ -196,7 +201,11 @@ fn top_n_diagnostic(chronicler: &Chronicler, n: usize) -> String {
             // distinguish patterns without dumping all 32 bytes.
             let mut sig_hex = String::with_capacity(16);
             for byte in &sig.0[..8] {
-                sig_hex.push_str(&format!("{byte:02x}"));
+                // `write!` writes into the pre-allocated buffer; the
+                // earlier `push_str(&format!(…))` allocated one
+                // temporary `String` per byte. Diagnostic-only, but
+                // a pattern worth not copy-pasting into a hot loop.
+                write!(sig_hex, "{byte:02x}").expect("fmt::Write on String is infallible");
             }
             (sig_hex, obs.count, confidence)
         })
@@ -204,7 +213,8 @@ fn top_n_diagnostic(chronicler: &Chronicler, n: usize) -> String {
     rows.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| b.1.cmp(&a.1)));
     let mut buf = String::new();
     for (sig, count, conf) in rows.iter().take(n) {
-        buf.push_str(&format!("  sig={sig}…  count={count}  conf={conf}\n"));
+        writeln!(buf, "  sig={sig}…  count={count}  conf={conf}")
+            .expect("fmt::Write on String is infallible");
     }
     buf
 }
@@ -246,6 +256,12 @@ fn rendered_text(tree: &WidgetTree) -> Vec<String> {
         .collect()
 }
 
+// Wall-clock budget per the issue DoD: ≤ 5 s. CI gates on the test
+// runner's per-test timeout, not an in-process clock — adding one
+// here would itself need to read wall-clock and would re-introduce
+// the very float/clock surface INVARIANTS §1 forbids on the sim path.
+// Local debug runs land at ~0.2 s; release is faster. If you see a
+// debug run above ~3 s, profile before assuming the budget regressed.
 #[test]
 fn bestiary_integration_50_creatures_1000_ticks() {
     let chronicler_a = run_once();
@@ -301,6 +317,12 @@ fn bestiary_integration_50_creatures_1000_ticks() {
     );
 
     let (origin_x, origin_y) = list_origin(&tree);
+    // MouseMove pre-positions the cursor over row 0 so the next
+    // MouseDown's hit-test lands inside the list. The result here is
+    // intentionally unchecked — hover handling currently returns
+    // Ignored, but a future regression that flips it to Consumed is
+    // not what this test is gating; the click-consumption assertion
+    // below is the contract.
     let _ = tree.dispatch(&UiEvent::MouseMove {
         x: origin_x + 5.0,
         y: origin_y + 5.0,
