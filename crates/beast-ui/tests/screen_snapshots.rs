@@ -24,7 +24,7 @@ use beast_chronicler::{
 };
 use beast_core::{TickCounter, Q3232};
 use beast_ui::screens::data::{
-    BiomeView, EncounterCreatureSnapshot, EncounterSnapshot, WorldStatus,
+    BiomeView, EncounterCreatureSnapshot, EncounterSnapshot, FormationView, KeeperView, WorldStatus,
 };
 use beast_ui::{bestiary, dump_layout, encounter, settings, world_map};
 
@@ -217,8 +217,11 @@ fn encounter_snapshot_matches_fixture() {
             },
         ],
         selected: Some(0),
+        formation: FormationView::empty(),
+        keeper: KeeperView::empty(),
     };
-    let mut tree = encounter(&snapshot);
+    let chronicler = InMemoryChronicler::new();
+    let mut tree = encounter(&chronicler, &snapshot);
     assert!(tree.layout());
     let dump = dump_layout(&tree);
     assert_kind_sequence(
@@ -227,6 +230,18 @@ fn encounter_snapshot_matches_fixture() {
             "Stack", // root frame
             "Card",  // status bar
             "Label", // status binding label
+            "Stack", // outer column (formation row above content row)
+            "Stack", // formation row
+            "Card",  // slot 0 (vanguard)
+            "Label",
+            "Card", // slot 1 (flank-left)
+            "Label",
+            "Card", // slot 2 (flank-right)
+            "Label",
+            "Card", // slot 3 (center)
+            "Label",
+            "Card", // slot 4 (rear)
+            "Label",
             "Stack", // content row
             "Stack", // left column
             "RenderViewport",
