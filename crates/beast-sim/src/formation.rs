@@ -364,6 +364,7 @@ pub struct DisplacementOutcome {
 /// caller (S13 encounter loop) should normalise indices before
 /// invoking; surfacing a hard panic on a stray index would let one
 /// bad command kill the whole encounter.
+#[must_use]
 pub fn apply_displacement(
     formation: &mut Formation,
     source: u8,
@@ -376,8 +377,11 @@ pub fn apply_displacement(
 
     let moved = match kind {
         DisplacementKind::Scatter => apply_scatter(formation),
-        DisplacementKind::Push | DisplacementKind::Pull => {
-            apply_directed_displacement(formation, source, target, kind)
+        DisplacementKind::Push => {
+            apply_directed_displacement(formation, source, target, DirectedKind::Push)
+        }
+        DisplacementKind::Pull => {
+            apply_directed_displacement(formation, source, target, DirectedKind::Pull)
         }
     };
 
@@ -391,11 +395,25 @@ pub fn apply_displacement(
     }
 }
 
+/// Internal-only kind for [`apply_directed_displacement`]. Encodes the
+/// invariant "this helper only handles Push or Pull, never Scatter"
+/// in the type system, eliminating the `unreachable!()` arms that
+/// would otherwise sit inside the picker loop.
+#[derive(Debug, Clone, Copy)]
+enum DirectedKind {
+    Push,
+    Pull,
+}
+
 /// Reverse occupant order in place. Returns `true` if anything
 /// actually moved (false only when the formation is symmetric
 /// already, e.g. all empty or palindromic occupancy).
 fn apply_scatter(formation: &mut Formation) -> bool {
     let mut moved = false;
+    // Integer division floors: SLOT_COUNT == 5 (odd) → `0..2`. Index 2
+    // is intentionally untouched — it is the pivot of the rank-reversal
+    // and stays in place. If SLOT_COUNT becomes even this loop swaps
+    // every pair, which is also correct.
     for i in 0..(SLOT_COUNT / 2) {
         let j = SLOT_COUNT - 1 - i;
         if formation.slots[i].occupant != formation.slots[j].occupant {
@@ -414,13 +432,13 @@ fn apply_directed_displacement(
     formation: &mut Formation,
     source: u8,
     target: u8,
-    kind: DisplacementKind,
+    kind: DirectedKind,
 ) -> bool {
     if source == target || (source as usize) >= SLOT_COUNT || (target as usize) >= SLOT_COUNT {
         return false;
     }
 
-    let distances = slot_distances(source);
+    let distances = slot_distances_table()[source as usize];
     let adjacency = slot_adjacency();
     let neighbours = match adjacency.get(&target) {
         Some(set) => set,
@@ -433,16 +451,14 @@ fn apply_directed_displacement(
     // distance comparison.
     let mut pick: Option<u8> = None;
     let mut pick_dist: i16 = match kind {
-        DisplacementKind::Push => -1, // start below any real distance, so first hit wins
-        DisplacementKind::Pull => i16::MAX,
-        DisplacementKind::Scatter => unreachable!(),
+        DirectedKind::Push => -1, // start below any real distance, so first hit wins
+        DirectedKind::Pull => i16::MAX,
     };
     for &n in neighbours {
         let d = i16::from(distances[n as usize]);
         let take = match kind {
-            DisplacementKind::Push => d > pick_dist,
-            DisplacementKind::Pull => d < pick_dist,
-            DisplacementKind::Scatter => unreachable!(),
+            DirectedKind::Push => d > pick_dist,
+            DirectedKind::Pull => d < pick_dist,
         };
         if take {
             pick = Some(n);
@@ -457,8 +473,33 @@ fn apply_directed_displacement(
     let tmp = formation.slots[target as usize].occupant;
     formation.slots[target as usize].occupant = formation.slots[neighbour as usize].occupant;
     formation.slots[neighbour as usize].occupant = tmp;
-    formation.slots[target as usize].occupant != formation.slots[neighbour as usize].occupant
-        || tmp.is_some()
+    // Pre-swap target ≠ post-swap target ⇒ something moved. Reads
+    // cleanly: `tmp` is the *old* target occupant, the slot now holds
+    // what came from `neighbour`. The two differ exactly when the
+    // swap was non-trivial.
+    tmp != formation.slots[target as usize].occupant
+}
+
+/// Full pairwise BFS distance matrix for the canonical adjacency
+/// graph. Built once via `OnceLock`; [`slot_distances_table`] returns
+/// a `&'static` reference. Removes the per-`Push`/`Pull`-call BFS
+/// allocations (two transient `BTreeSet<u8>`s per wave) — the
+/// adjacency is compile-time constant, so the matrix is too.
+static SLOT_DISTANCES: OnceLock<[[u8; SLOT_COUNT]; SLOT_COUNT]> = OnceLock::new();
+
+/// Borrow the canonical pairwise BFS distance matrix.
+///
+/// `[i][j]` is the BFS distance from slot `i` to slot `j` over
+/// [`slot_adjacency`]. Unreachable pairs would store `u8::MAX`; the
+/// canonical 5-slot graph is connected, so all entries are < 5.
+fn slot_distances_table() -> &'static [[u8; SLOT_COUNT]; SLOT_COUNT] {
+    SLOT_DISTANCES.get_or_init(|| {
+        let mut table = [[u8::MAX; SLOT_COUNT]; SLOT_COUNT];
+        for start in 0..(SLOT_COUNT as u8) {
+            table[start as usize] = slot_distances(start);
+        }
+        table
+    })
 }
 
 /// BFS distances from `start` to every slot in the canonical adjacency.
@@ -466,6 +507,12 @@ fn apply_directed_displacement(
 /// Returns `[u8; SLOT_COUNT]` indexed by slot. Unreachable slots get
 /// `u8::MAX` (cannot occur on the canonical 5-slot graph since it is
 /// connected, but keeps the function total).
+///
+/// This is the underlying single-source BFS. Hot-path callers should
+/// prefer [`slot_distances_table`], which caches the full pairwise
+/// matrix in a `OnceLock`. This single-source variant stays around
+/// because it is the primitive that builds the cache (and is small
+/// enough to keep useful for tests).
 fn slot_distances(start: u8) -> [u8; SLOT_COUNT] {
     let mut dist = [u8::MAX; SLOT_COUNT];
     if (start as usize) >= SLOT_COUNT {
@@ -860,7 +907,7 @@ mod tests {
 
         let snapshot: Vec<Option<u32>> = f.slots.iter().map(|s| s.occupant).collect();
 
-        apply_displacement(
+        let _ = apply_displacement(
             &mut f,
             0,
             4,
@@ -868,7 +915,7 @@ mod tests {
             Q3232::ONE,
             Q3232::ZERO,
         );
-        apply_displacement(
+        let _ = apply_displacement(
             &mut f,
             0,
             4,
@@ -962,7 +1009,7 @@ mod tests {
         let snapshot: Vec<Option<u32>> = f.slots.iter().map(|s| s.occupant).collect();
 
         for _ in 0..2 {
-            apply_displacement(
+            let _ = apply_displacement(
                 &mut f,
                 0,
                 0,
@@ -984,7 +1031,7 @@ mod tests {
         let mut f = build(slots);
 
         let before: usize = f.slots.iter().filter(|s| s.occupant.is_some()).count();
-        apply_displacement(
+        let _ = apply_displacement(
             &mut f,
             0,
             0,
@@ -1063,7 +1110,7 @@ mod tests {
             slots[3].occupant = Some(2);
             slots[3].terrain_modifier = q(0.1);
             let mut f = build(slots);
-            apply_displacement(&mut f, 0, 3, DisplacementKind::Push, Q3232::ONE, q(0.05));
+            let _ = apply_displacement(&mut f, 0, 3, DisplacementKind::Push, Q3232::ONE, q(0.05));
             f
         };
         let a = snapshot_run();
