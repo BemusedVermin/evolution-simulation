@@ -42,6 +42,7 @@
 // accidentally becoming part of the public API without an explicit
 // re-export decision.
 pub(crate) mod budget;
+pub mod combat;
 pub mod determinism;
 pub mod error;
 pub mod formation;
@@ -50,6 +51,7 @@ pub mod simulation;
 pub mod spawner;
 
 pub use budget::TickResult;
+pub use combat::{resolve_round, RoundOutcome};
 pub use determinism::compute_state_hash;
 pub use error::{Result, SimError};
 pub use schedule::SystemSchedule;
