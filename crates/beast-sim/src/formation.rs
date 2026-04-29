@@ -13,9 +13,9 @@
 //!   path — `[lints.clippy] float_arithmetic = "deny"` is set in
 //!   `beast-sim/Cargo.toml` to enforce it.
 //! * Adjacency is a `BTreeMap<u8, BTreeSet<u8>>` initialised once via
-//!   `LazyLock`; iteration is sorted by slot index so the order in
+//!   `OnceLock`; iteration is sorted by slot index so the order in
 //!   which neighbour contributions are summed is fixed.
-//! * Per-slot baseline arrays are also `LazyLock<[Q3232; 5]>` — built
+//! * Per-slot baseline arrays are also `OnceLock<[Q3232; 5]>` — built
 //!   from the same `f64` literals every run, giving bit-identical
 //!   Q32.32 values for a given build of `fixed`.
 //!
@@ -350,7 +350,8 @@ mod tests {
 
     #[test]
     fn adjacency_returns_same_static_reference() {
-        // LazyLock should produce the same allocation across calls.
+        // OnceLock produces one allocation; subsequent calls return
+        // the same static reference.
         let a = slot_adjacency() as *const _;
         let b = slot_adjacency() as *const _;
         assert_eq!(a, b, "slot_adjacency must return a stable static");
