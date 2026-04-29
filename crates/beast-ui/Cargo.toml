@@ -44,6 +44,10 @@ beast-core = { workspace = true }
 # `sdl` feature in transitively. A direct path dep sidesteps the
 # inheritance path entirely.
 beast-render = { path = "../beast-render", default-features = false }
+# S10.4: screen builders embed `&dyn ChroniclerQuery` so the bestiary
+# screen can render label / observation summaries without bridging
+# through a sim crate. Chronicler is L4 → ui (L5) is layer-safe.
+beast-chronicler = { workspace = true }
 serde = { workspace = true }
 
 [lints.rust]

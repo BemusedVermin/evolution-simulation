@@ -269,6 +269,7 @@ dependencies = [
 name = "beast-ui"
 version = "0.1.0"
 dependencies = [
+ "beast-chronicler",
  "beast-core",
  "beast-render",
  "serde",
