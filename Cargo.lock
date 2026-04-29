@@ -271,7 +271,10 @@ version = "0.1.0"
 dependencies = [
  "beast-chronicler",
  "beast-core",
+ "beast-ecs",
+ "beast-genome",
  "beast-render",
+ "beast-sim",
  "serde",
 ]
 

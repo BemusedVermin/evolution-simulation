@@ -50,6 +50,19 @@ beast-render = { path = "../beast-render", default-features = false }
 beast-chronicler = { workspace = true }
 serde = { workspace = true }
 
+# S10.8 (#213) — the bestiary integration test wires the S10 stack
+# end-to-end: spawn 50 creatures (beast-sim spawner), run 1000 ticks
+# (beast-sim tick loop), ingest primitive snapshots into the
+# chronicler, and render the bestiary screen against the resulting
+# `ChroniclerQuery`. Only the crates the test directly `use`s are
+# listed: `beast-channels`, `beast-primitives`, and `beast-interpreter`
+# are reachable transitively via beast-sim and don't need explicit
+# dev-deps until a future story constructs their types directly.
+[dev-dependencies]
+beast-sim = { workspace = true }
+beast-genome = { workspace = true }
+beast-ecs = { workspace = true }
+
 [lints.rust]
 # Forbid `unsafe`. The widget framework is pure data + dispatch; any unsafe
 # block here would be a bug, not an FFI necessity.
