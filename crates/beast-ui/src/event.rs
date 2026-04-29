@@ -169,6 +169,16 @@ pub enum EventResult {
     Ignored,
     /// The widget was the target but did not handle this specific event;
     /// the parent should get a chance.
+    ///
+    /// Reserved variant — no widget in this crate currently returns
+    /// `Bubble`, and `WidgetTree::dispatch` treats it identically to
+    /// `Ignored`. It is kept distinct so future routing rules
+    /// (e.g. "stop trying siblings on `Bubble`, keep trying on
+    /// `Ignored`") can be added without re-auditing every widget.
+    /// Custom widgets that want to opt in early should return
+    /// `Bubble` from `Widget::handle_event` when the cursor / focus
+    /// hit the widget but the specific event type is one the widget
+    /// chose not to bind.
     Bubble,
 }
 

@@ -127,11 +127,14 @@ impl Widget for Dialog {
     }
 
     fn collect_focus_chain(&self, out: &mut Vec<WidgetId>) {
-        // A modal dialog must trap focus inside itself; we therefore
-        // collect *only* the dialog's own children. Anything pushed
-        // outside the dialog will not be reachable via Tab while the
-        // dialog is on screen — mirroring the modal contract for
-        // mouse / keyboard event consumption above.
+        // Collect only this dialog's own children so they participate
+        // in the global Tab cycle. Modal dialogs already eat outside
+        // mouse / key events (see `handle_event` above), but the focus
+        // chain is built top-down by the tree and a `Dialog` cannot
+        // know which siblings outside it should be excluded — a true
+        // modal focus trap needs `WidgetTree` cooperation. Tracked in
+        // #241; today, `tree::tests::dialog_children_appear_in_focus_chain_in_declaration_order`
+        // pins the current behaviour.
         for child in self.inner.children() {
             child.collect_focus_chain(out);
         }

@@ -134,9 +134,20 @@ pub trait Widget {
     /// Render the widget by pushing draw commands into `ctx`.
     fn paint(&self, ctx: &mut PaintCtx);
 
-    /// Process an input event. Returns whether the widget consumed the
-    /// event ([`EventResult::Consumed`]) or wants it to bubble
-    /// ([`EventResult::Ignored`]).
+    /// Process an input event. Returns:
+    ///
+    /// * [`EventResult::Consumed`] — the widget acted on the event;
+    ///   siblings / ancestors should not see it again.
+    /// * [`EventResult::Ignored`] — the widget was not the right
+    ///   target (event type does not apply, hit-test rejected the
+    ///   cursor, the widget is disabled).
+    /// * [`EventResult::Bubble`] — the widget *was* the target but
+    ///   chose not to handle this particular event (e.g. a focused
+    ///   widget receives a keystroke it doesn't bind). Today the
+    ///   tree treats `Bubble` and `Ignored` identically; the
+    ///   distinction is reserved so future routing rules can prune
+    ///   sibling traversal on `Bubble` without retrofitting every
+    ///   widget.
     fn handle_event(&mut self, event: &UiEvent) -> EventResult;
 
     /// Lay this widget out within the given constraints, recursively
@@ -200,27 +211,37 @@ pub trait Widget {
     /// Push focusable descendants (and `self`, if focusable) onto
     /// `out` in pre-order.
     ///
-    /// Same vtable rationale as [`Widget::visit_pre_order`]: each impl
-    /// supplies its own body so the method survives `dyn Widget`
-    /// dispatch. Leaf widgets push `self.id()` if `accepts_focus()`;
-    /// containers push `self` then recurse into children.
+    /// The default is the safe "no focusables here" contract — empty
+    /// chain, no recursion. Leaf widgets that *can* take focus
+    /// (`Button`, `List`) override this to push `self.id()` when
+    /// `accepts_focus()`. Container widgets (`Stack`, `Grid`, `Card`,
+    /// `Dialog`) override this to walk their children in declaration
+    /// order. **Any container widget defined in a downstream crate
+    /// MUST override this** — otherwise its descendants will be
+    /// silently invisible to Tab navigation.
     ///
     /// The `out` ordering is the canonical Tab-cycle order. Two trees
     /// with identical structure must produce identical chains.
-    fn collect_focus_chain(&self, out: &mut Vec<WidgetId>);
+    fn collect_focus_chain(&self, _out: &mut Vec<WidgetId>) {}
 
     /// Find a descendant (or `self`) by [`WidgetId`] for mutable access.
     ///
     /// [`WidgetTree`](crate::WidgetTree) calls this to route key
     /// events to the focused widget without rebuilding the tree.
-    /// Default-impl-less for the same vtable reason as the other
-    /// traversal methods. Leaves return `Some(self)` on id match;
-    /// containers walk their children.
+    ///
+    /// The default returns `None` — safe but inert. Every leaf widget
+    /// must override to return `Some(self)` on id match; every
+    /// container widget must override to also walk its children.
+    /// **Any widget defined in a downstream crate MUST override this**
+    /// or it will never receive routed key / text events even when
+    /// focused.
     ///
     /// First match wins — the focus contract guarantees ids are
     /// unique within a tree, so there is no fallback path on
     /// duplicates.
-    fn find_widget_mut(&mut self, id: WidgetId) -> Option<&mut dyn Widget>;
+    fn find_widget_mut(&mut self, _id: WidgetId) -> Option<&mut dyn Widget> {
+        None
+    }
 }
 
 #[cfg(test)]

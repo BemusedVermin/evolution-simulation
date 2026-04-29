@@ -56,9 +56,14 @@ impl<T: Clone> DataBinding<T> for StaticBinding<T> {
 
 /// Binding that resolves through a closure on every `read`.
 ///
-/// The closure is `Fn() -> T`, so it must be re-entrant and side-effect
-/// free as far as observable state goes. Capture sim handles by
-/// shared reference — never `&mut` — to keep the read-only contract.
+/// The closure is `Fn() -> T`, so it must not mutate **simulation**
+/// state through any of its captures — capture sim handles by shared
+/// reference, never `&mut`, to keep INVARIANTS §6 (UI is read-only
+/// against sim state). Render-only side effects (atomic counters,
+/// metrics, logging) are permitted: the unit test
+/// `fn_binding_reads_through_closure` deliberately captures an
+/// `AtomicU32` to verify `read()` re-runs the closure, and that is
+/// allowed because the counter never escapes the UI layer.
 pub struct FnBinding<T, F: Fn() -> T> {
     f: F,
     _t: core::marker::PhantomData<T>,
@@ -152,6 +157,15 @@ impl<B: DataBinding<String>> Widget for Bound<Label, B> {
         // (typical for tick counters etc.). Screens that need
         // binding-aware sizing can call `binding.read()` themselves
         // and hand the result to a sized container.
+        //
+        // TODO(#243): trigger a re-layout when the binding's string
+        // crosses a width "class" (e.g. digit-count boundary on a
+        // tick counter). Until that lands, `paint()` may overdraw
+        // the widget's allocated bounds when the live text is wider
+        // than the cached text used here. Acceptable for S10.3
+        // because no current screen composes a `Bound<Label, _>`
+        // whose binding can grow by an order of magnitude; revisit
+        // when the encounter / status-bar screens start doing so.
         self.widget.measure(ctx)
     }
 

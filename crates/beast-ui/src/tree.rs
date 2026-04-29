@@ -135,6 +135,14 @@ impl WidgetTree {
     /// Walk the tree once and return its current Tab-cycle order. Read
     /// only — no allocation if there are no focusable widgets, beyond
     /// the empty `Vec` itself.
+    ///
+    /// TODO(#242): cache the chain on `WidgetTree` and invalidate on
+    /// `version` bump. Today this allocates a fresh `Vec<WidgetId>`
+    /// and re-walks the whole tree on every Tab press — fine for
+    /// the S10.3 widget counts, but `O(n)` per keystroke for the
+    /// long-list screens landing in S10.4+ (bestiary grid, world-map
+    /// sidebar). The `binding_state` field is already the hook for
+    /// this kind of per-id auxiliary cache.
     fn focus_chain(&self) -> Vec<WidgetId> {
         let mut chain = Vec::new();
         self.root.collect_focus_chain(&mut chain);
@@ -223,11 +231,23 @@ impl WidgetTree {
                     EventResult::Ignored
                 }
             }
-            UiEvent::KeyDown(_) | UiEvent::KeyUp(_) | UiEvent::TextInput(_) => self
-                .focus
-                .and_then(|id| self.root.find_widget_mut(id))
-                .map(|w| w.handle_event(event))
-                .unwrap_or(EventResult::Ignored),
+            UiEvent::KeyDown(_) | UiEvent::KeyUp(_) | UiEvent::TextInput(_) => {
+                match self.focus {
+                    Some(id) => match self.root.find_widget_mut(id) {
+                        Some(w) => w.handle_event(event),
+                        None => {
+                            // The focused widget is no longer in the tree
+                            // (removed without a matching `set_focus`
+                            // call). Clear focus so the next allocation
+                            // reusing this raw id can't inherit
+                            // unrequested keyboard input.
+                            self.focus = None;
+                            EventResult::Ignored
+                        }
+                    },
+                    None => EventResult::Ignored,
+                }
+            }
             _ => self.root.handle_event(event),
         };
         if result == EventResult::Consumed && !matches!(event, UiEvent::MouseMove { .. }) {
@@ -624,6 +644,32 @@ mod tests {
         assert!(!t.layout(), "cache hit");
         t.set_focus(Some(WidgetId::from_raw(2)));
         assert!(t.layout(), "set_focus must invalidate layout");
+    }
+
+    #[test]
+    fn key_event_with_unresolvable_focus_clears_focus_and_returns_ignored() {
+        use crate::event::{KeyCode, KeyMods, Modifiers};
+        let mut t = fixture();
+        let _ = t.layout();
+        // Point focus at a WidgetId that does not exist in the tree —
+        // simulates a widget being removed without a matching
+        // `set_focus(None)` call. The next key event must clear focus
+        // rather than silently leaving the stale id in place, so a
+        // future allocator that recycles raw ids cannot route
+        // unrequested keyboard input to the new occupant.
+        let bogus = WidgetId::from_raw(9_999);
+        t.set_focus(Some(bogus));
+        assert_eq!(t.focused(), Some(bogus));
+        let r = t.dispatch(&UiEvent::KeyDown(Modifiers {
+            key: KeyCode::Escape,
+            mods: KeyMods::NONE,
+        }));
+        assert_eq!(r, EventResult::Ignored);
+        assert_eq!(
+            t.focused(),
+            None,
+            "stale focus must be cleared on unresolved find_widget_mut"
+        );
     }
 
     #[test]
