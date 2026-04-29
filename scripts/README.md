@@ -58,8 +58,8 @@ endpoint:
 
 ```json
 {
-  "body": "## Review summary\n\n- 1 HIGH, 2 MEDIUM, 1 LOW\n- ...",
-  "event": "COMMENT",
+  "body": "**REQUEST_CHANGES** — round 1 — 0 CRITICAL · 1 HIGH · 2 MEDIUM · 1 LOW",
+  "event": "REQUEST_CHANGES",
   "comments": [
     {
       "path": "crates/beast-ui/src/widget.rs",
@@ -85,8 +85,44 @@ Notes:
   range; both refer to the same `side`.
 - Omit `body` if the review is purely inline; omit `comments` if it's
   purely a top-level note.
-- Set `event` to `COMMENT` unless the agent is explicitly authorized to
-  approve / request-changes.
+
+#### Picking `event`
+
+The `event` field drives GitHub's per-reviewer review-state rollup —
+it is what determines whether the PR appears as
+`approved` / `changes_requested` / `commented` in the merge gate. It
+MUST match the verdict the agent states in the body's first line:
+
+| Verdict in body line | Required `event` value | When to use |
+| -------------------- | ---------------------- | ----------- |
+| `**APPROVE** — ...` (any round, advisory or not) | `"APPROVE"` | No CRITICAL/HIGH (round 1: also no MEDIUM). Supersedes any prior `CHANGES_REQUESTED` from the same `github-actions[bot]` reviewer. |
+| `**REQUEST_CHANGES** — ...` | `"REQUEST_CHANGES"` | Any new finding at the round's blocking tier (round 1: MEDIUM+; round 2+: HIGH+). |
+| `**COMMENT** — ...` | `"COMMENT"` | Explicit fallback only — diff too large to evaluate, or change is purely config without a rubric. Does NOT supersede a prior `CHANGES_REQUESTED`. |
+
+`COMMENT` is **not** the safe default. Sending `event: "COMMENT"` while
+the body says `**APPROVE**` leaves any prior `CHANGES_REQUESTED` from
+the same reviewer active, blocking the merge despite the verdict —
+this is the regression tracked in
+[#246](https://github.com/BemusedVermin/evolution-simulation/issues/246).
+
+`post-pr-review.sh` rejects payloads whose `event` is not one of
+`APPROVE` / `REQUEST_CHANGES` / `COMMENT`, so a typo (e.g.
+`"APPROVED"`) fails loudly rather than silently degrading to
+GitHub's default of `PENDING`.
+
+#### APPROVE example (clean diff or round-2 advisory)
+
+```json
+{
+  "body": "**APPROVE** — round 2 advisory — 0 CRITICAL · 0 HIGH · 1 MEDIUM · 1 LOW (non-blocking)",
+  "event": "APPROVE",
+  "comments": []
+}
+```
+
+A round-2 advisory APPROVE may still carry inline `comments[]`
+entries for the non-blocking MEDIUM/LOW findings — the
+`event: "APPROVE"` value is what supersedes the prior bot review.
 
 ### Author conventions for reviewer subagents
 

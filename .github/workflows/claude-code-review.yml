@@ -391,6 +391,20 @@ jobs:
                    authoritative output. Inline-comment EVERY `new`
                    finding (no top-level summary substitute).
 
+                   The payload's `event` field MUST match the verdict
+                   you compute in the next section — `"APPROVE"` for
+                   an APPROVE verdict (including round-2+ advisory
+                   APPROVE with non-blocking MEDIUM/LOW findings),
+                   `"REQUEST_CHANGES"` for a REQUEST_CHANGES verdict,
+                   `"COMMENT"` only when you explicitly fall back to
+                   the COMMENT verdict per the rules below. Posting a
+                   verdict body line of `**APPROVE** — ...` while
+                   sending `event: COMMENT` leaves any prior
+                   `CHANGES_REQUESTED` review from
+                   `github-actions[bot]` active in GitHub's per-
+                   reviewer rollup, which is exactly what the round-2
+                   ratchet is meant to clear (#246).
+
                  * `new_findings == 0` AND prior_inline_comments.json
                    has at least one entry (i.e. a previous review run
                    left feedback) →
@@ -402,11 +416,24 @@ jobs:
                    any finding text in the comment body — by
                    definition there are no new findings to report.
 
+                   Note: this branch does NOT submit an APPROVE-event
+                   review, so a prior `CHANGES_REQUESTED` from the
+                   bot — if any — stays active. That is intentional
+                   when the prior findings are still applicable. If
+                   the prior findings have all been resolved on the
+                   new diff, the subagent should mark them
+                   `obsolete`, which moves all prior comments out of
+                   `prior_inline_comments.json`'s effective set and
+                   pushes you into the third branch (clean APPROVE).
+
                  * `new_findings == 0` AND prior_inline_comments.json
-                   is empty (clean diff, first review) →
+                   is empty (clean diff, OR every prior finding is
+                   `obsolete`) →
                    **submit an APPROVE-event REVIEW** via
                    `scripts/post-pr-review.sh` with an empty
-                   `comments[]` and a one-line body.
+                   `comments[]`, `event: "APPROVE"`, and a one-line
+                   body. This is what supersedes any prior
+                   `CHANGES_REQUESTED` from the bot.
 
                These three branches are mutually exclusive and
                exhaustive. The silent-failure guard expects EITHER
@@ -466,6 +493,29 @@ jobs:
               or
               `**APPROVE** — round 2 advisory — 0 CRITICAL · 0 HIGH · 2 MEDIUM · 1 LOW (non-blocking)`.
               The repo owner reads this line first.
+
+            ### Verdict ↔ payload `event` mapping
+
+            The verdict you state in the body's first line MUST match
+            the `event` field of the JSON payload posted via
+            `scripts/post-pr-review.sh`. The two strings drive
+            different things — the body line is human-readable, the
+            `event` field is what GitHub's per-reviewer review-state
+            rollup looks at — but they MUST agree:
+
+            | Verdict in body line | Required `event` value |
+            | -------------------- | ---------------------- |
+            | `**APPROVE** — ...` (any round, advisory or not) | `"APPROVE"` |
+            | `**REQUEST_CHANGES** — ...` | `"REQUEST_CHANGES"` |
+            | `**COMMENT** — ...` (explicit fallback only) | `"COMMENT"` |
+
+            Sending `event: "COMMENT"` while the body says `**APPROVE**`
+            leaves any prior `CHANGES_REQUESTED` review from
+            `github-actions[bot]` active, defeating the round-2
+            ratchet (see #246 for the regression that motivated this
+            rule). `scripts/post-pr-review.sh` rejects payloads whose
+            `event` is not one of the three values, so a typo will
+            fail loudly rather than silently degrade.
 
             ## Constraints
 
