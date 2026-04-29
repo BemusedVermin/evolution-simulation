@@ -125,11 +125,6 @@ pub fn leadership_presence(state: &KeeperState) -> Q3232 {
 }
 
 #[cfg(test)]
-// Test helpers compute step values like `f64::from(step) * 0.1` to drive
-// monotonicity checks. The crate-wide `clippy::float_arithmetic = warn`
-// gate (promoted to deny in CI) targets sim state — these expressions
-// are confined to test-only fixtures and never appear on the sim path.
-#[allow(clippy::float_arithmetic)]
 mod tests {
     use super::*;
 
@@ -169,7 +164,15 @@ mod tests {
         assert_eq!(leadership_presence(&state), Q3232::ZERO);
     }
 
+    // The two monotonicity helpers compute step values via
+    // `f64::from(step) * 0.1` to drive the sweep. Float arithmetic is
+    // forbidden on the sim path (`[lints.clippy] float_arithmetic =
+    // "warn"` in `Cargo.toml`, promoted to deny in CI), so we scope
+    // the exemption tightly: these two functions only, not the whole
+    // tests module — keeping the lint live for any future test
+    // helper added here.
     #[test]
+    #[allow(clippy::float_arithmetic)]
     fn monotonic_in_stress() {
         let base = personality(0.4, 0.3, 0.2);
         let mut prev = leadership_presence(&base);
@@ -187,6 +190,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_arithmetic)]
     fn monotonic_in_fatigue() {
         let base = personality(0.4, 0.3, 0.2);
         let mut prev = leadership_presence(&base);
