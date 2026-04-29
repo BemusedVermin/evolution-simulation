@@ -201,7 +201,21 @@ fn run_encounter(
         // `moved = false` would otherwise let a downstream regression
         // hide behind the assertion in
         // `formation_disruption_changes_subsequent_exposure`.
+        //
+        // `apply_scatter` returns `moved = false` for palindromic
+        // formations (every symmetric slot pair holds identical
+        // occupants — scatter is a no-op). The fixture-non-palindromic
+        // guard below pins the precondition so a future fixture change
+        // can't silently invalidate the `outcome.moved` check.
         if Some(round) == scatter_at {
+            assert_ne!(
+                formation.slots[0].occupant,
+                formation.slots[SLOT_COUNT - 1].occupant,
+                "scatter pre-condition: fixture must be non-palindromic on the \
+                 outer pair (slot 0 vs slot {last}) for `outcome.moved` to be \
+                 reachable; update the fixture if scatter semantics change",
+                last = SLOT_COUNT - 1,
+            );
             let outcome = apply_displacement(
                 &mut formation,
                 /* source */ 0,
@@ -302,19 +316,33 @@ fn re_running_produces_byte_identical_outcomes() {
 /// Identify the first field on which two `RoundLog`s diverge. Used by
 /// the determinism diagnostic so failures name the offending field
 /// (DoD #257) rather than dumping both structs in full.
+///
+/// **Field coverage** — keep this branch list in sync with `RoundLog`:
+///
+/// * Output fields (checked, in declaration order): `damage_bits`,
+///   `stamina_cost_attacker_bits`, `mobility_check`,
+///   `defender_exposure_bits`. Adding a new output field to `RoundLog`
+///   requires a new branch here, otherwise the diagnostic falls
+///   through to the opaque `"identity"` dump below.
+/// * Input fields (intentionally skipped): `round` is the loop
+///   counter; `attacker_slot_idx` / `defender_slot_idx` are constants
+///   inside `run_encounter`. They cannot diverge between two pure-
+///   function calls with the same arguments, so the `"identity"` arm
+///   only fires when the runner itself drifted (which would be a bug
+///   in the test, not in the sim).
 fn first_diverging_field(a: &RoundLog, b: &RoundLog) -> (&'static str, String, String) {
     if a.damage_bits != b.damage_bits {
         return (
             "damage",
-            format!("{:?}", a.damage_bits),
-            format!("{:?}", b.damage_bits),
+            format!("{}", a.damage_bits),
+            format!("{}", b.damage_bits),
         );
     }
     if a.stamina_cost_attacker_bits != b.stamina_cost_attacker_bits {
         return (
             "stamina_cost_attacker",
-            format!("{:?}", a.stamina_cost_attacker_bits),
-            format!("{:?}", b.stamina_cost_attacker_bits),
+            format!("{}", a.stamina_cost_attacker_bits),
+            format!("{}", b.stamina_cost_attacker_bits),
         );
     }
     if a.mobility_check != b.mobility_check {
@@ -327,12 +355,13 @@ fn first_diverging_field(a: &RoundLog, b: &RoundLog) -> (&'static str, String, S
     if a.defender_exposure_bits != b.defender_exposure_bits {
         return (
             "defender_exposure",
-            format!("{:?}", a.defender_exposure_bits),
-            format!("{:?}", b.defender_exposure_bits),
+            format!("{}", a.defender_exposure_bits),
+            format!("{}", b.defender_exposure_bits),
         );
     }
-    // Round / slot indices are inputs, not outputs — if they disagree
-    // the runner itself drifted, which would be a bug in the test.
+    // Fall-through: see the field-coverage comment above. If you see
+    // this in a panic message, either the runner drifted or a new
+    // output field was added to `RoundLog` without a matching branch.
     ("identity", format!("{a:?}"), format!("{b:?}"))
 }
 
@@ -473,8 +502,13 @@ fn no_named_ability_strings_in_combat_source() {
         if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("rs") {
             combat_files.push(path);
         } else if path.is_dir() {
-            // Walk one level into the module dir; deeper nesting is
-            // unusual and can be added if the layout demands it.
+            // Walk one level into the module dir. Deeper nesting
+            // (e.g. `combat/helpers/damage.rs`) would be silently
+            // skipped today — tracked in issue #266 (recursive walk
+            // via `walkdir` dev-dep). Until that lands, the
+            // `assert!(!combat_files.is_empty(), ...)` guard below
+            // catches the *zero-files* failure mode but cannot detect
+            // a *partial* discovery.
             for sub in fs::read_dir(&path)
                 .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()))
             {
