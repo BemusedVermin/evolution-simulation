@@ -269,9 +269,15 @@ dependencies = [
 name = "beast-ui"
 version = "0.1.0"
 dependencies = [
+ "beast-channels",
  "beast-chronicler",
  "beast-core",
+ "beast-ecs",
+ "beast-genome",
+ "beast-interpreter",
+ "beast-primitives",
  "beast-render",
+ "beast-sim",
  "serde",
 ]
 
