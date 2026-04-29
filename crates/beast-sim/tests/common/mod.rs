@@ -34,6 +34,18 @@ use beast_ecs::{EcsWorld, MarkerKind, Resources, System, SystemStage, WorldExt};
 /// Mirrors `beast_sim::spawner::HALF_CELL`.
 pub const HALF_CELL: Q3232 = Q3232::from_bits(1_i64 << 31);
 
+/// Convenience: build a `Q3232` from an `f64` literal.
+///
+/// Test-only helper. The cast is `Q3232::from_num(v)` underneath,
+/// which uses `fixed`'s saturating `from_num`. f64 literals are
+/// allowed in tests because they don't drive sim state — see the
+/// crate-level `clippy::float_arithmetic` carve-out (the lint covers
+/// the `*`/`+`/`-` operators, not literal construction).
+#[must_use]
+pub fn q(v: f64) -> Q3232 {
+    Q3232::from_num(v)
+}
+
 /// Sequential-pattern aging system (Pattern A). Increments every
 /// creature's `Age.ticks` once per run. Per INVARIANTS §1 the
 /// iteration is via `entity_index`, not `specs::Join`.

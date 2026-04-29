@@ -25,13 +25,12 @@ use beast_sim::formation::{
     apply_displacement, build, mobility_check, DisplacementKind, MobilityKind,
 };
 
+mod common;
+use common::q;
+
 // ---------------------------------------------------------------------
 // Fixture builders
 // ---------------------------------------------------------------------
-
-fn q(v: f64) -> Q3232 {
-    Q3232::from_num(v)
-}
 
 /// Build a primitive manifest fixture for the test.
 fn manifest(id: &str, category: PrimitiveCategory) -> PrimitiveManifest {
@@ -135,12 +134,17 @@ fn side_b_defence() -> Vec<PrimitiveEffect> {
 // Round log + runner
 // ---------------------------------------------------------------------
 
-/// Per-round structural record. Bits-only comparison so a
-/// determinism failure prints a readable `(round, field)` instead of
-/// drowning the output in a `RoundOutcome` Debug dump.
+/// Per-round structural record. Bits-only comparison so a determinism
+/// failure prints a readable `(round, attacker, defender, field)`
+/// instead of drowning the output in a `RoundOutcome` Debug dump.
+/// The slot indices are recorded alongside each round so the
+/// diagnostic can name *who* attacked / defended on the diverging
+/// round (DoD #257).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RoundLog {
     round: u32,
+    attacker_slot_idx: u8,
+    defender_slot_idx: u8,
     damage_bits: i64,
     stamina_cost_attacker_bits: i64,
     mobility_check: bool,
@@ -159,7 +163,7 @@ struct RoundLog {
 /// `re_running_produces_byte_identical_outcomes`).
 fn run_encounter(
     initial_attacker: Vec<PrimitiveEffect>,
-    mid_encounter: Option<Vec<PrimitiveEffect>>,
+    mut mid_encounter: Option<Vec<PrimitiveEffect>>,
     inject_round: u32,
     scatter_at: Option<u32>,
 ) -> Vec<RoundLog> {
@@ -168,14 +172,23 @@ fn run_encounter(
     let defender_effects = side_b_defence();
     let mut attacker_effects = initial_attacker;
 
+    // Side A attacks from slot[0]; side B defends from slot[2]. Slot
+    // indices are recorded in the round log alongside the outcome so
+    // the determinism diagnostic can name *who* attacked on the
+    // diverging round (DoD #257).
+    const ATTACKER_SLOT_IDX: u8 = 0;
+    const DEFENDER_SLOT_IDX: u8 = 2;
+
     let mut log: Vec<RoundLog> = Vec::with_capacity(10);
     for round in 1..=10u32 {
         // Optional mid-encounter mutation: replace the attacker's
         // primitive set on the chosen round and keep using it for
         // subsequent rounds. Verifies "damage on round N is computed
-        // fresh, not memoised".
+        // fresh, not memoised". `Option::take` consumes the value
+        // once-only, expressing the intent in the type system and
+        // avoiding the per-round `.clone()` allocation.
         if round == inject_round {
-            if let Some(replacement) = mid_encounter.clone() {
+            if let Some(replacement) = mid_encounter.take() {
                 attacker_effects = replacement;
             }
         }
@@ -183,9 +196,13 @@ fn run_encounter(
         // Optional mid-encounter formation disruption: scatter the
         // formation. Subsequent rounds run against the scattered
         // exposure values, which `formation_disruption_changes_
-        // subsequent_exposure` pins.
+        // subsequent_exposure` pins. Capture the outcome and assert
+        // that something actually moved — a silent
+        // `moved = false` would otherwise let a downstream regression
+        // hide behind the assertion in
+        // `formation_disruption_changes_subsequent_exposure`.
         if Some(round) == scatter_at {
-            let _ = apply_displacement(
+            let outcome = apply_displacement(
                 &mut formation,
                 /* source */ 0,
                 /* target */ 0,
@@ -193,14 +210,11 @@ fn run_encounter(
                 Q3232::ONE,
                 Q3232::ZERO,
             );
+            assert!(outcome.moved, "scatter at round {round} moved no occupant",);
         }
 
-        // Side A always attacks slot[0] (vanguard) → side B always
-        // defends from slot[2] (flank-right). Round-robin over the
-        // attacker's primitives is out of scope; this fixture is
-        // structural, not behavioural.
-        let attacker_slot = formation.slots[0];
-        let defender_slot = formation.slots[2];
+        let attacker_slot = formation.slots[ATTACKER_SLOT_IDX as usize];
+        let defender_slot = formation.slots[DEFENDER_SLOT_IDX as usize];
         let outcome: RoundOutcome = resolve_round(
             &registry,
             &attacker_effects,
@@ -211,6 +225,8 @@ fn run_encounter(
 
         log.push(RoundLog {
             round,
+            attacker_slot_idx: ATTACKER_SLOT_IDX,
+            defender_slot_idx: DEFENDER_SLOT_IDX,
             damage_bits: outcome.damage.to_bits(),
             stamina_cost_attacker_bits: outcome.stamina_cost_attacker.to_bits(),
             mobility_check: outcome.mobility_check,
@@ -250,17 +266,74 @@ fn re_running_produces_byte_identical_outcomes() {
     // The DoD's determinism property: same inputs → byte-identical
     // outcomes. `run_encounter` is pure (no PRNG, no wall-clock), so
     // this is a structural test rather than a seeded-RNG test.
+    //
+    // Diagnostic: on divergence, name the first round + attacker /
+    // defender slot indices + the specific field that disagrees. DoD
+    // #257 requires this `(round, attacker, defender, field)` shape so
+    // a future regression points the maintainer at the exact line of
+    // the formula that drifted, not at a wall of `RoundLog` Debug.
     let a = run_encounter(side_a_attack(), None, 0, None);
     let b = run_encounter(side_a_attack(), None, 0, None);
-    if a != b {
-        for (round_idx, (l, r)) in a.iter().zip(b.iter()).enumerate() {
-            if l != r {
-                panic!("first divergence at round_idx {round_idx}:\n  left: {l:?}\n right: {r:?}",);
-            }
+    for (l, r) in a.iter().zip(b.iter()) {
+        if l == r {
+            continue;
         }
-        panic!("logs differ in length: a={}, b={}", a.len(), b.len());
+        let mismatch = first_diverging_field(l, r);
+        panic!(
+            "first divergence at round {round}, attacker slot {att}, defender slot {def}, \
+             field {field}:\n  left  = {left:?}\n  right = {right:?}",
+            round = l.round,
+            att = l.attacker_slot_idx,
+            def = l.defender_slot_idx,
+            field = mismatch.0,
+            left = mismatch.1,
+            right = mismatch.2,
+        );
     }
-    assert_eq!(a, b);
+    assert_eq!(
+        a.len(),
+        b.len(),
+        "logs differ in length: a={}, b={}",
+        a.len(),
+        b.len(),
+    );
+}
+
+/// Identify the first field on which two `RoundLog`s diverge. Used by
+/// the determinism diagnostic so failures name the offending field
+/// (DoD #257) rather than dumping both structs in full.
+fn first_diverging_field(a: &RoundLog, b: &RoundLog) -> (&'static str, String, String) {
+    if a.damage_bits != b.damage_bits {
+        return (
+            "damage",
+            format!("{:?}", a.damage_bits),
+            format!("{:?}", b.damage_bits),
+        );
+    }
+    if a.stamina_cost_attacker_bits != b.stamina_cost_attacker_bits {
+        return (
+            "stamina_cost_attacker",
+            format!("{:?}", a.stamina_cost_attacker_bits),
+            format!("{:?}", b.stamina_cost_attacker_bits),
+        );
+    }
+    if a.mobility_check != b.mobility_check {
+        return (
+            "mobility_check",
+            format!("{}", a.mobility_check),
+            format!("{}", b.mobility_check),
+        );
+    }
+    if a.defender_exposure_bits != b.defender_exposure_bits {
+        return (
+            "defender_exposure",
+            format!("{:?}", a.defender_exposure_bits),
+            format!("{:?}", b.defender_exposure_bits),
+        );
+    }
+    // Round / slot indices are inputs, not outputs — if they disagree
+    // the runner itself drifted, which would be a bug in the test.
+    ("identity", format!("{a:?}"), format!("{b:?}"))
 }
 
 #[test]
@@ -348,40 +421,81 @@ fn mobility_check_uses_post_disruption_state() {
 
 #[test]
 fn no_named_ability_strings_in_combat_source() {
-    // The DoD's mechanics-label-separation audit: grep the combat
-    // module + its predation/parasitism partners for any string
-    // matching the chronicler label vocabulary. The audit is
-    // intentionally narrow — it pins the contract that combat-layer
-    // code reads `PrimitiveCategory` and channel ids only, never
-    // labelled-ability primitive ids.
+    // The DoD's mechanics-label-separation audit: walk every Rust
+    // file under `beast-sim/src/{combat,predation,parasitism}*` and
+    // check it contains no string matching the chronicler label
+    // vocabulary. The contract: combat-layer code reads
+    // `PrimitiveCategory` and channel ids only, never labelled-ability
+    // primitive ids.
     //
-    // The token list is from the chronicler's manifest examples (see
-    // `crates/beast-chronicler/manifests/`); add new vocabulary here
-    // when the manifests grow. Substring match keeps it strict.
+    // The match is anchored to the canonical full label form (e.g.
+    // `"venom_injection"` not bare `"venom"`) so a comment like
+    // `// anti-venom factor` or an identifier like `venom_resistance`
+    // doesn't trip the gate.
+    //
+    // Token list mirrors `crates/beast-chronicler/manifests/`; add new
+    // vocabulary here when the manifests grow. Each token is matched
+    // verbatim — the `body.contains(token)` substring search is enough
+    // because the canonical forms are unique.
     const FORBIDDEN: &[&str] = &[
         "echolocation",
         "pack_hunting",
         "bioluminescence",
-        "venom",
+        "venom_injection",
         "drumming",
         "camouflage",
         "thermoregulation",
     ];
 
     let crate_dir = env!("CARGO_MANIFEST_DIR");
-    let combat_files = [
-        PathBuf::from(crate_dir).join("src").join("combat.rs"),
-        PathBuf::from(crate_dir).join("src").join("predation.rs"),
-        PathBuf::from(crate_dir).join("src").join("parasitism.rs"),
-    ];
-
-    for path in &combat_files {
-        if !path.exists() {
-            // predation/parasitism live alongside combat after S11.4;
-            // tolerate their absence so this test pre-dates the
-            // S11.4 merge cleanly.
+    let src_dir = PathBuf::from(crate_dir).join("src");
+    // Discover combat-related files at runtime rather than hardcoding
+    // a flat-file list. If `combat` is ever restructured into a module
+    // directory (`combat/mod.rs` + siblings), the walk picks them up
+    // automatically. Without this, the previous hardcoded list silently
+    // checked zero files after a refactor — a false-green invariant
+    // gate (DoD #257 HIGH finding).
+    let mut combat_files: Vec<PathBuf> = Vec::new();
+    for entry in fs::read_dir(&src_dir)
+        .unwrap_or_else(|e| panic!("failed to read {}: {e}", src_dir.display()))
+    {
+        let entry = entry.expect("dir iterator failed mid-walk");
+        let path = entry.path();
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        // Match either a flat file (`combat.rs`, `predation.rs`,
+        // `parasitism.rs`) or a future module-directory layout.
+        let is_combat_module = matches!(stem, "combat" | "predation" | "parasitism");
+        if !is_combat_module {
             continue;
         }
+        if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("rs") {
+            combat_files.push(path);
+        } else if path.is_dir() {
+            // Walk one level into the module dir; deeper nesting is
+            // unusual and can be added if the layout demands it.
+            for sub in fs::read_dir(&path)
+                .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()))
+            {
+                let sub = sub.expect("subdir iterator failed mid-walk").path();
+                if sub.is_file() && sub.extension().and_then(|e| e.to_str()) == Some("rs") {
+                    combat_files.push(sub);
+                }
+            }
+        }
+    }
+    // Guard against the audit silently passing with zero files — the
+    // DoD #257 HIGH finding. If the discovery walk produces no
+    // combat-related files, the gate is broken (someone moved the
+    // modules without updating this test).
+    assert!(
+        !combat_files.is_empty(),
+        "§2 audit walked zero files under {} — combat module layout changed?",
+        src_dir.display(),
+    );
+
+    for path in &combat_files {
         let body = fs::read_to_string(path)
             .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
         for token in FORBIDDEN {
