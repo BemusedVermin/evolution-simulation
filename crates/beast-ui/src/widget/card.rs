@@ -147,6 +147,24 @@ impl Widget for Card {
     fn kind(&self) -> &'static str {
         "Card"
     }
+
+    fn collect_focus_chain(&self, out: &mut Vec<WidgetId>) {
+        for child in &self.children {
+            child.collect_focus_chain(out);
+        }
+    }
+
+    fn find_widget_mut(&mut self, id: WidgetId) -> Option<&mut dyn Widget> {
+        if self.id == id {
+            return Some(self);
+        }
+        for child in &mut self.children {
+            if let Some(w) = child.find_widget_mut(id) {
+                return Some(w);
+            }
+        }
+        None
+    }
 }
 
 #[cfg(test)]

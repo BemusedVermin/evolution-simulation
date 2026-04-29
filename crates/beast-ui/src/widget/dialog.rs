@@ -125,6 +125,23 @@ impl Widget for Dialog {
     fn kind(&self) -> &'static str {
         "Dialog"
     }
+
+    fn collect_focus_chain(&self, out: &mut Vec<WidgetId>) {
+        // A modal dialog must trap focus inside itself; we therefore
+        // collect *only* the dialog's own children. Anything pushed
+        // outside the dialog will not be reachable via Tab while the
+        // dialog is on screen — mirroring the modal contract for
+        // mouse / keyboard event consumption above.
+        for child in self.inner.children() {
+            child.collect_focus_chain(out);
+        }
+    }
+
+    fn find_widget_mut(&mut self, id: WidgetId) -> Option<&mut dyn Widget> {
+        // Delegate to the wrapped Card so children are traversed.
+        // Dialog has no widgets of its own apart from `inner`.
+        self.inner.find_widget_mut(id)
+    }
 }
 
 #[cfg(test)]

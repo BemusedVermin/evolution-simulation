@@ -181,6 +181,46 @@ pub trait Widget {
     /// produce stable snapshot strings; tests assert on these names so
     /// they need to outlive any internal renames.
     fn kind(&self) -> &'static str;
+
+    /// Returns true if this widget can receive keyboard focus.
+    ///
+    /// Default: `false`. Interactive primitives override
+    /// (`Button` if enabled, `List` if non-empty). Container widgets
+    /// keep the default — focus is granted to a *leaf* in the tree,
+    /// not to an ancestor.
+    ///
+    /// Per the S10.3 contract, disabled widgets must not appear in the
+    /// focus chain — so impls should fold their enable / non-empty
+    /// state into the return value rather than treating the chain as a
+    /// pure structural query.
+    fn accepts_focus(&self) -> bool {
+        false
+    }
+
+    /// Push focusable descendants (and `self`, if focusable) onto
+    /// `out` in pre-order.
+    ///
+    /// Same vtable rationale as [`Widget::visit_pre_order`]: each impl
+    /// supplies its own body so the method survives `dyn Widget`
+    /// dispatch. Leaf widgets push `self.id()` if `accepts_focus()`;
+    /// containers push `self` then recurse into children.
+    ///
+    /// The `out` ordering is the canonical Tab-cycle order. Two trees
+    /// with identical structure must produce identical chains.
+    fn collect_focus_chain(&self, out: &mut Vec<WidgetId>);
+
+    /// Find a descendant (or `self`) by [`WidgetId`] for mutable access.
+    ///
+    /// [`WidgetTree`](crate::WidgetTree) calls this to route key
+    /// events to the focused widget without rebuilding the tree.
+    /// Default-impl-less for the same vtable reason as the other
+    /// traversal methods. Leaves return `Some(self)` on id match;
+    /// containers walk their children.
+    ///
+    /// First match wins — the focus contract guarantees ids are
+    /// unique within a tree, so there is no fallback path on
+    /// duplicates.
+    fn find_widget_mut(&mut self, id: WidgetId) -> Option<&mut dyn Widget>;
 }
 
 #[cfg(test)]

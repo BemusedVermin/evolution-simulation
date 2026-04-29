@@ -44,6 +44,12 @@ impl Label {
     pub fn text(&self) -> &str {
         &self.text
     }
+
+    /// Read the label's color. Used by [`crate::Bound`] to mirror
+    /// styling when re-rendering with a live binding value.
+    pub fn color(&self) -> Color {
+        self.color
+    }
 }
 
 impl Widget for Label {
@@ -84,6 +90,17 @@ impl Widget for Label {
 
     fn kind(&self) -> &'static str {
         "Label"
+    }
+
+    // Labels are inert text — never focusable.
+    fn collect_focus_chain(&self, _out: &mut Vec<WidgetId>) {}
+
+    fn find_widget_mut(&mut self, id: WidgetId) -> Option<&mut dyn Widget> {
+        if self.id == id {
+            Some(self)
+        } else {
+            None
+        }
     }
 }
 
