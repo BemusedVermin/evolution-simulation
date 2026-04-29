@@ -17,10 +17,7 @@ pub mod spatial;
 pub mod traits;
 
 pub use biome::{BiomeCell, BiomeKind};
-pub use formation::{
-    compute_engagement, compute_exposure, slot_adjacency, Formation, FormationSlot, SLOT_COUNT,
-    SLOT_NAMES,
-};
+pub use formation::{Formation, FormationSlot, SLOT_COUNT, SLOT_NAMES};
 pub use markers::{Agent, Biome, Creature, Faction, Pathogen, Settlement};
 pub use physiology::{Age, DevelopmentalStage, HealthState, Mass, Species};
 pub use spatial::{Position, Velocity};

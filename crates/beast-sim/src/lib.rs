@@ -44,6 +44,7 @@
 pub(crate) mod budget;
 pub mod determinism;
 pub mod error;
+pub mod formation;
 pub mod schedule;
 pub mod simulation;
 pub mod spawner;
