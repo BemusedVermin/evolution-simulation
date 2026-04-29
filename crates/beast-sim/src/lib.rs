@@ -42,6 +42,7 @@
 // accidentally becoming part of the public API without an explicit
 // re-export decision.
 pub(crate) mod budget;
+pub mod combat;
 pub mod determinism;
 pub mod error;
 pub mod formation;
