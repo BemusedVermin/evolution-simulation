@@ -125,6 +125,26 @@ impl Widget for Dialog {
     fn kind(&self) -> &'static str {
         "Dialog"
     }
+
+    fn collect_focus_chain(&self, out: &mut Vec<WidgetId>) {
+        // Collect only this dialog's own children so they participate
+        // in the global Tab cycle. Modal dialogs already eat outside
+        // mouse / key events (see `handle_event` above), but the focus
+        // chain is built top-down by the tree and a `Dialog` cannot
+        // know which siblings outside it should be excluded — a true
+        // modal focus trap needs `WidgetTree` cooperation. Tracked in
+        // #241; today, `tree::tests::dialog_children_appear_in_focus_chain_in_declaration_order`
+        // pins the current behaviour.
+        for child in self.inner.children() {
+            child.collect_focus_chain(out);
+        }
+    }
+
+    fn find_widget_mut(&mut self, id: WidgetId) -> Option<&mut dyn Widget> {
+        // Delegate to the wrapped Card so children are traversed.
+        // Dialog has no widgets of its own apart from `inner`.
+        self.inner.find_widget_mut(id)
+    }
 }
 
 #[cfg(test)]

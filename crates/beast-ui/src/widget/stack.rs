@@ -253,6 +253,26 @@ impl Widget for Stack {
     fn kind(&self) -> &'static str {
         "Stack"
     }
+
+    fn collect_focus_chain(&self, out: &mut Vec<WidgetId>) {
+        // Walk children in declaration order so Tab cycles match visual
+        // order on screen (Stack lays children out main-axis ascending).
+        for child in &self.children {
+            child.collect_focus_chain(out);
+        }
+    }
+
+    fn find_widget_mut(&mut self, id: WidgetId) -> Option<&mut dyn Widget> {
+        if self.id == id {
+            return Some(self);
+        }
+        for child in &mut self.children {
+            if let Some(w) = child.find_widget_mut(id) {
+                return Some(w);
+            }
+        }
+        None
+    }
 }
 
 #[cfg(test)]

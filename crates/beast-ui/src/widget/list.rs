@@ -214,6 +214,26 @@ impl<T: Clone + std::fmt::Debug> Widget for List<T> {
     fn kind(&self) -> &'static str {
         "List"
     }
+
+    fn accepts_focus(&self) -> bool {
+        // An empty list has nothing to navigate, so it drops out of the
+        // focus chain. As soon as it gets items it joins the cycle.
+        !self.items.is_empty()
+    }
+
+    fn collect_focus_chain(&self, out: &mut Vec<WidgetId>) {
+        if self.accepts_focus() {
+            out.push(self.id);
+        }
+    }
+
+    fn find_widget_mut(&mut self, id: WidgetId) -> Option<&mut dyn Widget> {
+        if self.id == id {
+            Some(self)
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(test)]

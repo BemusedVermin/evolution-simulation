@@ -143,13 +143,43 @@ pub enum UiEvent {
 
 /// Outcome of a widget's [`Widget::handle_event`](crate::Widget::handle_event)
 /// call.
+///
+/// `Ignored` and `Bubble` are both "did not act" results, so the
+/// [`WidgetTree`](crate::WidgetTree) dispatch path treats them
+/// identically (no dirty-bit bump, parent or sibling can keep trying).
+/// The distinction is informational, exposed for callers (and future
+/// container widgets) that want to know *why* a widget didn't handle:
+///
+/// * `Ignored` — the widget was not the right target (event type does
+///   not apply, hit-test rejected the cursor, the widget is disabled).
+/// * `Bubble` — the widget *was* the target but chose not to handle
+///   (e.g. a focused widget receives a keystroke it doesn't bind, and
+///   intentionally lets the parent / chrome handle it instead).
+///
+/// New code should pick the variant that matches its semantics so
+/// future routing rules (e.g. "stop trying siblings on `Bubble`, keep
+/// trying on `Ignored`") can be added without re-auditing every
+/// widget.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EventResult {
     /// The widget consumed the event; siblings / ancestors should not see
     /// it again.
     Consumed,
-    /// The widget did not act on the event but agrees to let it bubble up.
+    /// The widget was not the right target for the event.
     Ignored,
+    /// The widget was the target but did not handle this specific event;
+    /// the parent should get a chance.
+    ///
+    /// Reserved variant — no widget in this crate currently returns
+    /// `Bubble`, and `WidgetTree::dispatch` treats it identically to
+    /// `Ignored`. It is kept distinct so future routing rules
+    /// (e.g. "stop trying siblings on `Bubble`, keep trying on
+    /// `Ignored`") can be added without re-auditing every widget.
+    /// Custom widgets that want to opt in early should return
+    /// `Bubble` from `Widget::handle_event` when the cursor / focus
+    /// hit the widget but the specific event type is one the widget
+    /// chose not to bind.
+    Bubble,
 }
 
 #[cfg(test)]

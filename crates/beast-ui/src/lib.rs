@@ -26,12 +26,14 @@
 
 #![warn(missing_docs)]
 
+pub mod binding;
 pub mod event;
 pub mod layout;
 pub mod paint;
 pub mod tree;
 pub mod widget;
 
+pub use binding::{Bound, DataBinding, FnBinding, StaticBinding};
 pub use event::{EventResult, KeyCode, KeyMods, Modifiers, MouseButton, UiEvent};
 pub use layout::{Align, Axis, LayoutConstraints};
 pub use paint::{Color, DrawCmd, PaintCtx, Point, Rect, Size};

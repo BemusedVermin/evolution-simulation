@@ -152,6 +152,25 @@ impl Widget for Button {
     fn kind(&self) -> &'static str {
         "Button"
     }
+
+    fn accepts_focus(&self) -> bool {
+        // Disabled buttons drop out of the focus chain — Tab skips them.
+        self.enabled
+    }
+
+    fn collect_focus_chain(&self, out: &mut Vec<WidgetId>) {
+        if self.accepts_focus() {
+            out.push(self.id);
+        }
+    }
+
+    fn find_widget_mut(&mut self, id: WidgetId) -> Option<&mut dyn Widget> {
+        if self.id == id {
+            Some(self)
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(test)]
