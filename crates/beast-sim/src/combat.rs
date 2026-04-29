@@ -70,10 +70,17 @@ pub struct RoundOutcome {
     /// (deterministic counterpart — randomised version lands in S11.5
     /// alongside the displacement primitives).
     pub mobility_check: bool,
-    /// Sum of `activation_cost` over every attacker effect — the
-    /// stamina the attacker spent to mount this round. Saturating
-    /// Q3232 sum, so an attacker with effects whose costs add past
-    /// `Q3232::MAX` simply caps at `MAX` rather than wrapping.
+    /// Sum of `activation_cost` over every attacker effect whose
+    /// `primitive_id` resolves in the registry. Saturating Q3232 sum,
+    /// so an attacker with effects whose costs add past `Q3232::MAX`
+    /// simply caps at `MAX` rather than wrapping.
+    ///
+    /// Unregistered effects do **not** contribute. This is intentional:
+    /// the billing gate is the same as the recognition gate, so an
+    /// effect with no manifest provenance can neither produce damage
+    /// nor consume stamina (which would be a "ghost mechanic" — a
+    /// resource cost with no emergence-traceable output, banned by
+    /// INVARIANTS §4).
     pub stamina_cost_attacker: Q3232,
     /// Per-category net (offense − defense, saturating, floored at
     /// zero). Keyed by [`PrimitiveCategory`] so downstream readers
@@ -163,8 +170,14 @@ pub fn resolve_round(
         .unwrap_or(Q3232::ZERO);
     let mobility_check = mobility_net > Q3232::ZERO;
 
+    // Only registered effects contribute to stamina — keeps the
+    // billing gate symmetric with the recognition gate above. An
+    // effect without manifest provenance is not a recognised mechanic
+    // and must not bill the attacker (otherwise: a resource cost with
+    // no emergence-traceable output, INVARIANTS §4).
     let stamina_cost_attacker = attacker_effects
         .iter()
+        .filter(|e| registry.contains(&e.primitive_id))
         .fold(Q3232::ZERO, |acc, e| acc + e.activation_cost);
 
     RoundOutcome {
@@ -348,45 +361,73 @@ mod tests {
     }
 
     // --- Damage monotonic in attacker force_application -------------------
+    // Property tests (proptest) per #253 DoD — randomised inputs across
+    // unit_cost and k. Bounded so the saturating Q3232 product can't hit
+    // I32F32::MAX between consecutive k values, which would mask
+    // monotonicity violations.
 
-    #[test]
-    fn zero_defender_damage_strictly_increases_with_attacker_magnitude() {
-        let reg = registry_with(&[("force_a", PrimitiveCategory::ForceApplication)]);
-        let slot = live_slot(q(0.8), q(0.8));
-        let mut prev = Q3232::ZERO;
-        for k in 1..=10 {
-            // Build an attacker with k effects of cost 0.05 each — the
-            // total ForceApplication offense scales linearly in k.
-            let attacker: Vec<PrimitiveEffect> =
-                (0..k).map(|_| effect("force_a", q(0.05))).collect();
-            let outcome = resolve_round(&reg, &attacker, &[], &slot, &slot);
-            assert!(
-                outcome.damage > prev,
-                "damage at k={k} ({:?}) should exceed prev ({prev:?})",
-                outcome.damage,
-            );
-            prev = outcome.damage;
-        }
-    }
-
-    #[test]
-    fn fixed_defender_damage_monotone_in_attacker_count() {
-        let reg = registry_with(&[("force_a", PrimitiveCategory::ForceApplication)]);
-        let defender = vec![effect("force_a", q(0.1))];
-        let slot = live_slot(q(0.8), q(0.8));
-        let mut prev = None;
-        for k in 1..=8 {
-            let attacker: Vec<PrimitiveEffect> =
-                (0..k).map(|_| effect("force_a", q(0.05))).collect();
-            let outcome = resolve_round(&reg, &attacker, &defender, &slot, &slot);
-            if let Some(p) = prev {
-                assert!(
-                    outcome.damage >= p,
-                    "non-monotone at k={k}: got {:?}, prev {p:?}",
-                    outcome.damage,
+    proptest::proptest! {
+        #[test]
+        fn zero_defender_damage_strictly_increases_with_attacker_magnitude(
+            // Q3232::from_bits — raw bits in [1, ~0.23 in Q3232 form]
+            // give plenty of monotonicity headroom: 20 * 1e9 ≈ 2e10
+            // bits, well below I32F32::MAX (~9.2e18).
+            unit_cost in 1i64..1_000_000_000,
+            k in 2usize..=20,
+        ) {
+            let reg = registry_with(&[("force_a", PrimitiveCategory::ForceApplication)]);
+            // Engagement and exposure both = ONE so the slot scalars
+            // are identity multipliers — the property here is about
+            // the offense aggregation alone.
+            let slot = live_slot(Q3232::ONE, Q3232::ONE);
+            let damages: Vec<Q3232> = (1..=k)
+                .map(|n| {
+                    let att: Vec<PrimitiveEffect> = (0..n)
+                        .map(|_| effect("force_a", Q3232::from_bits(unit_cost)))
+                        .collect();
+                    resolve_round(&reg, &att, &[], &slot, &slot).damage
+                })
+                .collect();
+            for w in damages.windows(2) {
+                proptest::prop_assert!(
+                    w[1] > w[0],
+                    "non-strict step: {:?} not > {:?} (unit_cost={unit_cost}, k={k})",
+                    w[1],
+                    w[0],
                 );
             }
-            prev = Some(outcome.damage);
+        }
+
+        #[test]
+        fn fixed_defender_damage_monotone_in_attacker_count(
+            unit_cost in 1i64..1_000_000_000,
+            // 0 included so the property covers the zero-defender case.
+            defender_cost in 0i64..1_000_000_000,
+            k in 2usize..=20,
+        ) {
+            let reg = registry_with(&[("force_a", PrimitiveCategory::ForceApplication)]);
+            let defender: Vec<PrimitiveEffect> = if defender_cost == 0 {
+                Vec::new()
+            } else {
+                vec![effect("force_a", Q3232::from_bits(defender_cost))]
+            };
+            let slot = live_slot(Q3232::ONE, Q3232::ONE);
+            let damages: Vec<Q3232> = (1..=k)
+                .map(|n| {
+                    let att: Vec<PrimitiveEffect> = (0..n)
+                        .map(|_| effect("force_a", Q3232::from_bits(unit_cost)))
+                        .collect();
+                    resolve_round(&reg, &att, &defender, &slot, &slot).damage
+                })
+                .collect();
+            for w in damages.windows(2) {
+                proptest::prop_assert!(
+                    w[1] >= w[0],
+                    "non-monotone step: {:?} not >= {:?} (unit_cost={unit_cost}, defender_cost={defender_cost}, k={k})",
+                    w[1],
+                    w[0],
+                );
+            }
         }
     }
 
@@ -450,7 +491,11 @@ mod tests {
     #[test]
     fn unregistered_primitive_contributes_zero() {
         // Effect with a primitive_id absent from the registry: must
-        // contribute zero to both offense and defense (emergence-closure).
+        // contribute zero to *every* aggregate — damage, per-category
+        // net, and stamina cost. Symmetry between the recognition
+        // gate and the billing gate is the emergence-closure rule
+        // (INVARIANTS §4): a resource cost with no emergence-
+        // traceable output would be a ghost mechanic.
         let reg = registry_with(&[("force_a", PrimitiveCategory::ForceApplication)]);
         let mystery = effect("not_in_registry", q(0.9));
         let slot = live_slot(q(0.8), q(0.8));
@@ -460,11 +505,20 @@ mod tests {
             outcome.net_per_category[&PrimitiveCategory::ForceApplication],
             Q3232::ZERO,
         );
-        // But stamina_cost still includes the mystery effect — the
-        // attacker spent the cost regardless of whether the effect
-        // landed (registry membership is a recognition gate, not a
-        // billing gate).
-        assert_eq!(outcome.stamina_cost_attacker, q(0.9));
+        assert_eq!(outcome.stamina_cost_attacker, Q3232::ZERO);
+    }
+
+    #[test]
+    fn unregistered_primitive_does_not_billing_gate_around_registered() {
+        // Mixed batch: one registered effect, one mystery. Registered
+        // contributes; mystery does not — including its stamina cost.
+        let reg = registry_with(&[("force_a", PrimitiveCategory::ForceApplication)]);
+        let attacker = vec![effect("force_a", q(0.2)), effect("not_in_registry", q(0.7))];
+        let slot = live_slot(q(0.8), q(0.8));
+        let outcome = resolve_round(&reg, &attacker, &[], &slot, &slot);
+        // Stamina = 0.2 (only the registered cost); 0.7 is dropped.
+        let diff = (outcome.stamina_cost_attacker - q(0.2)).saturating_abs();
+        assert!(diff <= Q3232::from_bits(4));
     }
 
     // --- Mobility check ---------------------------------------------------
@@ -520,6 +574,31 @@ mod tests {
     }
 
     // --- Per-category breakdown is correct -------------------------------
+
+    // --- ALL_CATEGORIES sort invariant -----------------------------------
+
+    #[test]
+    fn all_categories_is_sorted() {
+        // The const claims to match `PrimitiveCategory`'s derived `Ord`
+        // sort order. Pin that via comparison with a sorted copy —
+        // adding a new variant before `SignalEmission` (or any
+        // re-ordering of the enum) silently invalidates the
+        // declaration order without a compile error; this test would
+        // catch it at the next `cargo test`.
+        let mut sorted = ALL_CATEGORIES;
+        sorted.sort();
+        assert_eq!(ALL_CATEGORIES, sorted);
+    }
+
+    #[test]
+    fn all_categories_has_no_duplicates() {
+        // Eight categories, eight distinct entries.
+        let mut sorted = ALL_CATEGORIES;
+        sorted.sort();
+        let mut deduped = sorted.to_vec();
+        deduped.dedup();
+        assert_eq!(deduped.len(), ALL_CATEGORIES.len());
+    }
 
     #[test]
     fn net_per_category_includes_all_eight_categories() {

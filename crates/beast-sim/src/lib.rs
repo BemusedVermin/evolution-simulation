@@ -51,6 +51,7 @@ pub mod simulation;
 pub mod spawner;
 
 pub use budget::TickResult;
+pub use combat::{resolve_round, RoundOutcome};
 pub use determinism::compute_state_hash;
 pub use error::{Result, SimError};
 pub use schedule::SystemSchedule;
