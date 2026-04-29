@@ -127,9 +127,12 @@ fn build_formation_slot_card(
             // (chronicler returns labels in PatternSignature order;
             // re-sort by id here to lock in deterministic UI output
             // independent of any future signature-iteration tweak).
-            let mut ids: Vec<&str> = labels.iter().map(|l| l.id.as_str()).collect();
-            ids.sort_unstable();
-            format!("labels: {}", ids.join(", "))
+            // Named `label_strs` (not `ids`) to avoid shadowing the
+            // outer `IdAllocator` parameter — same allocator is still
+            // used at the `ids.allocate()` call below.
+            let mut label_strs: Vec<&str> = labels.iter().map(|l| l.id.as_str()).collect();
+            label_strs.sort_unstable();
+            format!("labels: {}", label_strs.join(", "))
         };
         format!(
             "{}\nhp {:>3}% · stm {:>3}%\neng {:>3}% · exp {:>3}%\n{}",

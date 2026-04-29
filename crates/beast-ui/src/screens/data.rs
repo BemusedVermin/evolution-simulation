@@ -180,12 +180,16 @@ pub struct FormationView {
 }
 
 impl FormationView {
-    /// Construct an empty formation — five empty slots labelled with
-    /// the canonical names. Useful as the encounter-not-yet-built
-    /// placeholder.
+    /// Construct an empty formation — `SLOT_COUNT` empty slots
+    /// labelled with the canonical names from
+    /// [`beast_ecs::components::SLOT_NAMES`]. Sourcing the names
+    /// from the sim layer keeps the UI's view in lockstep with the
+    /// canonical slot vocabulary; if `SLOT_COUNT` ever grows, both
+    /// the sim-side array and this constructor advance together.
     pub fn empty() -> Self {
+        use beast_ecs::components::SLOT_NAMES;
         Self {
-            slots: ["vanguard", "flank-left", "flank-right", "center", "rear"]
+            slots: SLOT_NAMES
                 .iter()
                 .map(|name| FormationSlotView::empty(*name))
                 .collect(),
@@ -363,9 +367,14 @@ mod tests {
     fn empty_snapshot_has_five_canonical_slots() {
         // S11.6 DoD: empty constructor stays panic-safe and seeds the
         // five canonical slots from `beast_ecs::components::SLOT_NAMES`.
+        // Pin every slot label so a typo in any middle entry surfaces
+        // here rather than slipping through.
         let snap = EncounterSnapshot::empty("forest");
         assert_eq!(snap.formation.slots.len(), 5);
         assert_eq!(snap.formation.slots[0].slot_label, "vanguard");
+        assert_eq!(snap.formation.slots[1].slot_label, "flank-left");
+        assert_eq!(snap.formation.slots[2].slot_label, "flank-right");
+        assert_eq!(snap.formation.slots[3].slot_label, "center");
         assert_eq!(snap.formation.slots[4].slot_label, "rear");
         assert_eq!(snap.keeper, KeeperView::empty());
     }

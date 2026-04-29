@@ -48,6 +48,12 @@ beast-render = { path = "../beast-render", default-features = false }
 # screen can render label / observation summaries without bridging
 # through a sim crate. Chronicler is L4 → ui (L5) is layer-safe.
 beast-chronicler = { workspace = true }
+# S11.6: `screens::data::FormationView::empty` iterates over the
+# canonical `beast_ecs::components::SLOT_NAMES` so the UI's view
+# stays in lockstep with the sim-side slot vocabulary. beast-ecs
+# is L3 → ui (L5) is layer-safe; the dep was already present
+# transitively via `beast-chronicler`.
+beast-ecs = { workspace = true }
 serde = { workspace = true }
 
 # S10.8 (#213) — the bestiary integration test wires the S10 stack
@@ -61,7 +67,8 @@ serde = { workspace = true }
 [dev-dependencies]
 beast-sim = { workspace = true }
 beast-genome = { workspace = true }
-beast-ecs = { workspace = true }
+# beast-ecs is now a production dependency (see above for S11.6
+# rationale); tests still pick it up via the prod entry.
 
 [lints.rust]
 # Forbid `unsafe`. The widget framework is pure data + dispatch; any unsafe
