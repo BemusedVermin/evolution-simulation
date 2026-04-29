@@ -170,11 +170,8 @@ pub fn resolve_round(
         .unwrap_or(Q3232::ZERO);
     let mobility_check = mobility_net > Q3232::ZERO;
 
-    // Only registered effects contribute to stamina — keeps the
-    // billing gate symmetric with the recognition gate above. An
-    // effect without manifest provenance is not a recognised mechanic
-    // and must not bill the attacker (otherwise: a resource cost with
-    // no emergence-traceable output, INVARIANTS §4).
+    // Billing gate mirrors recognition gate — see
+    // `RoundOutcome::stamina_cost_attacker` doc (INVARIANTS §4).
     let stamina_cost_attacker = attacker_effects
         .iter()
         .filter(|e| registry.contains(&e.primitive_id))
@@ -511,14 +508,16 @@ mod tests {
     #[test]
     fn unregistered_primitive_does_not_billing_gate_around_registered() {
         // Mixed batch: one registered effect, one mystery. Registered
-        // contributes; mystery does not — including its stamina cost.
+        // contributes; mystery is dropped — including its stamina cost.
         let reg = registry_with(&[("force_a", PrimitiveCategory::ForceApplication)]);
         let attacker = vec![effect("force_a", q(0.2)), effect("not_in_registry", q(0.7))];
         let slot = live_slot(q(0.8), q(0.8));
         let outcome = resolve_round(&reg, &attacker, &[], &slot, &slot);
-        // Stamina = 0.2 (only the registered cost); 0.7 is dropped.
-        let diff = (outcome.stamina_cost_attacker - q(0.2)).saturating_abs();
-        assert!(diff <= Q3232::from_bits(4));
+        // Exactly q(0.2) — only one registered cost contributes, and
+        // both sides are identical `from_num(0.2_f64)` literals. The
+        // saturating integer add introduces no rounding here, so a
+        // tolerance window would only mask divergence.
+        assert_eq!(outcome.stamina_cost_attacker, q(0.2));
     }
 
     // --- Mobility check ---------------------------------------------------
