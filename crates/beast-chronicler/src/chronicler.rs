@@ -414,7 +414,10 @@ mod tests {
     /// `first_tick`, `last_tick`. Returning the borrow keeps each
     /// assertion site short without changing any production semantics.
     fn only_observation(c: &Chronicler) -> &PatternObservation {
-        c.observations().values().next().unwrap()
+        c.observations()
+            .values()
+            .next()
+            .expect("test fixture must hold exactly one observation; ingest precondition broken")
     }
 
     #[test]

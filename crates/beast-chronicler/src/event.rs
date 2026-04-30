@@ -309,9 +309,23 @@ impl LifecycleEventLog {
     /// Uses the [`Entry`] API to fold the duplicate-check + insert
     /// into a single `BTreeMap` probe. The previous `contains_key` +
     /// `insert` pair was two O(log N) probes; `Entry::Vacant` is one.
+    ///
+    /// Insertion order: primary store first, then the reverse indices.
+    /// If a `BTreeMap::insert` panics on the reverse-index update
+    /// (allocation failure being the only realistic case), the primary
+    /// store still holds the event and the per-entity / per-species
+    /// view is the only side that loses the cross-reference. Doing it
+    /// the other way around would leave a reverse-index key with no
+    /// resolution in `events`, breaking the internal invariant that
+    /// every reverse-index key points at a present event.
     pub fn record(&mut self, event: LifecycleEvent) {
         use std::collections::btree_map::Entry;
         let key = event.key();
+        // Capture entity / species attribution before the match so the
+        // event can move into the primary store first while the local
+        // copies of the index keys remain available.
+        let entity = event.entity();
+        let species = event.species();
         match self.events.entry(key) {
             Entry::Occupied(occupied) => {
                 debug_assert!(
@@ -325,13 +339,13 @@ impl LifecycleEventLog {
                 // the correct no-op.
             }
             Entry::Vacant(slot) => {
-                if let Some(entity) = event.entity() {
+                slot.insert(event);
+                if let Some(entity) = entity {
                     self.by_entity.entry(entity).or_default().insert(key);
                 }
-                if let Some(species) = event.species() {
+                if let Some(species) = species {
                     self.by_species.entry(species).or_default().insert(key);
                 }
-                slot.insert(event);
             }
         }
     }
@@ -409,7 +423,6 @@ mod tests {
         PatternSignature([byte; 32])
     }
 
-    /// `LifecycleEvent::Birth { entity: e(eid), species: sp(spid), tick: t(tk) }`.
     /// Test-only builder. Consolidated so each test site reads as the
     /// scenario it cares about, not as a wall of struct-literal noise.
     fn birth(eid: u32, spid: u32, tk: u64) -> LifecycleEvent {
@@ -420,7 +433,6 @@ mod tests {
         }
     }
 
-    /// `LifecycleEvent::Death { entity, species, tick, cause }`.
     fn death(eid: u32, spid: u32, tk: u64, cause: DeathCause) -> LifecycleEvent {
         LifecycleEvent::Death {
             entity: e(eid),
@@ -430,16 +442,14 @@ mod tests {
         }
     }
 
-    /// `LifecycleEvent::Extinction { species, last_member, tick }`.
-    fn extinction(spid: u32, last: u32, tk: u64) -> LifecycleEvent {
+    fn extinction(spid: u32, last_member: u32, tk: u64) -> LifecycleEvent {
         LifecycleEvent::Extinction {
             species: sp(spid),
-            last_member: e(last),
+            last_member: e(last_member),
             tick: t(tk),
         }
     }
 
-    /// `LifecycleEvent::PhenotypeChange { entity, prior, current, tick }`.
     fn phenotype(eid: u32, prior: u8, current: u8, tk: u64) -> LifecycleEvent {
         LifecycleEvent::PhenotypeChange {
             entity: e(eid),
@@ -611,60 +621,73 @@ mod tests {
         assert_eq!(count, 5);
     }
 
+    /// Build a 1000-event log keyed across a `(entity, species, tick)`
+    /// domain small enough to force frequent key collisions, exercising
+    /// both the `BTreeMap` collision path and the reverse-index update
+    /// logic. Pure function of `seed` — DoD #267 expects two builds
+    /// from the same seed to byte-match, two builds from different
+    /// seeds to differ.
+    fn seeded_random_log(seed: u64) -> LifecycleEventLog {
+        let mut rng = beast_core::Prng::from_seed(seed);
+        let mut log = LifecycleEventLog::new();
+        for _ in 0..1000 {
+            let kind = rng.next_u32() % 4;
+            let eid = rng.next_u32() % 256;
+            let spid = rng.next_u32() % 32;
+            let tk = rng.next_u64() % 10_000;
+            let event = match kind {
+                0 => birth(eid, spid, tk),
+                1 => {
+                    let cause = match rng.next_u32() % 4 {
+                        0 => DeathCause::Predation,
+                        1 => DeathCause::Starvation,
+                        2 => DeathCause::OldAge,
+                        _ => DeathCause::Other,
+                    };
+                    death(eid, spid, tk, cause)
+                }
+                2 => extinction(spid, eid, tk),
+                _ => phenotype(
+                    eid,
+                    (rng.next_u32() & 0xFF) as u8,
+                    (rng.next_u32() & 0xFF) as u8,
+                    tk,
+                ),
+            };
+            // `record` silently drops duplicate keys (documented
+            // contract), so collision events fall out of the log
+            // and don't break the property.
+            log.record(event);
+        }
+        log
+    }
+
+    fn encode_log(log: &LifecycleEventLog) -> Vec<u8> {
+        bincode::serde::encode_to_vec(log, bincode::config::standard())
+            .expect("LifecycleEventLog must round-trip through bincode")
+    }
+
     /// DoD #267 property test: 1000 random lifecycle events with
     /// identical seeds across two runs must produce byte-identical
     /// log iteration. Catches regressions in `EventKey`'s `Ord`
     /// derivation or in `record()`'s reverse-index update logic that
     /// the hand-built fixtures above could miss.
     ///
-    /// Uses `Xoshiro256PlusPlus` (workspace-canonical PRNG per
-    /// INVARIANTS §1) so the test itself stays deterministic.
+    /// Uses [`beast_core::Prng`] (workspace-canonical Xoshiro256PlusPlus
+    /// per INVARIANTS §1) so the test itself stays deterministic.
     /// `proptest` would also satisfy the DoD; the seeded loop is
     /// chosen for predictable failure shrinking — when this trips, the
     /// failing seed prints in the panic message and reproduces in
     /// isolation.
+    ///
+    /// Comparison shape: structural equality (`PartialEq`) plus
+    /// `bincode` byte equality. The DoD wording is "byte-identical log
+    /// iterations"; the bincode roundtrip pins the literal byte
+    /// sequence the persistence layer (S12.6) will write, so any
+    /// future field reorder or wire-format drift registers here rather
+    /// than at the save-file boundary.
     #[test]
     fn iteration_is_byte_identical_with_seeded_random_inputs() {
-        use beast_core::Prng;
-
-        fn build(seed: u64) -> LifecycleEventLog {
-            let mut rng = Prng::from_seed(seed);
-            let mut log = LifecycleEventLog::new();
-            // 1000 events keyed across a `(entity, species, tick)`
-            // domain small enough to force frequent key collisions —
-            // the BTreeMap's collision-handling and the reverse-index
-            // updates both get exercised.
-            for _ in 0..1000 {
-                let kind = rng.next_u32() % 4;
-                let eid = rng.next_u32() % 256;
-                let spid = rng.next_u32() % 32;
-                let tk = rng.next_u64() % 10_000;
-                let event = match kind {
-                    0 => birth(eid, spid, tk),
-                    1 => {
-                        let cause = match rng.next_u32() % 4 {
-                            0 => DeathCause::Predation,
-                            1 => DeathCause::Starvation,
-                            2 => DeathCause::OldAge,
-                            _ => DeathCause::Other,
-                        };
-                        death(eid, spid, tk, cause)
-                    }
-                    2 => extinction(spid, eid, tk),
-                    _ => phenotype(
-                        eid,
-                        (rng.next_u32() & 0xFF) as u8,
-                        (rng.next_u32() & 0xFF) as u8,
-                        tk,
-                    ),
-                };
-                // Use insert-via-Entry: duplicate keys silently
-                // dropped by `record`, which is the documented contract.
-                log.record(event);
-            }
-            log
-        }
-
         for seed in [
             0xDEAD_BEEF_u64,
             0xCAFE_BABE,
@@ -672,25 +695,25 @@ mod tests {
             0x0000_0000,
             u64::MAX,
         ] {
-            let a = build(seed);
-            let b = build(seed);
+            let a = seeded_random_log(seed);
+            let b = seeded_random_log(seed);
             assert_eq!(a, b, "structural equality must hold for seed {seed:#x}");
-            let av: Vec<&LifecycleEvent> = a.iter().collect();
-            let bv: Vec<&LifecycleEvent> = b.iter().collect();
             assert_eq!(
-                av, bv,
-                "iteration order must be byte-identical for seed {seed:#x}",
+                encode_log(&a),
+                encode_log(&b),
+                "bincode bytes must be identical for seed {seed:#x}",
             );
         }
-
-        // Different seeds must produce different logs (anti-degeneracy
-        // — the property test is meaningless if the builder ignores
-        // its seed argument).
-        let alpha = build(0xDEAD_BEEF);
-        let beta = build(0xCAFE_BABE);
+        // Anti-degeneracy: two distinct seeds must produce distinct
+        // logs. The property is meaningless if the builder ignores
+        // its seed argument.
+        let alpha = seeded_random_log(0xDEAD_BEEF);
+        let beta = seeded_random_log(0xCAFE_BABE);
+        assert_ne!(alpha, beta, "build(seed) must depend on seed");
         assert_ne!(
-            alpha, beta,
-            "build(seed) must depend on seed — distinct seeds produced equal logs",
+            encode_log(&alpha),
+            encode_log(&beta),
+            "distinct seeds must produce distinct bincode bytes",
         );
     }
 
