@@ -394,20 +394,37 @@ mod tests {
         )
     }
 
+    /// Test-only shorthand. Consolidates the repeated
+    /// `EntityId::new(_)` / `SpeciesId::new(_)` pair so each
+    /// `set_entity_species`-driven test reads as the scenario it is
+    /// pinning, not as constructor noise.
+    fn assign(c: &mut Chronicler, entity: u32, species: u32) {
+        c.set_entity_species(EntityId::new(entity), SpeciesId::new(species));
+    }
+
+    fn species_member_count(c: &Chronicler, species: u32) -> Option<usize> {
+        c.species_entities
+            .get(&SpeciesId::new(species))
+            .map(|s| s.len())
+    }
+
+    /// Test-only shorthand for the "fetch the only stored observation"
+    /// pattern. The three `ingest_*` tests below all peek at
+    /// `observations().values().next()` and then assert on `count`,
+    /// `first_tick`, `last_tick`. Returning the borrow keeps each
+    /// assertion site short without changing any production semantics.
+    fn only_observation(c: &Chronicler) -> &PatternObservation {
+        c.observations().values().next().unwrap()
+    }
+
     #[test]
     fn set_entity_species_maintains_reverse_index() {
         let mut c = Chronicler::new();
-        c.set_entity_species(EntityId::new(1), SpeciesId::new(0));
-        c.set_entity_species(EntityId::new(2), SpeciesId::new(0));
-        c.set_entity_species(EntityId::new(3), SpeciesId::new(1));
-        assert_eq!(
-            c.species_entities.get(&SpeciesId::new(0)).map(|s| s.len()),
-            Some(2)
-        );
-        assert_eq!(
-            c.species_entities.get(&SpeciesId::new(1)).map(|s| s.len()),
-            Some(1)
-        );
+        assign(&mut c, 1, 0);
+        assign(&mut c, 2, 0);
+        assign(&mut c, 3, 1);
+        assert_eq!(species_member_count(&c, 0), Some(2));
+        assert_eq!(species_member_count(&c, 1), Some(1));
     }
 
     #[test]
@@ -415,23 +432,20 @@ mod tests {
         // Speciation event: entity 1 starts as species 0, then transitions
         // to species 1. The reverse index must follow.
         let mut c = Chronicler::new();
-        c.set_entity_species(EntityId::new(1), SpeciesId::new(0));
-        c.set_entity_species(EntityId::new(1), SpeciesId::new(1));
+        assign(&mut c, 1, 0);
+        assign(&mut c, 1, 1);
         assert!(
             !c.species_entities.contains_key(&SpeciesId::new(0)),
             "empty species set should be removed"
         );
-        assert_eq!(
-            c.species_entities.get(&SpeciesId::new(1)).map(|s| s.len()),
-            Some(1)
-        );
+        assert_eq!(species_member_count(&c, 1), Some(1));
     }
 
     #[test]
     fn set_entity_species_repeat_same_species_is_idempotent() {
         let mut c = Chronicler::new();
-        c.set_entity_species(EntityId::new(1), SpeciesId::new(0));
-        c.set_entity_species(EntityId::new(1), SpeciesId::new(0));
+        assign(&mut c, 1, 0);
+        assign(&mut c, 1, 0);
         let members = c.species_entities.get(&SpeciesId::new(0)).unwrap();
         assert_eq!(members.len(), 1);
         assert!(members.contains(&EntityId::new(1)));
@@ -443,7 +457,7 @@ mod tests {
         c.ingest(&snap(7, 1, &["echo", "spatial"]));
         assert_eq!(c.unique_pattern_count(), 1);
         assert_eq!(c.total_ingested(), 1);
-        let obs = c.observations().values().next().unwrap();
+        let obs = only_observation(&c);
         assert_eq!(obs.count, 1);
         assert_eq!(obs.first_tick, TickCounter::new(7));
         assert_eq!(obs.last_tick, TickCounter::new(7));
@@ -456,7 +470,7 @@ mod tests {
         c.ingest(&snap(10, 1, &["a", "b"]));
         c.ingest(&snap(20, 2, &["b", "a"])); // same set, different entity / tick
         assert_eq!(c.unique_pattern_count(), 1);
-        let obs = c.observations().values().next().unwrap();
+        let obs = only_observation(&c);
         assert_eq!(obs.count, 2);
         assert_eq!(obs.first_tick, TickCounter::new(10));
         assert_eq!(obs.last_tick, TickCounter::new(20));
@@ -470,7 +484,7 @@ mod tests {
         c.ingest(&snap(20, 1, &["a"])); // first sight: first = last = 20
         c.ingest(&snap(5, 2, &["a"])); // older tick lands second
         c.ingest(&snap(50, 3, &["a"])); // newer tick lands third
-        let obs = c.observations().values().next().unwrap();
+        let obs = only_observation(&c);
         assert_eq!(obs.count, 3);
         assert_eq!(obs.first_tick, TickCounter::new(5));
         assert_eq!(obs.last_tick, TickCounter::new(50));

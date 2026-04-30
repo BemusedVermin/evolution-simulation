@@ -370,6 +370,46 @@ mod tests {
         PatternSignature([byte; 32])
     }
 
+    /// `LifecycleEvent::Birth { entity: e(eid), species: sp(spid), tick: t(tk) }`.
+    /// Test-only builder. Consolidated so each test site reads as the
+    /// scenario it cares about, not as a wall of struct-literal noise.
+    fn birth(eid: u32, spid: u32, tk: u64) -> LifecycleEvent {
+        LifecycleEvent::Birth {
+            entity: e(eid),
+            species: sp(spid),
+            tick: t(tk),
+        }
+    }
+
+    /// `LifecycleEvent::Death { entity, species, tick, cause }`.
+    fn death(eid: u32, spid: u32, tk: u64, cause: DeathCause) -> LifecycleEvent {
+        LifecycleEvent::Death {
+            entity: e(eid),
+            species: sp(spid),
+            tick: t(tk),
+            cause,
+        }
+    }
+
+    /// `LifecycleEvent::Extinction { species, last_member, tick }`.
+    fn extinction(spid: u32, last: u32, tk: u64) -> LifecycleEvent {
+        LifecycleEvent::Extinction {
+            species: sp(spid),
+            last_member: e(last),
+            tick: t(tk),
+        }
+    }
+
+    /// `LifecycleEvent::PhenotypeChange { entity, prior, current, tick }`.
+    fn phenotype(eid: u32, prior: u8, current: u8, tk: u64) -> LifecycleEvent {
+        LifecycleEvent::PhenotypeChange {
+            entity: e(eid),
+            prior: sig(prior),
+            current: sig(current),
+            tick: t(tk),
+        }
+    }
+
     #[test]
     fn empty_log_reports_zero_length() {
         let log = LifecycleEventLog::new();
@@ -381,11 +421,7 @@ mod tests {
     #[test]
     fn record_then_iter_returns_event() {
         let mut log = LifecycleEventLog::new();
-        log.record(LifecycleEvent::Birth {
-            entity: e(1),
-            species: sp(7),
-            tick: t(10),
-        });
+        log.record(birth(1, 7, 10));
         assert_eq!(log.len(), 1);
         assert_eq!(log.iter().count(), 1);
     }
@@ -395,16 +431,8 @@ mod tests {
         let mut log = LifecycleEventLog::new();
         // Insert tick=20 first, then tick=10 — iteration must be by
         // tick, not by insertion order.
-        log.record(LifecycleEvent::Birth {
-            entity: e(1),
-            species: sp(0),
-            tick: t(20),
-        });
-        log.record(LifecycleEvent::Birth {
-            entity: e(2),
-            species: sp(0),
-            tick: t(10),
-        });
+        log.record(birth(1, 0, 20));
+        log.record(birth(2, 0, 10));
         let ticks: Vec<u64> = log.iter().map(|e| e.tick().raw()).collect();
         assert_eq!(ticks, vec![10, 20]);
     }
@@ -413,24 +441,11 @@ mod tests {
     fn same_tick_orders_by_kind_then_id() {
         let mut log = LifecycleEventLog::new();
         // Death (kind=1) before Birth (kind=0) in insertion order, but
-        // iteration must put Birth first.
-        log.record(LifecycleEvent::Death {
-            entity: e(2),
-            species: sp(0),
-            tick: t(5),
-            cause: DeathCause::Predation,
-        });
-        log.record(LifecycleEvent::Birth {
-            entity: e(1),
-            species: sp(0),
-            tick: t(5),
-        });
-        // Two births at the same tick — id breaks the tie.
-        log.record(LifecycleEvent::Birth {
-            entity: e(0),
-            species: sp(0),
-            tick: t(5),
-        });
+        // iteration must put Birth first. Two births at the same tick
+        // also exercise the `primary_id` tie-break.
+        log.record(death(2, 0, 5, DeathCause::Predation));
+        log.record(birth(1, 0, 5));
+        log.record(birth(0, 0, 5));
         let kinds: Vec<u8> = log.iter().map(|e| e.kind_ord()).collect();
         assert_eq!(kinds, vec![0, 0, 1], "births before deaths at same tick");
         let ids: Vec<u32> = log.iter().map(|e| e.primary_id()).collect();
@@ -448,18 +463,8 @@ mod tests {
         // disambiguate. Two deaths of the same entity at the same tick
         // with different causes is degenerate, but the sort still has
         // to be a total order.
-        log.record(LifecycleEvent::Death {
-            entity: e(0),
-            species: sp(0),
-            tick: t(1),
-            cause: DeathCause::OldAge, // ord = 2
-        });
-        log.record(LifecycleEvent::Death {
-            entity: e(0),
-            species: sp(0),
-            tick: t(1),
-            cause: DeathCause::Predation, // ord = 0
-        });
+        log.record(death(0, 0, 1, DeathCause::OldAge)); // ord = 2
+        log.record(death(0, 0, 1, DeathCause::Predation)); // ord = 0
         let causes: Vec<DeathCause> = log
             .iter()
             .filter_map(|e| match e {
@@ -473,12 +478,8 @@ mod tests {
     #[test]
     fn events_in_range_is_half_open() {
         let mut log = LifecycleEventLog::new();
-        for tick in [4, 5, 7, 10] {
-            log.record(LifecycleEvent::Birth {
-                entity: e(tick as u32),
-                species: sp(0),
-                tick: t(tick),
-            });
+        for tk in [4, 5, 7, 10] {
+            log.record(birth(tk as u32, 0, tk));
         }
         let range = TickRange::new(t(5), t(10)).unwrap();
         let ticks: Vec<u64> = log.events_in_range(range).map(|e| e.tick().raw()).collect();
@@ -489,22 +490,9 @@ mod tests {
     #[test]
     fn events_for_entity_filters_to_the_entity() {
         let mut log = LifecycleEventLog::new();
-        log.record(LifecycleEvent::Birth {
-            entity: e(1),
-            species: sp(0),
-            tick: t(1),
-        });
-        log.record(LifecycleEvent::Birth {
-            entity: e(2),
-            species: sp(0),
-            tick: t(1),
-        });
-        log.record(LifecycleEvent::Death {
-            entity: e(1),
-            species: sp(0),
-            tick: t(5),
-            cause: DeathCause::Other,
-        });
+        log.record(birth(1, 0, 1));
+        log.record(birth(2, 0, 1));
+        log.record(death(1, 0, 5, DeathCause::Other));
         let mut ticks: Vec<u64> = log
             .events_for_entity(e(1))
             .map(|e| e.tick().raw())
@@ -520,22 +508,9 @@ mod tests {
     #[test]
     fn events_for_species_includes_extinction() {
         let mut log = LifecycleEventLog::new();
-        log.record(LifecycleEvent::Birth {
-            entity: e(1),
-            species: sp(7),
-            tick: t(1),
-        });
-        log.record(LifecycleEvent::Death {
-            entity: e(1),
-            species: sp(7),
-            tick: t(50),
-            cause: DeathCause::OldAge,
-        });
-        log.record(LifecycleEvent::Extinction {
-            species: sp(7),
-            last_member: e(1),
-            tick: t(50),
-        });
+        log.record(birth(1, 7, 1));
+        log.record(death(1, 7, 50, DeathCause::OldAge));
+        log.record(extinction(7, 1, 50));
         let count = log.events_for_species(sp(7)).count();
         assert_eq!(count, 3);
     }
@@ -543,12 +518,7 @@ mod tests {
     #[test]
     fn phenotype_change_has_no_species_attribution() {
         let mut log = LifecycleEventLog::new();
-        log.record(LifecycleEvent::PhenotypeChange {
-            entity: e(1),
-            prior: sig(0xAA),
-            current: sig(0xBB),
-            tick: t(20),
-        });
+        log.record(phenotype(1, 0xAA, 0xBB, 20));
         // Surfaces under per-entity but not per-species — the post-shift
         // signature may not even map to a species yet.
         assert_eq!(log.events_for_entity(e(1)).count(), 1);
@@ -563,28 +533,10 @@ mod tests {
         // silently break it.
         fn build() -> LifecycleEventLog {
             let mut log = LifecycleEventLog::new();
-            log.record(LifecycleEvent::Birth {
-                entity: e(3),
-                species: sp(1),
-                tick: t(7),
-            });
-            log.record(LifecycleEvent::Birth {
-                entity: e(1),
-                species: sp(1),
-                tick: t(2),
-            });
-            log.record(LifecycleEvent::Death {
-                entity: e(3),
-                species: sp(1),
-                tick: t(99),
-                cause: DeathCause::Starvation,
-            });
-            log.record(LifecycleEvent::PhenotypeChange {
-                entity: e(1),
-                prior: sig(1),
-                current: sig(2),
-                tick: t(50),
-            });
+            log.record(birth(3, 1, 7));
+            log.record(birth(1, 1, 2));
+            log.record(death(3, 1, 99, DeathCause::Starvation));
+            log.record(phenotype(1, 1, 2, 50));
             log
         }
         let a = build();
@@ -600,12 +552,8 @@ mod tests {
     #[test]
     fn events_in_full_range_returns_all() {
         let mut log = LifecycleEventLog::new();
-        for tick in [1, 2, 3, 4, 5] {
-            log.record(LifecycleEvent::Birth {
-                entity: e(tick as u32),
-                species: sp(0),
-                tick: t(tick),
-            });
+        for tk in [1, 2, 3, 4, 5] {
+            log.record(birth(tk as u32, 0, tk));
         }
         let count = log.events_in_range(TickRange::ALL).count();
         assert_eq!(count, 5);
