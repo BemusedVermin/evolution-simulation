@@ -46,6 +46,8 @@ pub mod combat;
 pub mod determinism;
 pub mod error;
 pub mod formation;
+pub mod parasitism;
+pub mod predation;
 pub mod schedule;
 pub mod simulation;
 pub mod spawner;
@@ -54,6 +56,11 @@ pub use budget::TickResult;
 pub use combat::{resolve_round, RoundOutcome};
 pub use determinism::compute_state_hash;
 pub use error::{Result, SimError};
+pub use parasitism::{
+    aggregate_projection_for_host, decay_host_coupling, install_host_coupling, prune_host_coupling,
+    HostCoupling,
+};
+pub use predation::{resolve_predation, PredationOutcome};
 pub use schedule::SystemSchedule;
 pub use simulation::{Simulation, SimulationConfig};
 pub use spawner::{apply_spawn_plans, plan_spawns, SpawnPlan, SpawnerError, SpeciesId};
