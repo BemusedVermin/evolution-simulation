@@ -36,7 +36,12 @@ use crate::tick_range::TickRange;
 /// (predation, parasitism, metabolic, etc.) tags the event so the
 /// bestiary can group "this species mostly dies of starvation" without
 /// the chronicler having to inspect any primitive id strings.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+///
+/// `Hash` is intentionally not derived — every use site of this enum
+/// is a `BTreeMap` key or a numeric `ord()` on a sort path
+/// (INVARIANTS §1), and adding `Hash` would invite future callers to
+/// reach for `HashMap` / `HashSet` and silently break determinism.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DeathCause {
     /// Killed by another entity in a combat / predation round.
     Predation,
@@ -213,7 +218,12 @@ impl LifecycleEvent {
 /// load-bearing — it is the sort the bestiary's "history" pane reads.
 /// The fields are public so callers writing tests can construct synthetic
 /// keys without going through [`LifecycleEvent::key`].
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+///
+/// `Hash` is intentionally not derived for the same INVARIANTS §1
+/// reason as [`DeathCause`]: every use site is a `BTreeMap` /
+/// `BTreeSet` axis. Adding `Hash` would invite future callers to drop
+/// keys into a `HashMap` and silently break replay-determinism.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct EventKey {
     /// Primary axis: tick on which the event occurred.
     pub tick: TickCounter,
@@ -227,7 +237,7 @@ pub struct EventKey {
 
 /// Append-only log of [`LifecycleEvent`]s with deterministic iteration.
 ///
-/// Storage layout:
+/// # Storage layout
 ///
 /// * `events: BTreeMap<EventKey, LifecycleEvent>` — primary store. Sort
 ///   order is `tick → kind → id → sub`.
@@ -238,6 +248,22 @@ pub struct EventKey {
 ///
 /// Both reverse indices use `BTreeSet<EventKey>` so iteration over a
 /// per-entity / per-species view is also tick-ordered.
+///
+/// # Entity-ID reuse
+///
+/// Generation rollover (a despawned entity's raw `u32` id later
+/// re-issued to a new entity) is **not tracked** by `by_entity`.
+/// `events_for_entity(reused_id)` will return events from every
+/// generation that has held the id, interleaved by tick.
+///
+/// Today's spawner does not recycle ids, so the bestiary "history
+/// pane" is unaffected; the hazard becomes real once a long-running
+/// world starts re-issuing ids. Tracked in
+/// [issue #275](https://github.com/BemusedVermin/evolution-simulation/issues/275)
+/// — fix is to either (a) widen `by_entity`'s key to
+/// `(EntityId, Generation)` once `beast-ecs` exposes generation, or
+/// (b) add `retire_entity(EntityId)` so the sim-side spawner can
+/// clear the index on despawn.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LifecycleEventLog {
     events: BTreeMap<EventKey, LifecycleEvent>,
@@ -271,24 +297,43 @@ impl LifecycleEventLog {
     /// the same entity with the same cause. The release-mode silent
     /// drop preserves determinism (no panic-vs-not divergence between
     /// debug and release builds running the same input log).
+    ///
+    /// `Extinction` events are dual-indexed: they appear under both
+    /// `by_species[species]` and `by_entity[last_member]`, so
+    /// [`Self::events_for_entity`]`(last_member)` returns *both* the
+    /// final `Death` and the `Extinction` for that tick — surprising
+    /// but correct. The bestiary "lineage" view relies on this
+    /// behaviour to mark "and here is when the last of the species
+    /// fell" alongside the death record.
+    ///
+    /// Uses the [`Entry`] API to fold the duplicate-check + insert
+    /// into a single `BTreeMap` probe. The previous `contains_key` +
+    /// `insert` pair was two O(log N) probes; `Entry::Vacant` is one.
     pub fn record(&mut self, event: LifecycleEvent) {
+        use std::collections::btree_map::Entry;
         let key = event.key();
-        debug_assert!(
-            !self.events.contains_key(&key),
-            "duplicate LifecycleEvent at key {key:?}: {existing:?} vs {incoming:?}",
-            existing = self.events.get(&key),
-            incoming = event,
-        );
-        if self.events.contains_key(&key) {
-            return;
+        match self.events.entry(key) {
+            Entry::Occupied(occupied) => {
+                debug_assert!(
+                    false,
+                    "duplicate LifecycleEvent at key {key:?}: existing = {existing:?}, incoming = {incoming:?}",
+                    existing = occupied.get(),
+                    incoming = event,
+                );
+                // Release-mode silent drop. Reverse indices already
+                // contain the prior key, so leaving them untouched is
+                // the correct no-op.
+            }
+            Entry::Vacant(slot) => {
+                if let Some(entity) = event.entity() {
+                    self.by_entity.entry(entity).or_default().insert(key);
+                }
+                if let Some(species) = event.species() {
+                    self.by_species.entry(species).or_default().insert(key);
+                }
+                slot.insert(event);
+            }
         }
-        if let Some(entity) = event.entity() {
-            self.by_entity.entry(entity).or_default().insert(key);
-        }
-        if let Some(species) = event.species() {
-            self.by_species.entry(species).or_default().insert(key);
-        }
-        self.events.insert(key, event);
     }
 
     /// Iterate over every event in tick-then-kind order.
@@ -319,34 +364,28 @@ impl LifecycleEventLog {
     /// Events attributed to `entity` (Birth / Death / PhenotypeChange,
     /// plus the `Extinction` whose `last_member` is `entity`), in
     /// chronological order.
-    pub fn events_for_entity(
-        &self,
-        entity: EntityId,
-    ) -> impl Iterator<Item = &LifecycleEvent> + '_ {
-        // Materialise the per-entity `Vec` so the returned iterator owns
-        // its key list; without this we would need to borrow the index
-        // for the iterator's lifetime, which complicates the type sig
-        // for callers without buying anything in iteration speed.
-        let keys: Vec<EventKey> = self
-            .by_entity
+    ///
+    /// Returns an owned `Vec` of references rather than `impl Iterator`
+    /// so the borrow against `self` is bounded to the call and the
+    /// per-call allocation is one `Vec<&LifecycleEvent>` rather than the
+    /// previous two-step `Vec<EventKey>` → `Vec<&LifecycleEvent>` chain.
+    pub fn events_for_entity(&self, entity: EntityId) -> Vec<&LifecycleEvent> {
+        self.by_entity
             .get(&entity)
-            .map(|s| s.iter().copied().collect())
-            .unwrap_or_default();
-        keys.into_iter().filter_map(|k| self.events.get(&k))
+            .into_iter()
+            .flat_map(|keys| keys.iter().filter_map(|k| self.events.get(k)))
+            .collect()
     }
 
     /// Events attributed to `species` (Birth / Death / Extinction), in
-    /// chronological order.
-    pub fn events_for_species(
-        &self,
-        species: SpeciesId,
-    ) -> impl Iterator<Item = &LifecycleEvent> + '_ {
-        let keys: Vec<EventKey> = self
-            .by_species
+    /// chronological order. See [`Self::events_for_entity`] for the
+    /// allocation-shape rationale.
+    pub fn events_for_species(&self, species: SpeciesId) -> Vec<&LifecycleEvent> {
+        self.by_species
             .get(&species)
-            .map(|s| s.iter().copied().collect())
-            .unwrap_or_default();
-        keys.into_iter().filter_map(|k| self.events.get(&k))
+            .into_iter()
+            .flat_map(|keys| keys.iter().filter_map(|k| self.events.get(k)))
+            .collect()
     }
 }
 
@@ -495,14 +534,15 @@ mod tests {
         log.record(death(1, 0, 5, DeathCause::Other));
         let mut ticks: Vec<u64> = log
             .events_for_entity(e(1))
-            .map(|e| e.tick().raw())
+            .iter()
+            .map(|ev| ev.tick().raw())
             .collect();
         ticks.sort_unstable();
         assert_eq!(ticks, vec![1, 5]);
         // Entity 2 only has the birth event.
-        assert_eq!(log.events_for_entity(e(2)).count(), 1);
+        assert_eq!(log.events_for_entity(e(2)).len(), 1);
         // Unknown entity returns empty.
-        assert_eq!(log.events_for_entity(e(999)).count(), 0);
+        assert!(log.events_for_entity(e(999)).is_empty());
     }
 
     #[test]
@@ -511,8 +551,7 @@ mod tests {
         log.record(birth(1, 7, 1));
         log.record(death(1, 7, 50, DeathCause::OldAge));
         log.record(extinction(7, 1, 50));
-        let count = log.events_for_species(sp(7)).count();
-        assert_eq!(count, 3);
+        assert_eq!(log.events_for_species(sp(7)).len(), 3);
     }
 
     #[test]
@@ -521,8 +560,21 @@ mod tests {
         log.record(phenotype(1, 0xAA, 0xBB, 20));
         // Surfaces under per-entity but not per-species — the post-shift
         // signature may not even map to a species yet.
-        assert_eq!(log.events_for_entity(e(1)).count(), 1);
-        assert_eq!(log.events_for_species(sp(0)).count(), 0);
+        assert_eq!(log.events_for_entity(e(1)).len(), 1);
+        assert!(log.events_for_species(sp(0)).is_empty());
+    }
+
+    #[test]
+    fn extinction_appears_in_both_entity_and_species_views() {
+        // Pin the dual-indexing contract documented on `record()`.
+        let mut log = LifecycleEventLog::new();
+        log.record(extinction(7, 42, 100));
+        // Indexed under the species…
+        assert_eq!(log.events_for_species(sp(7)).len(), 1);
+        // …AND under the last_member entity, even though the call site
+        // didn't pass an `EntityId`. Bestiary lineage view depends on
+        // this.
+        assert_eq!(log.events_for_entity(e(42)).len(), 1);
     }
 
     #[test]
@@ -557,6 +609,89 @@ mod tests {
         }
         let count = log.events_in_range(TickRange::ALL).count();
         assert_eq!(count, 5);
+    }
+
+    /// DoD #267 property test: 1000 random lifecycle events with
+    /// identical seeds across two runs must produce byte-identical
+    /// log iteration. Catches regressions in `EventKey`'s `Ord`
+    /// derivation or in `record()`'s reverse-index update logic that
+    /// the hand-built fixtures above could miss.
+    ///
+    /// Uses `Xoshiro256PlusPlus` (workspace-canonical PRNG per
+    /// INVARIANTS §1) so the test itself stays deterministic.
+    /// `proptest` would also satisfy the DoD; the seeded loop is
+    /// chosen for predictable failure shrinking — when this trips, the
+    /// failing seed prints in the panic message and reproduces in
+    /// isolation.
+    #[test]
+    fn iteration_is_byte_identical_with_seeded_random_inputs() {
+        use beast_core::Prng;
+
+        fn build(seed: u64) -> LifecycleEventLog {
+            let mut rng = Prng::from_seed(seed);
+            let mut log = LifecycleEventLog::new();
+            // 1000 events keyed across a `(entity, species, tick)`
+            // domain small enough to force frequent key collisions —
+            // the BTreeMap's collision-handling and the reverse-index
+            // updates both get exercised.
+            for _ in 0..1000 {
+                let kind = rng.next_u32() % 4;
+                let eid = rng.next_u32() % 256;
+                let spid = rng.next_u32() % 32;
+                let tk = rng.next_u64() % 10_000;
+                let event = match kind {
+                    0 => birth(eid, spid, tk),
+                    1 => {
+                        let cause = match rng.next_u32() % 4 {
+                            0 => DeathCause::Predation,
+                            1 => DeathCause::Starvation,
+                            2 => DeathCause::OldAge,
+                            _ => DeathCause::Other,
+                        };
+                        death(eid, spid, tk, cause)
+                    }
+                    2 => extinction(spid, eid, tk),
+                    _ => phenotype(
+                        eid,
+                        (rng.next_u32() & 0xFF) as u8,
+                        (rng.next_u32() & 0xFF) as u8,
+                        tk,
+                    ),
+                };
+                // Use insert-via-Entry: duplicate keys silently
+                // dropped by `record`, which is the documented contract.
+                log.record(event);
+            }
+            log
+        }
+
+        for seed in [
+            0xDEAD_BEEF_u64,
+            0xCAFE_BABE,
+            0x1234_5678,
+            0x0000_0000,
+            u64::MAX,
+        ] {
+            let a = build(seed);
+            let b = build(seed);
+            assert_eq!(a, b, "structural equality must hold for seed {seed:#x}");
+            let av: Vec<&LifecycleEvent> = a.iter().collect();
+            let bv: Vec<&LifecycleEvent> = b.iter().collect();
+            assert_eq!(
+                av, bv,
+                "iteration order must be byte-identical for seed {seed:#x}",
+            );
+        }
+
+        // Different seeds must produce different logs (anti-degeneracy
+        // — the property test is meaningless if the builder ignores
+        // its seed argument).
+        let alpha = build(0xDEAD_BEEF);
+        let beta = build(0xCAFE_BABE);
+        assert_ne!(
+            alpha, beta,
+            "build(seed) must depend on seed — distinct seeds produced equal logs",
+        );
     }
 
     #[test]
