@@ -292,13 +292,13 @@ fn screens_accept_only_read_only_references() {
     fn takes_dyn_chronicler_query(q: &dyn ChroniclerQuery) -> WidgetTree {
         bestiary(q)
     }
-    fn takes_encounter_ref(s: &EncounterSnapshot) -> WidgetTree {
-        encounter(s)
+    fn takes_encounter_refs(q: &dyn ChroniclerQuery, s: &EncounterSnapshot) -> WidgetTree {
+        encounter(q, s)
     }
 
     let _ = takes_dyn_world_status(&world, &biomes);
     let _ = takes_dyn_chronicler_query(&chronicler);
-    let _ = takes_encounter_ref(&snapshot);
+    let _ = takes_encounter_refs(&chronicler, &snapshot);
 }
 
 #[test]
@@ -326,5 +326,5 @@ fn all_screens_have_1280x720_viewport() {
     assert_eq!(world_map(&world, &biomes).root_size(), target);
     assert_eq!(bestiary(&chronicler).root_size(), target);
     assert_eq!(settings().root_size(), target);
-    assert_eq!(encounter(&snapshot).root_size(), target);
+    assert_eq!(encounter(&chronicler, &snapshot).root_size(), target);
 }

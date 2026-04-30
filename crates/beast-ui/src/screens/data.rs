@@ -119,6 +119,116 @@ pub struct EncounterCreatureSnapshot {
     pub hp_pct: f32,
 }
 
+/// One slot in a [`FormationView`] — render-only mirror of
+/// `beast_ecs::components::FormationSlot`.
+///
+/// Render-only DTO: must NOT be serialized into save files. The sim
+/// formation slot lives on `Formation`; this view is what the
+/// encounter screen paints. `f32` here is the *display* HP / stamina
+/// fraction — the underlying sim values are Q32.32 (INVARIANTS §1).
+/// `Serialize` / `Deserialize` are intentionally NOT derived.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FormationSlotView {
+    /// Encounter-local id of the occupant, or `None` if the slot is
+    /// empty. Mirrors `FormationSlot::occupant` on the sim side.
+    pub occupant: Option<u32>,
+    /// Display name of the occupant — already resolved to a string
+    /// (e.g. `"alpha"`). Empty when `occupant` is `None`.
+    pub occupant_name: String,
+    /// Slot label (e.g. `"vanguard"`, `"flank-left"`). Stable
+    /// structural identifier from `beast_ecs::components::SLOT_NAMES`;
+    /// the UI is free to localise it, but the encounter screen uses
+    /// the canonical form.
+    pub slot_label: String,
+    /// Hit-point fraction in `[0, 1]`. Out-of-range values are
+    /// clamped at the rendering layer.
+    pub hp_pct: f32,
+    /// Stamina fraction in `[0, 1]`.
+    pub stamina_pct: f32,
+    /// Engagement (`Q3232` upstream, normalised to `[0, 1]` here).
+    pub engagement_pct: f32,
+    /// Exposure, normalised likewise.
+    pub exposure_pct: f32,
+}
+
+impl FormationSlotView {
+    /// Empty slot at `slot_label` — no occupant, all bars at zero.
+    pub fn empty(slot_label: impl Into<String>) -> Self {
+        Self {
+            occupant: None,
+            occupant_name: String::new(),
+            slot_label: slot_label.into(),
+            hp_pct: 0.0,
+            stamina_pct: 0.0,
+            engagement_pct: 0.0,
+            exposure_pct: 0.0,
+        }
+    }
+}
+
+/// Read-only formation view — five slots, one per
+/// `beast_ecs::components::SLOT_COUNT` position. The encounter screen
+/// reads this; the encounter loop (S13) constructs it from the sim
+/// `Formation` component before painting a frame.
+///
+/// Render-only DTO. See [`FormationSlotView`] for the per-slot fields.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FormationView {
+    /// Slots in canonical index order: 0 = vanguard, 1 = flank-left,
+    /// 2 = flank-right, 3 = center, 4 = rear.
+    pub slots: Vec<FormationSlotView>,
+}
+
+impl FormationView {
+    /// Construct an empty formation — `SLOT_COUNT` empty slots
+    /// labelled with the canonical names from
+    /// [`beast_ecs::components::SLOT_NAMES`]. Sourcing the names
+    /// from the sim layer keeps the UI's view in lockstep with the
+    /// canonical slot vocabulary; if `SLOT_COUNT` ever grows, both
+    /// the sim-side array and this constructor advance together.
+    pub fn empty() -> Self {
+        use beast_ecs::components::SLOT_NAMES;
+        Self {
+            slots: SLOT_NAMES
+                .iter()
+                .map(|name| FormationSlotView::empty(*name))
+                .collect(),
+        }
+    }
+}
+
+/// Read-only Keeper view — what the encounter screen reads when
+/// painting the leadership-budget bar.
+///
+/// `f32` percentages here mirror `beast_ecs::components::KeeperState`
+/// fields (`Q3232` on the sim side) normalised for display. The
+/// encounter loop (S13) computes `leadership_pct` from
+/// `leadership_presence(&KeeperState)` divided by the per-Keeper
+/// maximum; this DTO carries the already-normalised value.
+#[derive(Clone, Debug, PartialEq)]
+pub struct KeeperView {
+    /// Display name of the Keeper. Empty for a not-yet-named Keeper.
+    pub name: String,
+    /// Leadership presence as a fraction of the per-Keeper max,
+    /// `[0, 1]`. The encounter screen renders this as a horizontal
+    /// bar in the screen frame.
+    pub leadership_pct: f32,
+    /// Stress fraction `[0, 1]` — surfaced as a small inline indicator
+    /// alongside the leadership bar.
+    pub stress_pct: f32,
+}
+
+impl KeeperView {
+    /// Empty placeholder: no name, both bars at zero.
+    pub fn empty() -> Self {
+        Self {
+            name: String::new(),
+            leadership_pct: 0.0,
+            stress_pct: 0.0,
+        }
+    }
+}
+
 /// Read-only snapshot of an active encounter — what the encounter
 /// renderer + creature list / action bar need to paint a frame.
 ///
@@ -136,15 +246,28 @@ pub struct EncounterSnapshot {
     /// `Some`; out-of-range values are treated as `None` by the
     /// screen builder.
     pub selected: Option<usize>,
+    /// UI-derived view of the sim `Formation` — one entry per slot.
+    /// The encounter screen renders this as a row of slot cards
+    /// (engagement / exposure / hp / stamina + ability labels from
+    /// the chronicler).
+    pub formation: FormationView,
+    /// UI-derived view of the Keeper's state. The screen renders
+    /// `leadership_pct` as a horizontal bar in the frame.
+    pub keeper: KeeperView,
 }
 
 impl EncounterSnapshot {
-    /// Construct an empty snapshot — no creatures, no selection.
+    /// Construct an empty snapshot — no creatures, no selection,
+    /// empty formation, empty Keeper. Stays panic-safe per the S11.6
+    /// DoD: the screen builder must not panic on an unbuilt
+    /// encounter.
     pub fn empty(biome_label: impl Into<String>) -> Self {
         Self {
             biome_label: biome_label.into(),
             creatures: Vec::new(),
             selected: None,
+            formation: FormationView::empty(),
+            keeper: KeeperView::empty(),
         }
     }
 
@@ -210,6 +333,8 @@ mod tests {
                 hp_pct: 1.0,
             }],
             selected: Some(99),
+            formation: FormationView::empty(),
+            keeper: KeeperView::empty(),
         };
         // Out-of-range index returns None rather than panicking.
         assert!(snap.selected_creature().is_none());
@@ -232,7 +357,25 @@ mod tests {
                 },
             ],
             selected: Some(1),
+            formation: FormationView::empty(),
+            keeper: KeeperView::empty(),
         };
         assert_eq!(snap.selected_creature().map(|c| c.id), Some(2));
+    }
+
+    #[test]
+    fn empty_snapshot_has_five_canonical_slots() {
+        // S11.6 DoD: empty constructor stays panic-safe and seeds the
+        // five canonical slots from `beast_ecs::components::SLOT_NAMES`.
+        // Pin every slot label so a typo in any middle entry surfaces
+        // here rather than slipping through.
+        let snap = EncounterSnapshot::empty("forest");
+        assert_eq!(snap.formation.slots.len(), 5);
+        assert_eq!(snap.formation.slots[0].slot_label, "vanguard");
+        assert_eq!(snap.formation.slots[1].slot_label, "flank-left");
+        assert_eq!(snap.formation.slots[2].slot_label, "flank-right");
+        assert_eq!(snap.formation.slots[3].slot_label, "center");
+        assert_eq!(snap.formation.slots[4].slot_label, "rear");
+        assert_eq!(snap.keeper, KeeperView::empty());
     }
 }
