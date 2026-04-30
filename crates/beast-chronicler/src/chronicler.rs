@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use beast_core::{EntityId, TickCounter, Q3232};
 
+use crate::event::{LifecycleEvent, LifecycleEventLog};
 use crate::label::{Label, LabelEngine};
 use crate::pattern::{PatternObservation, PatternSignature};
 use crate::query::{
@@ -59,6 +60,12 @@ pub struct Chronicler {
     /// (each entity contributes its own signatures exactly once),
     /// matching the optimal cost.
     species_entities: BTreeMap<SpeciesId, BTreeSet<EntityId>>,
+    /// Lifecycle event log (S12.1). Captures discrete moments —
+    /// birth, death, extinction, phenotype shift — alongside the
+    /// pattern-observation accumulator. Read-only access via
+    /// [`Self::event_log`]; mutations flow through
+    /// [`Self::ingest_event`].
+    event_log: LifecycleEventLog,
 }
 
 impl Chronicler {
@@ -151,6 +158,23 @@ impl Chronicler {
     /// Read-only view of the entity → species registration map.
     pub fn entity_species(&self) -> &BTreeMap<EntityId, SpeciesId> {
         &self.entity_species
+    }
+
+    /// Append a [`LifecycleEvent`] to the chronicler's event log
+    /// (S12.1). Sim-side spawner / death system / extinction monitor
+    /// call this once per occurrence; the chronicler stores the event
+    /// in tick-then-kind sorted order for the bestiary's history pane.
+    ///
+    /// Per `documentation/INVARIANTS.md` §2 the event payload is
+    /// structural (entity / species ids, [`crate::DeathCause`] enum)
+    /// — never label strings.
+    pub fn ingest_event(&mut self, event: LifecycleEvent) {
+        self.event_log.record(event);
+    }
+
+    /// Read-only access to the lifecycle event log (S12.1).
+    pub fn event_log(&self) -> &LifecycleEventLog {
+        &self.event_log
     }
 
     /// All [`PatternObservation`]s whose `[first_tick, last_tick]` span

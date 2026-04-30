@@ -31,6 +31,7 @@
 
 pub mod chronicler;
 pub mod confidence;
+pub mod event;
 pub mod label;
 pub mod pattern;
 pub mod query;
@@ -39,6 +40,7 @@ pub mod tick_range;
 
 pub use chronicler::Chronicler;
 pub use confidence::compute_confidence;
+pub use event::{DeathCause, EventKey, LifecycleEvent, LifecycleEventLog};
 pub use label::{Label, LabelEngine, LabelEngineError, LabelLoadError, LabelManifest};
 pub use pattern::{PatternObservation, PatternSignature};
 pub use query::{
