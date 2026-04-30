@@ -118,6 +118,7 @@ version = "0.1.0"
 dependencies = [
  "beast-core",
  "beast-manifest",
+ "bincode",
  "blake3",
  "proptest",
  "serde",
