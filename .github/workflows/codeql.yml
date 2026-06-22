@@ -71,7 +71,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # The Rust extractor needs `cargo metadata` to read the workspace
       # graph; we install the toolchain so cargo is on PATH. No build
