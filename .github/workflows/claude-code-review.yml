@@ -234,7 +234,7 @@ jobs:
           # rust-reviewer subagent (and its sibling reviewers, used
           # transitively) is available to the orchestrator.
           plugin_marketplaces: |
-            https://github.com/affaan-m/everything-claude-code.git
+            https://github.com/affaan-m/everything-claude-code.git#76aaa77df6adc5b889e689007bf99b9a4f74af34
           plugins: |
             everything-claude-code@everything-claude-code
 
